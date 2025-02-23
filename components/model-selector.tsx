@@ -1,8 +1,6 @@
 'use client';
 
-import { startTransition, useMemo, useOptimistic, useState } from 'react';
-
-import { saveChatModelAsCookie } from '@/app/(chat)/actions';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,23 +10,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { chatModels } from '@/lib/ai/models';
 import { cn } from '@/lib/utils';
-
+import { useModelSelector } from '@/hooks/use-model-selector';
 import { CheckCircleFillIcon, ChevronDownIcon } from './icons';
 
 export function ModelSelector({
-  selectedModelId,
   className,
-}: {
-  selectedModelId: string;
-} & React.ComponentProps<typeof Button>) {
+}: React.ComponentProps<typeof Button>) {
   const [open, setOpen] = useState(false);
-  const [optimisticModelId, setOptimisticModelId] =
-    useOptimistic(selectedModelId);
+  const { selectedModel, setSelectedModel } = useModelSelector();
 
-  const selectedChatModel = useMemo(
-    () => chatModels.find((chatModel) => chatModel.id === optimisticModelId),
-    [optimisticModelId],
-  );
+  const selectedChatModel = chatModels.find((chatModel) => chatModel.id === selectedModel);
+
+  const handleModelSelect = (id: string) => {
+    setOpen(false);
+    setSelectedModel(id);
+  };
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -39,28 +35,21 @@ export function ModelSelector({
           className,
         )}
       >
-        <Button variant="outline" className="md:px-2 md:h-[34px]">
+        <Button variant="outline" className="md:h-[34px] md:px-2 bg-background dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] dark:hover:bg-muted">
           {selectedChatModel?.name}
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-[300px]">
+      <DropdownMenuContent align="end" className="min-w-[300px] shadow-lg">
         {chatModels.map((chatModel) => {
           const { id } = chatModel;
 
           return (
             <DropdownMenuItem
               key={id}
-              onSelect={() => {
-                setOpen(false);
-
-                startTransition(() => {
-                  setOptimisticModelId(id);
-                  saveChatModelAsCookie(id);
-                });
-              }}
+              onSelect={() => handleModelSelect(id)}
               className="gap-4 group/item flex flex-row justify-between items-center"
-              data-active={id === optimisticModelId}
+              data-active={id === selectedModel}
             >
               <div className="flex flex-col gap-1 items-start">
                 <div>{chatModel.name}</div>

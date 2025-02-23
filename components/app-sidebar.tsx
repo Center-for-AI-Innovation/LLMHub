@@ -11,57 +11,71 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarHeader,
-  SidebarMenu,
   useSidebar,
 } from '@/components/ui/sidebar';
-import Link from 'next/link';
+import { PanelLeftIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 export function AppSidebar({ user }: { user: User | undefined }) {
   const router = useRouter();
-  const { setOpenMobile } = useSidebar();
+  const { setOpenMobile, open, toggleSidebar } = useSidebar();
+
+  const handleNewChat = () => {
+    setOpenMobile(false);
+    router.push('/chat/new');
+  };
 
   return (
-    <Sidebar className="group-data-[side=left]:border-r-0">
-      <SidebarHeader>
-        <SidebarMenu>
-          <div className="flex flex-row justify-between items-center">
-            <Link
-              href="/"
-              onClick={() => {
-                setOpenMobile(false);
-              }}
-              className="flex flex-row gap-3 items-center"
+    <Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
+      <div className="flex flex-col gap-4 p-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSidebar}
+              className="h-8 w-8"
             >
-              <span className="text-lg font-semibold px-2 hover:bg-muted rounded-md cursor-pointer">
-                Chatbot
-              </span>
-            </Link>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  className="p-2 h-fit"
-                  onClick={() => {
-                    setOpenMobile(false);
-                    router.push('/');
-                    router.refresh();
-                  }}
-                >
-                  <PlusIcon />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end">New Chat</TooltipContent>
-            </Tooltip>
-          </div>
-        </SidebarMenu>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarHistory user={user} />
-      </SidebarContent>
-      <SidebarFooter>{user && <SidebarUserNav user={user} />}</SidebarFooter>
+              <PanelLeftIcon size={18} className={!open ? "rotate-180" : ""} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Toggle Sidebar</TooltipContent>
+        </Tooltip>
+
+        {open ? (
+          <Button
+            variant="ghost"
+            onClick={handleNewChat}
+            className="flex gap-2 items-center justify-start px-2"
+          >
+            <PlusIcon size={18} />
+            <span>New Chat</span>
+          </Button>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleNewChat}
+                className="h-8 w-8"
+              >
+                <PlusIcon size={18} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">New Chat</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+
+      {open && (
+        <>
+          <SidebarContent>
+            <SidebarHistory user={user} />
+          </SidebarContent>
+          <SidebarFooter>{user && <SidebarUserNav user={user} />}</SidebarFooter>
+        </>
+      )}
     </Sidebar>
   );
 }

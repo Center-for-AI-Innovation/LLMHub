@@ -70,6 +70,24 @@ const config: Config = {
           ring: 'hsl(var(--sidebar-ring))',
         },
       },
+      keyframes: {
+        float: {
+          '0%, 100%': { transform: 'translateY(0) rotate(var(--tw-rotate))' },
+          '50%': { transform: 'translateY(-20px) rotate(var(--tw-rotate))' },
+        },
+        gradient: {
+          '0%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
+          '100%': { backgroundPosition: '0% 50%' },
+        },
+      },
+      animation: {
+        float: 'float 6s ease-in-out infinite',
+        gradient: 'gradient 6s ease infinite',
+      },
+      backgroundSize: {
+        'gradient-size': '200% 200%',
+      },
     },
   },
   plugins: [require('tailwindcss-animate'), require('@tailwindcss/typography')],

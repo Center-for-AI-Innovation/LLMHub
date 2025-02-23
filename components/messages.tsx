@@ -21,7 +21,7 @@ interface MessagesProps {
   isArtifactVisible: boolean;
 }
 
-function PureMessages({
+export const Messages = memo(function Messages({
   chatId,
   isLoading,
   votes,
@@ -29,54 +29,36 @@ function PureMessages({
   setMessages,
   reload,
   isReadonly,
+  isArtifactVisible,
 }: MessagesProps) {
-  const [messagesContainerRef, messagesEndRef] =
-    useScrollToBottom<HTMLDivElement>();
+  const isTemporaryChat = chatId === 'new';
+  const [containerRef, endRef] = useScrollToBottom<HTMLDivElement>();
+
+  if (messages.length === 0) {
+    return (
+      <div ref={containerRef} className="flex-1 overflow-y-auto">
+        <Overview isArtifactVisible={isArtifactVisible} />
+        <div ref={endRef} className="h-[24px]" />
+      </div>
+    );
+  }
 
   return (
-    <div
-      ref={messagesContainerRef}
-      className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll pt-4"
-    >
-      {messages.length === 0 && <Overview />}
-
-      {messages.map((message, index) => (
+    <div ref={containerRef} className="flex-1 overflow-y-auto">
+      {messages.map((message) => (
         <PreviewMessage
           key={message.id}
           chatId={chatId}
           message={message}
-          isLoading={isLoading && messages.length - 1 === index}
-          vote={
-            votes
-              ? votes.find((vote) => vote.messageId === message.id)
-              : undefined
-          }
+          vote={isTemporaryChat ? undefined : votes?.find((v) => v.messageId === message.id)}
+          isLoading={isLoading}
           setMessages={setMessages}
           reload={reload}
           isReadonly={isReadonly}
         />
       ))}
-
-      {isLoading &&
-        messages.length > 0 &&
-        messages[messages.length - 1].role === 'user' && <ThinkingMessage />}
-
-      <div
-        ref={messagesEndRef}
-        className="shrink-0 min-w-[24px] min-h-[24px]"
-      />
+      {isLoading && <ThinkingMessage />}
+      <div ref={endRef} className="h-[24px]" />
     </div>
   );
-}
-
-export const Messages = memo(PureMessages, (prevProps, nextProps) => {
-  if (prevProps.isArtifactVisible && nextProps.isArtifactVisible) return true;
-
-  if (prevProps.isLoading !== nextProps.isLoading) return false;
-  if (prevProps.isLoading && nextProps.isLoading) return false;
-  if (prevProps.messages.length !== nextProps.messages.length) return false;
-  if (!equal(prevProps.messages, nextProps.messages)) return false;
-  if (!equal(prevProps.votes, nextProps.votes)) return false;
-
-  return true;
-});
+}, equal);

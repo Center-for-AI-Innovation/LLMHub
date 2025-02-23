@@ -2,14 +2,33 @@
 
 import { generateText, Message } from 'ai';
 import { cookies } from 'next/headers';
+import { auth } from '@/app/(auth)/auth';
+import { randomUUID } from 'crypto';
 
 import {
   deleteMessagesByChatIdAfterTimestamp,
   getMessageById,
   updateChatVisiblityById,
+  saveChat,
 } from '@/lib/db/queries';
 import { VisibilityType } from '@/components/visibility-selector';
 import { myProvider } from '@/lib/ai/models';
+
+export async function createChat() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    throw new Error('Not authenticated');
+  }
+
+  const id = randomUUID();
+  await saveChat({
+    id,
+    userId: session.user.id,
+    title: 'New Chat',
+  });
+
+  return { id };
+}
 
 export async function saveChatModelAsCookie(model: string) {
   const cookieStore = await cookies();
