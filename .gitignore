@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables
+.env.local
+.env
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# FastAPI specific
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Logs
+logs/
+*.log
+
+# Database
+*.db
+*.sqlite3
+
+# uv specific
+.uv/
+
+# Temporary files
+tmp/
+temp/
+
+# Changelog
+changelog/*
+
+# Plan
+plan/*

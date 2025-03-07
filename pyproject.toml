@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-inf-backend"
+version = "0.1.0"
+description = "FastAPI backend for the LLM-as-a-Service project"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+authors = [
+    {name = "NCSA", email = "info@ncsa.illinois.edu"},
+]
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn>=0.23.2",
+    "sqlalchemy>=2.0.23",
+    "pydantic>=2.4.2",
+    "pydantic-settings>=2.0.3",
+    "python-multipart>=0.0.6",
+    "psycopg2-binary>=2.9.9",
+    "tenacity>=8.2.3",
+    "httpx>=0.25.0",
+    "vec-inf @ git+https://github.com/rohan-uiuc/llm-inference.git@tunnel",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-asyncio>=0.21.1",
+    "flake8>=6.1.0",
+    "black>=23.10.1",
+    "isort>=5.12.0",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py" 
