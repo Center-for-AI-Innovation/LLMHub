@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     
     # HPC settings
     SLURM_LOG_DIR: Optional[str] = None  # Default log directory for Slurm jobs
+    SLURM_ACCOUNT: Optional[str] = None  # SLURM account for job submission
     
     class Config:
         env_file = ".env"

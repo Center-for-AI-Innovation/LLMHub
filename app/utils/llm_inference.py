@@ -15,6 +15,7 @@ class LLMInferenceClient:
     def __init__(self):
         """Initialize the LLM inference client."""
         self.slurm_log_dir = settings.SLURM_LOG_DIR
+        self.slurm_account = settings.SLURM_ACCOUNT
 
     def run_command(self, command: List[str]) -> Dict[str, Any]:
         """Run a command and return the output."""
@@ -49,6 +50,11 @@ class LLMInferenceClient:
         # Add Cloudflare tunnel flag if enabled
         if enable_cloudflare_tunnel:
             command.append("--enable-cloudflare-tunnel")
+        
+        # Add the SLURM account parameter if not already provided and available in settings
+        if "account" not in params and self.slurm_account:
+            params["account"] = self.slurm_account
+            logger.info(f"Using SLURM account from environment: {self.slurm_account}")
         
         # Add optional parameters
         for key, value in params.items():
