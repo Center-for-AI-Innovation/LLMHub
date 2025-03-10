@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
+import os
 
 
 class Settings(BaseSettings):
@@ -18,6 +19,12 @@ class Settings(BaseSettings):
     # HPC settings
     SLURM_LOG_DIR: Optional[str] = None  # Default log directory for Slurm jobs
     SLURM_ACCOUNT: Optional[str] = None  # SLURM account for job submission
+    
+    # Background service settings
+    SYNC_INTERVAL: int = int(os.getenv("SYNC_INTERVAL", "60"))  # deployment sync interval in seconds
+    EXPIRY_CHECK_INTERVAL: int = int(os.getenv("EXPIRY_CHECK_INTERVAL", "300"))  # expiry check interval in seconds
+    MAX_DEPLOYMENTS_PER_CYCLE: int = int(os.getenv("MAX_DEPLOYMENTS_PER_CYCLE", "10"))  # max deployments to process per cycle
+    MODEL_SYNC_INTERVAL: int = int(os.getenv("MODEL_SYNC_INTERVAL", "3600"))  # seconds (default: 1 hour)
     
     class Config:
         env_file = ".env"

@@ -1,15 +1,22 @@
-from datetime import datetime
-from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Union
 from uuid import UUID
+import json
+import logging
+import concurrent.futures
 
 from sqlalchemy.orm import Session
+from sqlalchemy import delete
 
 from app.models.model_deployment import ModelDeployment
 from app.models.model_request import ModelRequest
+from app.models.available_model import AvailableModel
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
+from app.schemas.available_model import AvailableModelCreate
 from app.utils.llm_inference import LLMInferenceClient
 from app.config.logging import get_logger
+from app.services.resource_service import ResourceService
 
 logger = get_logger("model_service")
 
@@ -20,6 +27,8 @@ class ModelService:
     def __init__(self):
         """Initialize the model service."""
         self.llm_client = LLMInferenceClient()
+        # Maximum number of workers for parallel processing
+        self.max_workers = 10
 
     # Model Request Functions
     def create_model_request(self, db: Session, request: ModelRequestCreate) -> ModelRequest:
@@ -97,6 +106,45 @@ class ModelService:
         # Get the enable_cloudflare_tunnel parameter
         enable_cloudflare_tunnel = params.pop("enable_cloudflare_tunnel", False)
         
+        # Check and allocate resources if needed
+        resource_service = ResourceService()
+        
+        # Get the number of GPUs requested
+        num_gpus = params.get("num_gpus")
+        num_nodes = params.get("num_nodes", 1)
+        
+        # If GPU resources are requested, check availability and allocate
+        if num_gpus:
+            # Calculate total GPUs needed
+            total_gpus = num_gpus * num_nodes
+            
+            # Try to allocate GPU resources
+            # Note: We're using a generic "GPU" resource type here
+            # In a real system, you might want to be more specific (e.g., "A100", "V100")
+            allocation_result = resource_service.allocate_resources(
+                db=db,
+                resource_type="GPU",
+                resource_name="default",
+                count=total_gpus
+            )
+            
+            if not allocation_result.get("success", False):
+                # Failed to allocate resources
+                db_deployment = ModelDeployment(
+                    modelName=deployment.modelName,
+                    userId=deployment.userId,
+                    slurmJobId="failed",
+                    status="failed",
+                    errorMessage=allocation_result.get("error", "Failed to allocate GPU resources"),
+                    resourceAllocation=params
+                )
+                db.add(db_deployment)
+                db.commit()
+                db.refresh(db_deployment)
+                return db_deployment
+            
+            logger.info(f"Allocated {total_gpus} GPU resources for model {deployment.modelName}")
+        
         # Launch the model
         result = self.llm_client.launch_model(
             deployment.modelName, 
@@ -105,6 +153,15 @@ class ModelService:
         )
         
         if not result.get("success", False):
+            # Release allocated resources if launch failed
+            if num_gpus:
+                resource_service.release_resources(
+                    db=db,
+                    resource_type="GPU",
+                    resource_name="default",
+                    count=total_gpus
+                )
+                
             # Create a failed deployment record
             db_deployment = ModelDeployment(
                 modelName=deployment.modelName,
@@ -122,6 +179,15 @@ class ModelService:
         # Extract the Slurm job ID from the result
         slurm_job_id = result.get("job_id")
         if not slurm_job_id:
+            # Release allocated resources if launch failed
+            if num_gpus:
+                resource_service.release_resources(
+                    db=db,
+                    resource_type="GPU",
+                    resource_name="default",
+                    count=total_gpus
+                )
+                
             # Create a failed deployment record
             db_deployment = ModelDeployment(
                 modelName=deployment.modelName,
@@ -136,13 +202,44 @@ class ModelService:
             db.refresh(db_deployment)
             return db_deployment
         
+        # Calculate expiration time based on the time parameter if provided
+        expiration_time = None
+        if "time" in params and params["time"]:
+            try:
+                # Parse Slurm time format (e.g., "2:00:00" for 2 hours)
+                time_parts = params["time"].split(":")
+                hours = 0
+                minutes = 0
+                seconds = 0
+                
+                if len(time_parts) == 3:
+                    hours, minutes, seconds = map(int, time_parts)
+                elif len(time_parts) == 2:
+                    minutes, seconds = map(int, time_parts)
+                elif len(time_parts) == 1:
+                    # If only one part, assume it's minutes
+                    minutes = int(time_parts[0])
+                
+                # Calculate expiration time
+                expiration_time = datetime.utcnow() + timedelta(
+                    hours=hours, minutes=minutes, seconds=seconds
+                )
+                
+                # Add a small buffer (5 minutes) to account for startup time
+                expiration_time -= timedelta(minutes=5)
+                
+                logger.info(f"Setting expiration time to {expiration_time} for job {slurm_job_id}")
+            except Exception as e:
+                logger.error(f"Error calculating expiration time: {e}")
+        
         # Create a deployment record
         db_deployment = ModelDeployment(
             modelName=deployment.modelName,
             userId=deployment.userId,
             slurmJobId=slurm_job_id,
             status="launching",
-            resourceAllocation=params
+            resourceAllocation=params,
+            expirationTime=expiration_time
         )
         db.add(db_deployment)
         db.commit()
@@ -166,6 +263,7 @@ class ModelService:
         limit: int = 100
     ) -> List[ModelDeployment]:
         """Get model deployments with optional filters."""
+        logger.info(f"Getting deployments with user_id: {user_id}, status: {status}, skip: {skip}, limit: {limit}")
         query = db.query(ModelDeployment)
         
         if user_id:
@@ -263,11 +361,38 @@ class ModelService:
         # Shutdown the model
         result = self.llm_client.shutdown_model(db_deployment.slurmJobId)
         
-        # Update the deployment regardless of the result
+        # Update the deployment status
         db_deployment.status = "shutdown"
         db_deployment.updatedAt = datetime.utcnow()
         db.commit()
         db.refresh(db_deployment)
+        
+        # Release allocated resources
+        resource_service = ResourceService()
+        
+        # Check if the deployment has resource allocation information
+        if db_deployment.resourceAllocation:
+            num_gpus = db_deployment.resourceAllocation.get("num_gpus")
+            num_nodes = db_deployment.resourceAllocation.get("num_nodes", 1)
+            
+            # If GPU resources were allocated, release them
+            if num_gpus:
+                # Calculate total GPUs to release
+                total_gpus = num_gpus * num_nodes
+                
+                # Release GPU resources
+                release_result = resource_service.release_resources(
+                    db=db,
+                    resource_type="GPU",
+                    resource_name="default",
+                    count=total_gpus
+                )
+                
+                if release_result.get("success", False):
+                    logger.info(f"Released {total_gpus} GPU resources from deployment {deployment_id}")
+                else:
+                    logger.error(f"Failed to release GPU resources from deployment {deployment_id}: {release_result.get('error')}")
+        
         return db_deployment
 
     def list_available_models(self) -> Dict[str, Any]:
@@ -289,4 +414,269 @@ class ModelService:
             return {"success": False, "error": f"Deployment is not ready (status: {db_deployment.status})"}
         
         # Get the metrics from llm-inference
-        return self.llm_client.get_model_metrics(db_deployment.slurmJobId) 
+        return self.llm_client.get_model_metrics(db_deployment.slurmJobId)
+
+    def extend_deployment_expiration(
+        self,
+        db: Session,
+        deployment_id: UUID,
+        extension_hours: int
+    ) -> Optional[ModelDeployment]:
+        """Extend the expiration time of a deployment."""
+        db_deployment = self.get_deployment(db, deployment_id)
+        if not db_deployment:
+            return None
+        
+        # Only allow extending active deployments
+        if db_deployment.status not in ["launching", "ready"]:
+            logger.warning(f"Cannot extend deployment {deployment_id} with status {db_deployment.status}")
+            return db_deployment
+        
+        # Calculate new expiration time
+        from datetime import datetime, timedelta
+        
+        # If there's no existing expiration time, set it from now
+        if not db_deployment.expirationTime:
+            db_deployment.expirationTime = datetime.utcnow()
+        
+        # Add the extension hours
+        db_deployment.expirationTime += timedelta(hours=extension_hours)
+        
+        logger.info(f"Extended expiration time for deployment {deployment_id} to {db_deployment.expirationTime}")
+        
+        # Update the deployment
+        db_deployment.updatedAt = datetime.utcnow()
+        db.commit()
+        db.refresh(db_deployment)
+        
+        return db_deployment
+
+    def get_model_size(self, gpu_count: int) -> str:
+        """Determine model size based on GPU count."""
+        if gpu_count <= 1:
+            return "Small"
+        if gpu_count <= 2:
+            return "Medium"
+        return "Large"
+
+    def format_model_name(self, model_id: str) -> str:
+        """Format model name for display."""
+        # Remove common prefixes and format nicely
+        return " ".join(
+            word.capitalize() for word in model_id.replace("-", " ").split()
+        )
+
+    def generate_model_description(self, name: str, family: str, context_length: int) -> str:
+        """Generate a description based on model name and specs."""
+        descriptions = {
+            "c4ai-command-r": "High-performance model optimized for academic research and analysis",
+            "llama": "Open-source model suitable for various NLP tasks",
+            "mistral": "Efficient open-source model with strong reasoning capabilities",
+            "mixtral": "Mixture-of-experts model with advanced reasoning and instruction following",
+            "phi": "Compact and efficient model with strong reasoning capabilities",
+            "gemma": "Google's lightweight open model for various text generation tasks",
+            "codellama": "Specialized model for code understanding and generation",
+            "claude": "High-performance model optimized for academic research and analysis",
+            "gpt": "Advanced model for language understanding and generation",
+        }
+
+        # Find the matching family prefix
+        matching_family = None
+        for key in descriptions:
+            if key.lower() in family.lower() or key.lower() in name.lower():
+                matching_family = key
+                break
+
+        if matching_family:
+            return descriptions[matching_family]
+
+        # Default description based on context length
+        if context_length > 32000:
+            return f"Advanced model with {context_length:,} token context window for complex tasks"
+        elif context_length > 8000:
+            return f"Versatile model with {context_length:,} token context for various applications"
+        else:
+            return "Efficient model optimized for performance and reliability"
+
+    def get_detailed_models(self) -> List[Dict[str, Any]]:
+        """Get detailed information about all available models."""
+        result = self.llm_client.run_command(["vec-inf", "list", "--json-mode", "--detailed"])
+        
+        if not result.get("success", False):
+            logger.error(f"Failed to get detailed models: {result.get('error', 'Unknown error')}")
+            return []
+        
+        # Parse the output if it's a string
+        if isinstance(result.get("output"), str):
+            try:
+                models = json.loads(result["output"])
+                if isinstance(models, list):
+                    return models
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse JSON from output: {result.get('output')}")
+        
+        return []
+
+    def _process_model(self, model_data: Dict[str, Any], existing_model: Optional[AvailableModel] = None) -> Dict[str, Any]:
+        """Process a single model and prepare it for database operation.
+        
+        Args:
+            model_data: The model data from vec-inf
+            existing_model: The existing model from the database, if any
+            
+        Returns:
+            A dictionary with the processed model data and operation status
+        """
+        model_id = model_data.get("model_name", "")
+        if not model_id:
+            return {"status": "skipped", "reason": "missing_id"}
+        
+        # Extract model information
+        model_family = model_data.get("model_family", "")
+        model_variant = model_data.get("model_variant", "")
+        model_type = model_data.get("model_type", "LLM")
+        num_gpus = model_data.get("num_gpus", 1)
+        num_nodes = model_data.get("num_nodes", 1)
+        max_model_len = model_data.get("max_model_len", 4096)
+        pipeline_parallelism = model_data.get("pipeline_parallelism", False)
+        vocab_size = model_data.get("vocab_size")
+        huggingface_id = model_data.get("huggingface_id")
+        
+        # Create model specs
+        specs = {
+            "gpus": num_gpus,
+            "nodes": num_nodes,
+            "contextLength": max_model_len,
+            "parallelism": pipeline_parallelism,
+        }
+        
+        # Determine model size
+        model_size = self.get_model_size(num_gpus)
+        
+        # Common model attributes
+        model_attrs = {
+            "id": model_id,
+            "name": self.format_model_name(model_id),
+            "description": self.generate_model_description(model_id, model_family, max_model_len),
+            "status": "WARM",
+            "type": model_size,
+            "family": model_family,
+            "variant": model_variant,
+            "modelType": model_type,
+            "specs": specs,
+            "vocabSize": vocab_size,
+            "huggingfaceId": huggingface_id,
+        }
+        
+        # Check if model exists and needs update
+        if existing_model:
+            # Check if model needs to be updated
+            needs_update = (
+                existing_model.family != model_family or
+                existing_model.variant != model_variant or
+                existing_model.modelType != model_type or
+                existing_model.type != model_size or
+                existing_model.vocabSize != vocab_size or
+                existing_model.huggingfaceId != huggingface_id or
+                existing_model.specs != specs
+            )
+            
+            if needs_update:
+                return {
+                    "status": "update",
+                    "model_id": model_id,
+                    "attrs": model_attrs
+                }
+            else:
+                return {
+                    "status": "unchanged",
+                    "model_id": model_id
+                }
+        else:
+            return {
+                "status": "create",
+                "model_id": model_id,
+                "attrs": model_attrs
+            }
+
+    def sync_available_models(self, db: Session) -> Dict[str, Any]:
+        """Sync available models with the database using parallel processing."""
+        try:
+            # Get detailed model information
+            models = self.get_detailed_models()
+            
+            if not models:
+                return {"success": False, "error": "No models found"}
+            
+            # Get existing models from database
+            existing_models = {model.id: model for model in db.query(AvailableModel).all()}
+            
+            # Track statistics
+            added_count = 0
+            updated_count = 0
+            unchanged_count = 0
+            
+            # Process models in parallel
+            results = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit all tasks
+                future_to_model = {
+                    executor.submit(
+                        self._process_model, 
+                        model_data, 
+                        existing_models.get(model_data.get("model_name", ""))
+                    ): model_data 
+                    for model_data in models
+                }
+                
+                # Process results as they complete
+                for future in concurrent.futures.as_completed(future_to_model):
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except Exception as exc:
+                        model_data = future_to_model[future]
+                        model_id = model_data.get("model_name", "unknown")
+                        logger.error(f"Model {model_id} generated an exception: {exc}")
+            
+            # Apply database changes in a single transaction
+            for result in results:
+                status = result.get("status")
+                
+                if status == "create":
+                    # Create new model
+                    attrs = result.get("attrs", {})
+                    db_model = AvailableModel(**attrs)
+                    db.add(db_model)
+                    added_count += 1
+                
+                elif status == "update":
+                    # Update existing model
+                    model_id = result.get("model_id")
+                    attrs = result.get("attrs", {})
+                    
+                    existing_model = existing_models[model_id]
+                    for key, value in attrs.items():
+                        setattr(existing_model, key, value)
+                    
+                    existing_model.updatedAt = datetime.utcnow()
+                    updated_count += 1
+                
+                elif status == "unchanged":
+                    unchanged_count += 1
+            
+            # Commit changes
+            db.commit()
+            
+            return {
+                "success": True,
+                "message": f"Successfully synced models: {added_count} added, {updated_count} updated, {unchanged_count} unchanged",
+                "count": len(models),
+                "added": added_count,
+                "updated": updated_count,
+                "unchanged": unchanged_count,
+            }
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error syncing models: {str(e)}")
+            return {"success": False, "error": str(e)} 

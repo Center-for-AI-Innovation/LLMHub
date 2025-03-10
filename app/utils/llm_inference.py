@@ -30,8 +30,11 @@ class LLMInferenceClient:
             
             # Try to parse the output as JSON
             try:
-                return json.loads(result.stdout)
+                response = json.loads(result.stdout)
+                logger.info(f"Response: {response}")
+                return response
             except json.JSONDecodeError:
+                logger.error(f"Failed to parse JSON: {result.stdout}")
                 return {"success": True, "output": result.stdout}
                 
         except subprocess.CalledProcessError as e:

@@ -8,9 +8,9 @@ version = "0.1.0"
 description = "FastAPI backend for the LLM-as-a-Service project"
 readme = "README.md"
 requires-python = ">=3.9"
-license = {file = "LICENSE"}
+license = {text = "Proprietary"}
 authors = [
-    {name = "NCSA", email = "info@ncsa.illinois.edu"},
+    {name = "Rohan Marwaha", email = "rohan13@illinois.edu"},
 ]
 dependencies = [
     "fastapi>=0.104.0",
@@ -22,7 +22,7 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "tenacity>=8.2.3",
     "httpx>=0.25.0",
-    "vec-inf @ git+https://github.com/rohan-uiuc/llm-inference.git@tunnel",
+    "vec-inf @ git+https://github.com/rohan-uiuc/llm-inference.git@python_tunnel",
 ]
 
 [project.optional-dependencies]
@@ -44,4 +44,10 @@ line_length = 88
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = "test_*.py" 
+python_files = "test_*.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"] 

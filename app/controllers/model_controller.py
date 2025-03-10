@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -19,7 +20,7 @@ from app.services.model_service import ModelService
 
 router = APIRouter()
 model_service = ModelService()
-
+logger = logging.getLogger(__name__)
 
 # Model Endpoints
 @router.get("/", response_model=Dict[str, Any])
@@ -28,10 +29,10 @@ def list_available_models() -> Dict[str, Any]:
     return model_service.list_available_models()
 
 
-@router.get("/{model_name}", response_model=Dict[str, Any])
-def get_model_details(model_name: str) -> Dict[str, Any]:
-    """Get details of a specific model."""
-    return model_service.get_model_details(model_name)
+@router.post("/sync", response_model=Dict[str, Any])
+def sync_models(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Sync models with the database."""
+    return model_service.sync_available_models(db=db)
 
 
 # Model Request Endpoints
@@ -109,7 +110,11 @@ def list_deployments(
     limit: int = 100,
     db: Session = Depends(get_db),
 ) -> Any:
-    """List model deployments with optional filters."""
+    """List model deployments with optional filters.
+    
+    Note: Deployments are retrieved from the database, not from vec-inf.
+    The vec-inf package does not have a 'list deployments' command.
+    """
     return model_service.get_deployments(
         db=db, user_id=userId, status=status, skip=skip, limit=limit
     )
@@ -160,4 +165,29 @@ def shutdown_deployment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Model deployment not found",
         )
-    return db_deployment 
+    return db_deployment
+
+
+@router.put("/deployments/{deployment_id}/extend", response_model=ModelDeploymentResponse)
+def extend_deployment(
+    deployment_id: UUID,
+    extension_hours: int,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Extend the expiration time of a model deployment."""
+    db_deployment = model_service.extend_deployment_expiration(
+        db=db, deployment_id=deployment_id, extension_hours=extension_hours
+    )
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model deployment not found",
+        )
+    return db_deployment
+
+
+# This generic endpoint should be defined AFTER all specific endpoints
+@router.get("/{model_name}", response_model=Dict[str, Any])
+def get_model_details(model_name: str) -> Dict[str, Any]:
+    """Get details of a specific model."""
+    return model_service.get_model_details(model_name) 
