@@ -43,6 +43,20 @@
       "when": 1739943871345,
       "tag": "0005_majestic_energizer",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1741544945342,
+      "tag": "0006_powerful_the_fallen",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1741562386748,
+      "tag": "0007_bright_boom_boom",
+      "breakpoints": true
     }
   ]
 }

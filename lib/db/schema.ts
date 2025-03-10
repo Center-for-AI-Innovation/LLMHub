@@ -10,6 +10,7 @@ import {
   foreignKey,
   boolean,
   date,
+  integer,
 } from 'drizzle-orm/pg-core';
 
 export const user = pgTable('User', {
@@ -138,3 +139,57 @@ export const modelRequest = pgTable('ModelRequest', {
 });
 
 export type ModelRequest = InferSelectModel<typeof modelRequest>;
+
+export const resourceAllocation = pgTable('ResourceAllocation', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  resourceType: varchar('resourceType', { length: 50 }).notNull(),
+  resourceName: varchar('resourceName', { length: 50 }).notNull(),
+  totalCount: integer('totalCount').notNull(),
+  allocatedCount: integer('allocatedCount').notNull().default(0),
+  isActive: boolean('isActive').notNull().default(true),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+});
+
+export type ResourceAllocation = InferSelectModel<typeof resourceAllocation>;
+
+export const modelDeployment = pgTable('ModelDeployment', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  modelName: varchar('modelName', { length: 255 }).notNull(),
+  userId: uuid('userId')
+    .notNull()
+    .references(() => user.id),
+  slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
+  status: varchar('status', {
+    enum: ['pending', 'launching', 'ready', 'failed', 'shutdown'],
+  })
+    .notNull()
+    .default('pending'),
+  endpointUrl: varchar('endpointUrl', { length: 255 }),
+  tunnelUrl: varchar('tunnelUrl', { length: 255 }),
+  errorMessage: text('errorMessage'),
+  resourceAllocation: json('resourceAllocation'),
+  expirationTime: timestamp('expirationTime'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+});
+
+export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
+
+export const availableModel = pgTable('AvailableModel', {
+  id: varchar('id', { length: 255 }).primaryKey().notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  status: varchar('status', { enum: ['WARM', 'COLD', 'OFFLINE'] }).notNull().default('WARM'),
+  type: varchar('type', { enum: ['Small', 'Medium', 'Large'] }).notNull(),
+  family: varchar('family', { length: 100 }).notNull(),
+  variant: varchar('variant', { length: 100 }).notNull(),
+  modelType: varchar('modelType', { length: 50 }),
+  specs: json('specs').notNull(),
+  vocabSize: integer('vocabSize'),
+  huggingfaceId: varchar('huggingfaceId', { length: 255 }),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+});
+
+export type AvailableModel = InferSelectModel<typeof availableModel>;

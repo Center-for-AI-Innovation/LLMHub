@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { genSaltSync, hashSync } from 'bcrypt-ts';
-import { and, asc, desc, eq, gt, gte, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, or, ilike } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -15,6 +15,10 @@ import {
   type Message,
   message,
   vote,
+  modelRequest,
+  resourceAllocation,
+  modelDeployment,
+  availableModel,
 } from './schema';
 import { ArtifactKind } from '@/components/artifact';
 
@@ -344,4 +348,32 @@ export async function updateChatVisiblityById({
     console.error('Failed to update chat visibility in database');
     throw error;
   }
+}
+
+// Available Models
+export async function getAvailableModels() {
+  return await db.select().from(availableModel).orderBy(availableModel.family, availableModel.variant);
+}
+
+export async function getAvailableModelById({ id }: { id: string }) {
+  return await db
+    .select()
+    .from(availableModel)
+    .where(eq(availableModel.id, id))
+    .limit(1);
+}
+
+export async function searchAvailableModels({ query }: { query: string }) {
+  return await db
+    .select()
+    .from(availableModel)
+    .where(
+      or(
+        ilike(availableModel.name, `%${query}%`),
+        ilike(availableModel.family, `%${query}%`),
+        ilike(availableModel.variant, `%${query}%`),
+        ilike(availableModel.description, `%${query}%`)
+      )
+    )
+    .orderBy(availableModel.family, availableModel.variant);
 }
