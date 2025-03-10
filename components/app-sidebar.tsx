@@ -34,7 +34,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
               variant="ghost"
               size="icon"
               onClick={toggleSidebar}
-              className="h-8 w-8"
+              className="size-8"
             >
               <PanelLeftIcon size={18} className={!open ? "rotate-180" : ""} />
             </Button>
@@ -58,7 +58,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                 variant="ghost"
                 size="icon"
                 onClick={handleNewChat}
-                className="h-8 w-8"
+                className="size-8"
               >
                 <PlusIcon size={18} />
               </Button>

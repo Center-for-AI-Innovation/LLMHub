@@ -299,7 +299,7 @@ export default function CatalogPage() {
           </div>
           <div className="flex gap-2 items-center">
             <div className="relative w-full max-w-xs">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
               <Input
                 type="text"
                 placeholder="Search models..."
@@ -308,7 +308,7 @@ export default function CatalogPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
               {searching && (
-                <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                <Loader2 className="absolute right-2.5 top-2.5 size-4 animate-spin text-muted-foreground" />
               )}
             </div>
             <RequestModelDialog />
@@ -323,7 +323,7 @@ export default function CatalogPage() {
 
         {loading ? (
           <div className="flex justify-center items-center h-64">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <Loader2 className="size-8 animate-spin text-primary" />
           </div>
         ) : models.length > 0 ? (
           <Tabs defaultValue={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -354,9 +354,9 @@ export default function CatalogPage() {
                 className="h-9 bg-white/50 dark:bg-white/5 border-0 shadow-sm group flex items-center gap-1"
               >
                 {refreshing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="size-4 animate-spin" />
                 ) : (
-                  <RefreshCw className="h-4 w-4 group-hover:animate-spin" />
+                  <RefreshCw className="size-4 group-hover:animate-spin" />
                 )}
                 <span>Refresh</span>
               </Button>
@@ -387,16 +387,16 @@ export default function CatalogPage() {
                         <div className="absolute top-4 right-4">
                           <span className={cn("rounded-full px-2 py-1 text-xs font-medium whitespace-nowrap flex items-center gap-1", statusInfo.color)}>
                             {deployment?.status === 'STARTING' ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <Loader2 className="size-3 animate-spin" />
                             ) : (
-                              <StatusIcon className="h-3 w-3" />
+                              <StatusIcon className="size-3" />
                             )}
                             {statusInfo.label}
                           </span>
                         </div>
                         
-                        <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/20 dark:bg-white/10">
-                          <Icon className="h-6 w-6 text-primary" />
+                        <div className="mb-4 inline-flex size-12 items-center justify-center rounded-full bg-white/20 dark:bg-white/10">
+                          <Icon className="size-6 text-primary" />
                         </div>
                         
                         <div className="mb-2">
@@ -417,7 +417,7 @@ export default function CatalogPage() {
                           </div>
                           {deployment && deployment.expiresAt && (
                             <div className="col-span-2 flex items-center gap-1 text-amber-500">
-                              <Calendar className="h-3 w-3" />
+                              <Calendar className="size-3" />
                               <span>Expires: {new Date(deployment.expiresAt).toLocaleString()}</span>
                             </div>
                           )}
@@ -437,7 +437,7 @@ export default function CatalogPage() {
                           >
                             <Link href={`/chat?model=${model.id}`}>
                               Chat
-                              <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                              <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
                             </Link>
                           </Button>
                         </div>
@@ -448,18 +448,18 @@ export default function CatalogPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <div className="bg-gradient-to-br from-muted/30 to-muted/10 rounded-full p-8 mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
-                    <Server className="h-12 w-12 text-muted-foreground" />
+                    <Server className="size-12 text-muted-foreground" />
                   </div>
                   <h3 className="text-2xl font-medium mb-3">No Active Models</h3>
                   <p className="text-muted-foreground max-w-md mb-8">
-                    You don't have any active model deployments. Launch a model from the Available Models tab.
+                    You don&apos;t have any active model deployments. Launch a model from the Available Models tab.
                   </p>
                   <Button 
                     onClick={() => setActiveTab("available")} 
                     className="min-w-[150px] group"
                   >
                     Browse Available Models
-                    <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                    <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
                   </Button>
                 </div>
               )}
@@ -491,8 +491,8 @@ export default function CatalogPage() {
                           </span>
                         </div>
                         
-                        <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white/20 dark:bg-white/10">
-                          <Icon className="h-6 w-6 text-primary" />
+                        <div className="mb-4 inline-flex size-12 items-center justify-center rounded-full bg-white/20 dark:bg-white/10">
+                          <Icon className="size-6 text-primary" />
                         </div>
                         
                         <div className="mb-2">
@@ -520,7 +520,7 @@ export default function CatalogPage() {
                             onClick={() => {}}
                           >
                             Schedule
-                            <Calendar className="ml-2 h-4 w-4" />
+                            <Calendar className="ml-2 size-4" />
                           </Button>
                           <Button 
                             className="w-1/2 group"
@@ -529,13 +529,13 @@ export default function CatalogPage() {
                           >
                             {isLaunching ? (
                               <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                <Loader2 className="mr-2 size-4 animate-spin" />
                                 Launching...
                               </>
                             ) : (
                               <>
                                 Run Now
-                                <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+                                <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
                               </>
                             )}
                           </Button>
@@ -547,7 +547,7 @@ export default function CatalogPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <div className="bg-gradient-to-br from-muted/30 to-muted/10 rounded-full p-8 mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
-                    <Server className="h-12 w-12 text-muted-foreground" />
+                    <Server className="size-12 text-muted-foreground" />
                   </div>
                   <h3 className="text-2xl font-medium mb-3">No Available Models</h3>
                   <p className="text-muted-foreground max-w-md mb-8">
@@ -560,12 +560,12 @@ export default function CatalogPage() {
                   >
                     {refreshing ? (
                       <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        <Loader2 className="size-4 mr-2 animate-spin" />
                         Refreshing...
                       </>
                     ) : (
                       <>
-                        <RefreshCw className="h-4 w-4 mr-2 group-hover:animate-spin" />
+                        <RefreshCw className="size-4 mr-2 group-hover:animate-spin" />
                         Refresh
                       </>
                     )}
@@ -577,7 +577,7 @@ export default function CatalogPage() {
         ) : (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="bg-gradient-to-br from-muted/30 to-muted/10 rounded-full p-8 mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
-              <Server className="h-12 w-12 text-muted-foreground" />
+              <Server className="size-12 text-muted-foreground" />
             </div>
             <h3 className="text-2xl font-medium mb-3">No Models Available</h3>
             <p className="text-muted-foreground max-w-md mb-8">
@@ -590,12 +590,12 @@ export default function CatalogPage() {
             >
               {refreshing ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Loader2 className="size-4 mr-2 animate-spin" />
                   Refreshing...
                 </>
               ) : (
                 <>
-                  <RefreshCw className="h-4 w-4 mr-2 group-hover:animate-spin" />
+                  <RefreshCw className="size-4 mr-2 group-hover:animate-spin" />
                   Refresh
                 </>
               )}
