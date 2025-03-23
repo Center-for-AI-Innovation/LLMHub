@@ -49,6 +49,8 @@ export function useModels(query?: string) {
       
       return data;
     },
+    staleTime: 30000, // Cache data for 30 seconds
+    gcTime: 300000, // Keep inactive cache for 5 minutes
   });
 }
 
@@ -66,6 +68,8 @@ export function useModel(modelId: string) {
       return res.json();
     },
     enabled: !!modelId,
+    staleTime: 60000, // Cache data for 1 minute
+    gcTime: 300000, // Keep inactive cache for 5 minutes
   });
 }
 
@@ -110,6 +114,48 @@ export function useModelDeployments() {
       return Array.isArray(data) ? data : [];
     },
     refetchInterval: 10000, // Refetch every 10 seconds to keep deployment status updated
+    staleTime: 5000, // Consider data stale after 5 seconds
+    gcTime: 60000, // Keep inactive cache for 1 minute
+    // Add structuralSharing to prevent unnecessary re-renders when data has not actually changed
+    structuralSharing: (oldData: unknown, newData: unknown): unknown => {
+      // Type guard to check and cast to ModelDeployment[]
+      if (!oldData || !Array.isArray(oldData) || !newData || !Array.isArray(newData)) {
+        return newData;
+      }
+      
+      // Type guard to check if arrays contain ModelDeployment objects
+      const isModelDeploymentArray = (arr: unknown[]): arr is ModelDeployment[] => {
+        return arr.every(item => 
+          typeof item === 'object' && 
+          item !== null && 
+          'id' in item && 
+          'modelId' in item && 
+          'status' in item
+        );
+      };
+      
+      if (!isModelDeploymentArray(oldData) || !isModelDeploymentArray(newData)) {
+        return newData;
+      }
+      
+      // Deep comparison of deployment arrays
+      if (oldData.length !== newData.length) {
+        return newData;
+      }
+      
+      // Check if any deployments have changed their status
+      const hasChanged = newData.some((newDeployment, index) => {
+        const oldDeployment = oldData[index];
+        return (
+          newDeployment.id !== oldDeployment.id ||
+          newDeployment.status !== oldDeployment.status ||
+          newDeployment.modelId !== oldDeployment.modelId
+        );
+      });
+      
+      // Return the old reference if nothing has changed to prevent re-renders
+      return hasChanged ? newData : oldData;
+    }
   });
 }
 
