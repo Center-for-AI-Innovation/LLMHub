@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { Toaster } from '@/components/ui/toaster';
-import { ThemeProvider } from '@/components/theme-provider';
+import { Providers } from '@/components/providers';
 
 import './globals.css';
+import { ReactScan } from '@/components/react-scan';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://chat.vercel.ai'),
@@ -55,16 +55,11 @@ export default async function RootLayout({
           }}
         />
       </head>
+      <ReactScan />
       <body className="antialiased">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <Providers>
           {children}
-          <Toaster />
-        </ThemeProvider>
+        </Providers>
       </body>
     </html>
   );

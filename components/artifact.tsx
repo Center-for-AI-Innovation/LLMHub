@@ -13,6 +13,7 @@ import {
   useCallback,
   useEffect,
   useState,
+  useMemo,
 } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { useDebounceCallback, useWindowSize } from 'usehooks-ts';
@@ -31,6 +32,7 @@ import { codeArtifact } from '@/artifacts/code/client';
 import { sheetArtifact } from '@/artifacts/sheet/client';
 import { textArtifact } from '@/artifacts/text/client';
 import equal from 'fast-deep-equal';
+import { useDocumentCache } from '@/hooks/use-document-cache';
 
 export const artifactDefinitions = [
   textArtifact,
@@ -70,6 +72,7 @@ function PureArtifact({
   reload,
   votes,
   isReadonly,
+  initialDocuments,
 }: {
   chatId: string;
   input: string;
@@ -81,6 +84,7 @@ function PureArtifact({
   messages: Array<Message>;
   setMessages: Dispatch<SetStateAction<Array<Message>>>;
   votes: Array<Vote> | undefined;
+  initialDocuments?: Array<Document>;
   append: (
     message: Message | CreateMessage,
     chatRequestOptions?: ChatRequestOptions,
@@ -97,16 +101,56 @@ function PureArtifact({
   isReadonly: boolean;
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
-
+  
+  // Use the global document cache
+  const { documents: documentCache, addDocuments, getDocuments } = useDocumentCache();
+  
+  // Whenever initialDocuments changes, update the global cache
+  useEffect(() => {
+    if (initialDocuments && initialDocuments.length > 0) {
+      // Group documents by ID
+      const documentsByIds = initialDocuments.reduce((acc, doc) => {
+        if (!acc[doc.id]) {
+          acc[doc.id] = [];
+        }
+        acc[doc.id].push(doc);
+        return acc;
+      }, {} as Record<string, Document[]>);
+      
+      // Add each group to the global cache
+      Object.entries(documentsByIds).forEach(([docId, docs]) => {
+        addDocuments(docId, docs);
+      });
+    }
+  }, [initialDocuments, addDocuments]);
+  
+  // Only fetch if not in global cache
+  const cachedDocuments = artifact.documentId !== 'init' ? getDocuments(artifact.documentId) : undefined;
+  const shouldFetchDocument = 
+    artifact.documentId !== 'init' && 
+    artifact.status !== 'streaming' && 
+    !cachedDocuments;
+  
   const {
-    data: documents,
+    data: fetchedDocuments,
     isLoading: isDocumentsFetching,
     mutate: mutateDocuments,
   } = useSWR<Array<Document>>(
-    artifact.documentId !== 'init' && artifact.status !== 'streaming'
-      ? `/api/document?id=${artifact.documentId}`
-      : null,
+    shouldFetchDocument ? `/api/document?id=${artifact.documentId}` : null,
     fetcher,
+    {
+      onSuccess: (data) => {
+        if (data && data.length > 0) {
+          addDocuments(artifact.documentId, data);
+        }
+      }
+    }
+  );
+  
+  // Use cached documents if available, otherwise use fetched ones
+  const documents = useMemo(
+    () => cachedDocuments || fetchedDocuments || [],
+    [cachedDocuments, fetchedDocuments]
   );
 
   const [mode, setMode] = useState<'edit' | 'diff'>('edit');

@@ -1,82 +1,82 @@
-import { notFound } from 'next/navigation';
-import { Message } from 'ai';
+'use client';
 
-import { auth } from '@/app/(auth)/auth';
+import { useEffect } from 'react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
-import { getChatById, getMessagesByChatId } from '@/lib/db/queries';
-import { convertToUIMessages } from '@/lib/utils';
 import { DataStreamHandler } from '@/components/data-stream-handler';
 import { Navbar } from '@/components/navbar';
+import { Loader2 } from 'lucide-react';
+import { useSession, useChatContents } from '@/hooks/use-chat';
 
-export default async function Page(props: { 
-  params: Promise<{ id: string }>; 
-  searchParams: Promise<{ query?: string }> 
-}) {
-  const [params, searchParams] = await Promise.all([
-    props.params,
-    props.searchParams
-  ]);
+export default function Page() {
+  const router = useRouter();
+  const params = useParams();
+  const searchParams = useSearchParams();
+  const id = params?.id as string;
+  const query = searchParams?.get('query');
   
-  const { id } = params;
-  const { query } = searchParams;
+  // Redirect 'new' to root chat page
+  useEffect(() => {
+    if (id === 'new') {
+      router.replace(query ? `/chat?query=${encodeURIComponent(query)}` : '/chat');
+    }
+  }, [id, query, router]);
   
-  // Special case for new chat
-  if (id === 'new') {
-    const session = await auth();
-    if (!session?.user) {
-      return notFound();
-    }
-
-    return (
-      <div className="flex flex-col min-h-screen">
-        <Navbar />
-        <main className="flex-1 overflow-hidden pt-2">
-          <Chat
-            id="new"
-            initialMessages={query ? [{ id: '1', role: 'user' as const, content: query, createdAt: new Date() }] : []}
-            selectedVisibilityType="private"
-            isReadonly={false}
-          />
-          <DataStreamHandler id={id} />
-        </main>
-      </div>
-    );
-  }
+  // Fetch data with React Query
+  const { data: session, isLoading: isLoadingSession } = useSession();
+  const { 
+    data: chatContents, 
+    isLoading: isLoadingContents, 
+    error: contentsError 
+  } = useChatContents(id);
   
-  // Only check database for non-new chats
-  const chat = await getChatById({ id });
+  // Combined loading state
+  const isLoading = isLoadingSession || isLoadingContents;
+  
+  // Error state
+  const error = contentsError || null;
 
-  if (!chat) {
-    notFound();
-  }
-
-  const session = await auth();
-
-  // Handle visibility checks
-  if (chat.visibility === 'private') {
-    if (!session || !session.user) {
-      return notFound();
+  // Handle permissions
+  useEffect(() => {
+    if (!isLoading && chatContents && chatContents.chat.visibility === 'private') {
+      if (!session || !session.user) {
+        router.push('/login');
+        return;
+      }
+      
+      if (session.user.id !== chatContents.chat.userId) {
+        router.push('/404');
+        return;
+      }
     }
-
-    if (session.user.id !== chat.userId) {
-      return notFound();
-    }
-  }
-
-  const messagesFromDb = await getMessagesByChatId({ id });
-  const initialMessages = convertToUIMessages(messagesFromDb);
+  }, [chatContents, isLoading, router, session]);
 
   return (
     <div className="flex flex-col min-h-screen">
       <Navbar />
       <main className="flex-1 overflow-hidden pt-2">
-        <Chat
-          id={chat.id}
-          initialMessages={initialMessages}
-          selectedVisibilityType={chat.visibility}
-          isReadonly={session?.user?.id !== chat.userId}
-        />
-        <DataStreamHandler id={id} />
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-full">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="mt-2 text-sm text-muted-foreground">Loading chat...</p>
+          </div>
+        ) : error || !chatContents ? (
+          <div className="flex flex-col items-center justify-center h-full">
+            <p className="text-muted-foreground">Error: {error?.message || 'Chat not found'}</p>
+          </div>
+        ) : (
+          <>
+            <Chat
+              id={chatContents.chat.id}
+              initialMessages={chatContents.messages}
+              initialVotes={chatContents.votes}
+              initialDocuments={chatContents.documents}
+              selectedVisibilityType={chatContents.chat.visibility}
+              isReadonly={session?.user?.id !== chatContents.chat.userId}
+            />
+            <DataStreamHandler id={id} />
+          </>
+        )}
       </main>
     </div>
   );

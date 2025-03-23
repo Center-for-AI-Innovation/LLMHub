@@ -49,6 +49,8 @@ import {
 import type { Chat } from '@/lib/db/schema';
 import { fetcher } from '@/lib/utils';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
+import { useChatHistory, useDeleteChat } from '@/hooks/use-chat';
+import { useQueryClient } from '@tanstack/react-query';
 
 type GroupedChats = {
   today: Chat[];
@@ -153,44 +155,41 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
   const { setOpenMobile } = useSidebar();
   const { id } = useParams();
   const pathname = usePathname();
+  const queryClient = useQueryClient();
+  
   const {
     data: history,
     isLoading,
-    mutate,
-  } = useSWR<Array<Chat>>(user ? '/api/history' : null, fetcher, {
-    fallbackData: [],
-  });
-
+  } = useChatHistory(!!user);
+  
+  // Prevent refetching history when just navigating between chats
   useEffect(() => {
-    mutate();
-  }, [pathname, mutate]);
+    // When the active chat ID changes, don't refetch - just update the UI
+    // This prevents unnecessary API calls
+  }, [id]);
+  
+  const deleteChat = useDeleteChat();
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const router = useRouter();
+  
   const handleDelete = async () => {
-    const deletePromise = fetch(`/api/chat?id=${deleteId}`, {
-      method: 'DELETE',
-    });
-
-    toast.promise(deletePromise, {
-      loading: 'Deleting chat...',
-      success: () => {
-        mutate((history) => {
-          if (history) {
-            return history.filter((h) => h.id !== id);
-          }
-        });
-        return 'Chat deleted successfully';
+    if (!deleteId) return;
+    
+    deleteChat.mutate(deleteId, {
+      onSuccess: () => {
+        toast.success('Chat deleted successfully');
+        setShowDeleteDialog(false);
+        
+        if (deleteId === id) {
+          router.push('/');
+        }
       },
-      error: 'Failed to delete chat',
+      onError: () => {
+        toast.error('Failed to delete chat');
+      }
     });
-
-    setShowDeleteDialog(false);
-
-    if (deleteId === id) {
-      router.push('/');
-    }
   };
 
   if (!user) {

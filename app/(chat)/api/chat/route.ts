@@ -120,8 +120,9 @@ export async function POST(request: Request) {
         sendReasoning: true,
       });
     },
-    onError: () => {
-      return 'Oops, an error occured!';
+    onError: (error: unknown) => {
+      console.error('Chat API error:', error);
+      return `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`;
     },
   });
 }

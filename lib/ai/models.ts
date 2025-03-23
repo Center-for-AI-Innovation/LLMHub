@@ -1,4 +1,4 @@
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI, openai } from '@ai-sdk/openai';
 import { fireworks } from '@ai-sdk/fireworks';
 import {
   customProvider,
@@ -8,10 +8,16 @@ import {
 
 export const DEFAULT_CHAT_MODEL: string = 'chat-model-small';
 
+// Create custom OpenAI provider for NCSA endpoints
+const customOpenAI = createOpenAI({
+  baseURL: process.env.NCSA_BASE_URL,
+  apiKey: process.env.NCSA_API_KEY,
+});
+
 export const myProvider = customProvider({
   languageModels: {
     'chat-model-small': openai('gpt-4o-mini'),
-    'chat-model-large': openai('gpt-4o'),
+    'chat-model-large': customOpenAI('Qwen/Qwen2.5-VL-72B-Instruct'),
     'chat-model-reasoning': wrapLanguageModel({
       model: fireworks('accounts/fireworks/models/deepseek-r1'),
       middleware: extractReasoningMiddleware({ tagName: 'think' }),

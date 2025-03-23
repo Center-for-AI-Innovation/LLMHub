@@ -377,3 +377,46 @@ export async function searchAvailableModels({ query }: { query: string }) {
     )
     .orderBy(availableModel.family, availableModel.variant);
 }
+
+export async function getChatWithMessages({ id }: { id: string }) {
+  try {
+    const chatData = await getChatById({ id });
+    const messagesData = await getMessagesByChatId({ id });
+    const votesData = await getVotesByChatId({ id });
+    
+    // Get all unique document IDs referenced in messages
+    const documentIds = [...new Set(
+      messagesData
+        .filter(msg => typeof msg.content === 'string' && msg.content.includes('documentId'))
+        .map(msg => {
+          try {
+            // Try to extract documentId from the message content
+            const content = msg.content as string;
+            const match = content.match(/"documentId":\s*"([^"]+)"/);
+            return match ? match[1] : null;
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(Boolean) as string[]
+    )];
+    
+    // Fetch documents if there are any unique IDs
+    const documentsData = documentIds.length > 0 
+      ? await Promise.all(documentIds.map(docId => getDocumentsById({ id: docId })))
+      : [];
+    
+    // Flatten the array of document arrays
+    const flattenedDocuments = documentsData.flat();
+    
+    return {
+      chat: chatData,
+      messages: messagesData,
+      votes: votesData,
+      documents: flattenedDocuments
+    };
+  } catch (error) {
+    console.error('Failed to get chat with messages from database', error);
+    throw error;
+  }
+}

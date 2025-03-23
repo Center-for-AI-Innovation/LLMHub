@@ -4,7 +4,7 @@ import { updateChatVisibility } from '@/app/(chat)/actions';
 import { VisibilityType } from '@/components/visibility-selector';
 import { Chat } from '@/lib/db/schema';
 import { useMemo } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export function useChatVisibility({
   chatId,
@@ -13,16 +13,14 @@ export function useChatVisibility({
   chatId: string;
   initialVisibility: VisibilityType;
 }) {
-  const { mutate, cache } = useSWRConfig();
-  const history: Array<Chat> = cache.get('/api/history')?.data;
+  const queryClient = useQueryClient();
+  const history = queryClient.getQueryData<Chat[]>(['chatHistory']);
 
-  const { data: localVisibility, mutate: setLocalVisibility } = useSWR(
-    `${chatId}-visibility`,
-    null,
-    {
-      fallbackData: initialVisibility,
-    },
-  );
+  const { data: localVisibility, refetch: refreshLocalVisibility } = useQuery({
+    queryKey: [`${chatId}-visibility`],
+    queryFn: () => Promise.resolve(initialVisibility),
+    initialData: initialVisibility,
+  });
 
   const visibilityType = useMemo(() => {
     if (!history) return localVisibility;
@@ -32,26 +30,25 @@ export function useChatVisibility({
   }, [history, chatId, localVisibility]);
 
   const setVisibilityType = (updatedVisibilityType: VisibilityType) => {
-    setLocalVisibility(updatedVisibilityType);
+    // Update local visibility state
+    queryClient.setQueryData([`${chatId}-visibility`], updatedVisibilityType);
 
-    mutate<Array<Chat>>(
-      '/api/history',
-      (history) => {
-        return history
-          ? history.map((chat) => {
-              if (chat.id === chatId) {
-                return {
-                  ...chat,
-                  visibility: updatedVisibilityType,
-                };
-              }
-              return chat;
-            })
-          : [];
-      },
-      { revalidate: false },
-    );
+    // Update the chatHistory data in the cache
+    queryClient.setQueryData<Chat[]>(['chatHistory'], (oldData) => {
+      if (!oldData) return [];
+      
+      return oldData.map((chat) => {
+        if (chat.id === chatId) {
+          return {
+            ...chat,
+            visibility: updatedVisibilityType,
+          };
+        }
+        return chat;
+      });
+    });
 
+    // Call the server action to update the database
     updateChatVisibility({
       chatId: chatId,
       visibility: updatedVisibilityType,

@@ -22,7 +22,15 @@ export function AppSidebar({ user }: { user: User | undefined }) {
 
   const handleNewChat = () => {
     setOpenMobile(false);
-    router.push('/chat/new');
+    
+    // Check if we're already on the new chat page
+    const pathname = window.location.pathname;
+    if (pathname === '/chat' || pathname === '/chat/new') {
+      // Already on new chat, do nothing or just reset the chat UI
+      return;
+    }
+    
+    router.push('/chat');
   };
 
   return (

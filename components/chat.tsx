@@ -3,10 +3,11 @@
 import type { Attachment, Message, ChatRequestOptions } from 'ai';
 import { useChat } from 'ai/react';
 import { useState, useEffect } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
+import useSWR from 'swr';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 
-import type { Vote } from '@/lib/db/schema';
+import type { Vote, Document } from '@/lib/db/schema';
 import { fetcher, generateUUID } from '@/lib/utils';
 
 import { Artifact } from './artifact';
@@ -16,25 +17,52 @@ import { VisibilityType } from './visibility-selector';
 import { useArtifactSelector } from '@/hooks/use-artifact';
 import { toast } from 'sonner';
 import { useModelSelector } from '@/hooks/use-model-selector';
+import { useDocumentCache } from '@/hooks/use-document-cache';
 
 export function Chat({
   id,
   initialMessages,
+  initialVotes,
+  initialDocuments,
   selectedVisibilityType,
   isReadonly,
 }: {
   id: string;
   initialMessages: Array<Message>;
+  initialVotes?: Array<Vote>;
+  initialDocuments?: Array<Document>;
   selectedVisibilityType: VisibilityType;
   isReadonly: boolean;
 }) {
   const { selectedModel } = useModelSelector();
-  const { mutate } = useSWRConfig();
+  const queryClient = useQueryClient();
   const router = useRouter();
   const isTemporaryChat = id === 'new';
   const [chatId, setChatId] = useState(isTemporaryChat ? generateUUID() : id);
   const [hasCreatedChat, setHasCreatedChat] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [votes, setVotes] = useState<Array<Vote>>(initialVotes || []);
+  
+  // Initialize document cache with initialDocuments
+  const { addDocuments } = useDocumentCache();
+  
+  useEffect(() => {
+    if (initialDocuments?.length) {
+      // Group documents by ID
+      const documentsByIds = initialDocuments.reduce((acc, doc) => {
+        if (!acc[doc.id]) {
+          acc[doc.id] = [];
+        }
+        acc[doc.id].push(doc);
+        return acc;
+      }, {} as Record<string, Document[]>);
+      
+      // Add each group to the global cache
+      Object.entries(documentsByIds).forEach(([docId, docs]) => {
+        addDocuments(docId, docs);
+      });
+    }
+  }, [initialDocuments, addDocuments]);
 
   const {
     messages,
@@ -55,7 +83,7 @@ export function Chat({
     generateId: generateUUID,
     onFinish: () => {
       if (!isTemporaryChat) {
-        mutate('/api/history');
+        queryClient.invalidateQueries({ queryKey: ['chatHistory'] });
       }
     },
     onError: (error) => {
@@ -94,10 +122,18 @@ export function Chat({
     handleSubmit(event, chatRequestOptions);
   };
 
-  const { data: votes } = useSWR<Array<Vote>>(
-    !isTemporaryChat ? `/api/vote?chatId=${chatId}` : null,
+  // Only fetch votes if not provided through initialVotes
+  const { data: fetchedVotes } = useSWR<Array<Vote>>(
+    !isTemporaryChat && !initialVotes ? `/api/vote?chatId=${chatId}` : null,
     fetcher,
   );
+
+  // Update votes when fetchedVotes changes
+  useEffect(() => {
+    if (fetchedVotes) {
+      setVotes(fetchedVotes);
+    }
+  }, [fetchedVotes]);
 
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
@@ -162,6 +198,7 @@ export function Chat({
         reload={reload}
         votes={votes}
         isReadonly={isReadonly}
+        initialDocuments={initialDocuments}
       />
     </>
   );
