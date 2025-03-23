@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Bot, Code2, Database, Lock, Github } from 'lucide-react';
+import { Bot, Code2, Database, Lock, Github } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Navbar } from '@/components/navbar';
 import { ChatBar } from '@/components/chat-bar';

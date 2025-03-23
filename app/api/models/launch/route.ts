@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 
 // Backend API URL
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';

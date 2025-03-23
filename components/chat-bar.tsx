@@ -3,8 +3,7 @@
 import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { createChat } from '@/app/(chat)/actions';
-import { FormEvent } from 'react';
+import type { FormEvent } from 'react';
 
 export function ChatBar() {
   const router = useRouter();

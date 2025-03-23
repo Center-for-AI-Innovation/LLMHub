@@ -1,4 +1,4 @@
-import { Metadata } from 'next';
+import type { Metadata } from 'next';
 import { RequestModelForm } from '@/app/(marketing)/page-content/request-model-form';
 
 export const metadata: Metadata = {

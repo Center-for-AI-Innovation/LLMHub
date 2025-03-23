@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RequestModelDialog } from '@/components/request-model-dialog';
 import { cn } from '@/lib/utils';
-import { CalendarIcon } from '@radix-ui/react-icons';
 import Link from 'next/link';
 import {
   Sparkles,
@@ -20,7 +19,6 @@ import {
   CheckCircle2,
   Search,
   Calendar,
-  Play,
   Square,
   AlertCircle,
   ArrowRight,
@@ -33,7 +31,6 @@ import {
   useLaunchModel, 
   useStopModel,
   type ModelInfo,
-  type ModelDeployment
 } from '@/hooks/use-models';
 
 // Custom useDebounce hook
@@ -338,7 +335,7 @@ export default function CatalogPage() {
                           <div className="col-span-2">
                             <span className="font-medium">Context:</span> {model.specs.contextLength.toLocaleString()} tokens
                           </div>
-                          {deployment && deployment.expiresAt && (
+                          {deployment?.expiresAt && (
                             <div className="col-span-2 flex items-center gap-1 text-amber-500">
                               <Calendar className="size-3" />
                               <span>Expires: {new Date(deployment.expiresAt).toLocaleString()}</span>

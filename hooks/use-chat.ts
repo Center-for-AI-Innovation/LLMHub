@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Message } from 'ai';
+import type { Message } from 'ai';
 import { convertToUIMessages } from '@/lib/utils';
-import { VisibilityType } from '@/components/visibility-selector';
-import { Chat, Vote, Document } from '@/lib/db/schema';
-import { UseQueryOptions } from '@tanstack/react-query';
+import type { VisibilityType } from '@/components/visibility-selector';
+import type { Chat, Vote, Document } from '@/lib/db/schema';
+import type { UseQueryOptions } from '@tanstack/react-query';
 
 // Types for the chat and session data
 export interface ChatData {
@@ -179,7 +179,7 @@ export function useChats() {
 }
 
 // Fetch chat history with increased stale time to reduce refetches
-export function useChatHistory(enabled: boolean = true) {
+export function useChatHistory(enabled = true) {
   return useQuery({
     queryKey: ['chatHistory'],
     queryFn: async (): Promise<Chat[]> => {

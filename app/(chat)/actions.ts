@@ -1,9 +1,9 @@
 'use server';
 
-import { generateText, Message } from 'ai';
+import { generateText, type Message } from 'ai';
 import { cookies } from 'next/headers';
 import { auth } from '@/app/(auth)/auth';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 
 import {
   deleteMessagesByChatIdAfterTimestamp,
@@ -11,7 +11,7 @@ import {
   updateChatVisiblityById,
   saveChat,
 } from '@/lib/db/queries';
-import { VisibilityType } from '@/components/visibility-selector';
+import type { VisibilityType } from '@/components/visibility-selector';
 import { myProvider } from '@/lib/ai/models';
 
 export async function createChat() {

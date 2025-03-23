@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { BackendModelResponse, ModelInfo, getModelSize, generateModelDescription, formatModelName } from '@/lib/models/types';
+import { type NextRequest, NextResponse } from 'next/server';
+import { type BackendModelResponse, type ModelInfo, getModelSize, generateModelDescription, formatModelName } from '@/lib/models/types';
 
 // Backend API URL
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';

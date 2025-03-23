@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { BackendModelResponse, ModelInfo, getModelSize, generateModelDescription, formatModelName } from '@/lib/models/types';
+import { type BackendModelResponse, type ModelInfo, getModelSize, generateModelDescription, formatModelName } from '@/lib/models/types';
 import { getAvailableModels, searchAvailableModels } from '@/lib/db/queries';
 
 // Cache for model catalog
 let modelCatalogCache: ModelInfo[] | null = null;
-let lastCacheTime: number = 0;
+let lastCacheTime = 0;
 const CACHE_TTL = 1000 * 60 * 5; // 5 minutes
 
 // Backend API URL

@@ -6,7 +6,6 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import type { User } from 'next-auth';
 import { memo, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import useSWR from 'swr';
 
 import {
   CheckCircleFillIcon,
@@ -31,7 +30,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuPortal,
-  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -47,7 +45,6 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import type { Chat } from '@/lib/db/schema';
-import { fetcher } from '@/lib/utils';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { useChatHistory, useDeleteChat } from '@/hooks/use-chat';
 import { useQueryClient } from '@tanstack/react-query';
