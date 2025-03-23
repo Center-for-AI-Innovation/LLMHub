@@ -18,7 +18,7 @@ export default function ChatPage() {
   // Check authentication
   if (isLoading) {
     return (
-      <div className="flex flex-col min-h-screen">
+      <div className="flex flex-col min-h-screen bg-gradient-to-b from-background via-primary/5 to-background rounded-xl">
         <Navbar />
         <main className="flex-1 overflow-hidden pt-2">
           <div className="flex flex-col items-center justify-center h-full">
@@ -37,9 +37,8 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <Navbar />
-      <main className="flex-1 overflow-hidden pt-2">
+    <div className="flex flex-col min-h-screen  bg-gradient-to-b from-background via-primary/5 to-background rounded-xl">
+      <main className="flex-1 overflow-hidden rounded-xl">
         <Chat
           id="new"
           initialMessages={query ? [{ id: '1', role: 'user' as const, content: query, createdAt: new Date() }] : []}

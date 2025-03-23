@@ -52,9 +52,8 @@ export default function Page() {
   }, [chatContents, isLoading, router, session]);
 
   return (
-    <div className="flex flex-col min-h-screen">
-      <Navbar />
-      <main className="flex-1 overflow-hidden pt-2">
+      <div className="flex flex-col min-h-screen  bg-gradient-to-b from-background via-primary/5 to-background rounded-xl">
+        <main className="flex-1 overflow-hidden rounded-xl">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-full">
             <Loader2 className="size-8 animate-spin text-primary" />

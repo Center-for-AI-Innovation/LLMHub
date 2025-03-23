@@ -36,7 +36,7 @@ export const Messages = memo(function Messages({
 
   if (messages.length === 0) {
     return (
-      <div ref={containerRef} className="flex-1 overflow-y-auto">
+      <div ref={containerRef} className="flex-1 overflow-y-auto py-8 space-y-6 scrollbar-thin scrollbar-thumb-primary/10 hover:scrollbar-thumb-primary/20 scrollbar-track-transparent">
         <Overview isArtifactVisible={isArtifactVisible} />
         <div ref={endRef} className="h-[24px]" />
       </div>
@@ -44,7 +44,7 @@ export const Messages = memo(function Messages({
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto">
+    <div ref={containerRef} className="flex-1 overflow-y-auto py-8 my-8 space-y-6 scrollbar-thin scrollbar-thumb-primary/10 hover:scrollbar-thumb-primary/20 scrollbar-track-transparent">
       {messages.map((message) => (
         <PreviewMessage
           key={message.id}

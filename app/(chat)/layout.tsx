@@ -22,10 +22,14 @@ export default async function Layout({
         src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"
         strategy="beforeInteractive"
       />
-      <SidebarProvider defaultOpen={!isCollapsed}>
-        <AppSidebar user={session?.user} />
-        <SidebarInset>{children}</SidebarInset>
-      </SidebarProvider>
+      <div className="h-screen overflow-hidden bg-sidebar">
+        <SidebarProvider defaultOpen={!isCollapsed}>
+          <AppSidebar user={session?.user} />
+          <SidebarInset className="bg-background rounded-tl-[14px]  mt-4 ml-4 h-[calc(100vh-1rem)] shadow-2xl shadow-black/30 relative before:absolute before:inset-0 before:rounded-tl-[14px] before:border-l before:border-t before:border-accent/30 before:pointer-events-none">
+            {children}
+          </SidebarInset>
+        </SidebarProvider>
+      </div>
     </>
   );
 }

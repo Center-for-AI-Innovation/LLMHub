@@ -144,7 +144,7 @@ export function Chat({
 
   return (
     <>
-      <div className="flex flex-col min-w-0 h-full bg-background">
+      <div className="flex flex-col min-w-0 h-full bg-transparent">
         <div className="relative flex-1 overflow-hidden">
           <div className="absolute inset-0 flex flex-col">
             <Messages
@@ -158,7 +158,7 @@ export function Chat({
               isArtifactVisible={isArtifactVisible}
             />
 
-            <div className="shrink-0 bg-background">
+            <div className="shrink-0 bg-transparent">
               <div className="max-w-3xl mx-auto px-4 md:px-0">
                 <form onSubmit={handleFormSubmit} className="flex pb-4 md:pb-6 gap-2 w-full">
                   {!isReadonly && (
