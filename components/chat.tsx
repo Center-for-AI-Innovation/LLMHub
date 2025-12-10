@@ -18,10 +18,15 @@ import { useArtifactSelector } from '@/hooks/use-artifact';
 import { toast } from 'sonner';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useDocumentCache } from '@/hooks/use-document-cache';
+import { useVllmJob, getVllmChatEndpoint } from '@/hooks/use-vllm-job';
 
-// Helper to determine API endpoint based on model
-const getApiEndpoint = (model: string) => {
-  return model === 'vllm-model' ? '/api/vllm/chat' : '/api/chat';
+// Helper to determine API endpoint based on model and job ID
+const getApiEndpoint = (model: string, vllmJobId: string | null) => {
+  if (model === 'vllm-model') {
+    // Use job-based proxy if job ID is available, otherwise fallback to static proxy
+    return vllmJobId ? getVllmChatEndpoint(vllmJobId) : '/api/vllm/chat';
+  }
+  return '/api/chat';
 };
 
 // Inner component that handles the actual chat logic
@@ -30,6 +35,7 @@ function ChatInner({
   chatId,
   apiEndpoint,
   selectedModel,
+  vllmJobId,
   initialMessages,
   initialDocuments,
   initialVotes,
@@ -39,6 +45,7 @@ function ChatInner({
   chatId: string;
   apiEndpoint: string;
   selectedModel: string;
+  vllmJobId: string | null;
   initialMessages: Array<Message>;
   initialDocuments?: Array<Document>;
   initialVotes?: Array<Vote>;
@@ -71,6 +78,14 @@ function ChatInner({
     }
   }, [initialDocuments, addDocuments]);
 
+  // Log when using vLLM job-based proxy
+  useEffect(() => {
+    if (selectedModel === 'vllm-model' && vllmJobId) {
+      console.log(`[Chat] Using vLLM job-based proxy with job ID: ${vllmJobId}`);
+      console.log(`[Chat] API endpoint: ${apiEndpoint}`);
+    }
+  }, [selectedModel, vllmJobId, apiEndpoint]);
+
   const {
     messages,
     setMessages,
@@ -84,7 +99,12 @@ function ChatInner({
   } = useChat({
     id: chatId,
     api: apiEndpoint,
-    body: { id: chatId, selectedChatModel: selectedModel },
+    body: { 
+      id: chatId, 
+      selectedChatModel: selectedModel,
+      // Include vLLM job ID for tracking (optional, for logging)
+      ...(selectedModel === 'vllm-model' && vllmJobId ? { vllmJobId } : {}),
+    },
     initialMessages,
     experimental_throttle: 100,
     sendExtraMessageFields: true,
@@ -95,6 +115,7 @@ function ChatInner({
       }
     },
     onError: (error) => {
+      console.error('[Chat] Error:', error);
       toast.error('An error occurred, please try again!');
     },
   });
@@ -215,11 +236,21 @@ export function Chat({
   isReadonly: boolean;
 }) {
   const { selectedModel } = useModelSelector();
+  const { jobId: vllmJobId, isLoading: isVllmJobLoading } = useVllmJob();
   const isTemporaryChat = id === 'new';
   const [chatId] = useState(isTemporaryChat ? generateUUID() : id);
   
-  // Determine API endpoint based on selected model
-  const apiEndpoint = getApiEndpoint(selectedModel);
+  // Determine API endpoint based on selected model and vLLM job ID
+  const apiEndpoint = getApiEndpoint(selectedModel, vllmJobId);
+
+  // Show loading state while vLLM job ID is being loaded
+  if (selectedModel === 'vllm-model' && isVllmJobLoading) {
+    return (
+      <div className="flex flex-col min-w-0 h-full bg-transparent items-center justify-center">
+        <div className="text-muted-foreground">Initializing vLLM connection...</div>
+      </div>
+    );
+  }
 
   // Use a key that includes the API endpoint to force complete re-mount
   // when the model type changes. This ensures useChat hook is fully re-initialized.
@@ -229,6 +260,7 @@ export function Chat({
       chatId={chatId}
       apiEndpoint={apiEndpoint}
       selectedModel={selectedModel}
+      vllmJobId={vllmJobId}
       initialMessages={initialMessages}
       initialDocuments={initialDocuments}
       initialVotes={initialVotes}
