@@ -16,6 +16,8 @@ import {
   message,
   vote,
   availableModel,
+  vllmChatJob,
+  type VllmChatJob,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 
@@ -84,6 +86,13 @@ export async function deleteChatById({ id }: { id: string }) {
   try {
     await db.delete(vote).where(eq(vote.chatId, id));
     await db.delete(message).where(eq(message.chatId, id));
+    
+    // Also delete vLLM job associations
+    try {
+      await db.delete(vllmChatJob).where(eq(vllmChatJob.chatId, id));
+    } catch {
+      // Ignore if table doesn't exist
+    }
 
     return await db.delete(chat).where(eq(chat.id, id));
   } catch (error) {
@@ -425,6 +434,185 @@ export async function getChatWithMessages({ id }: { id: string }) {
     };
   } catch (error) {
     console.error('Failed to get chat with messages from database', error);
+    throw error;
+  }
+}
+
+// ==========================================
+// vLLM Chat Job Queries
+// ==========================================
+
+/**
+ * Build the proxy URL for a vLLM job
+ */
+export function buildProxyUrl(slurmJobId: string): string {
+  return `/api/v1/job/${slurmJobId}/chat/completions`;
+}
+
+/**
+ * Save a vLLM chat job association
+ */
+export async function saveVllmChatJob({
+  chatId,
+  userId,
+  slurmJobId,
+  modelName,
+  endpointUrl,
+  proxyUrl,
+}: {
+  chatId: string;
+  userId: string;
+  slurmJobId: string;
+  modelName?: string;
+  endpointUrl?: string;
+  proxyUrl?: string;
+}): Promise<void> {
+  try {
+    // Auto-generate proxy URL if not provided
+    const finalProxyUrl = proxyUrl || buildProxyUrl(slurmJobId);
+    
+    await db.insert(vllmChatJob).values({
+      chatId,
+      userId,
+      slurmJobId,
+      modelName: modelName || null,
+      endpointUrl: endpointUrl || null,
+      proxyUrl: finalProxyUrl,
+      status: 'active',
+    });
+  } catch (error) {
+    console.error('Failed to save vLLM chat job in database', error);
+    throw error;
+  }
+}
+
+/**
+ * Get vLLM job by chat ID
+ */
+export async function getVllmJobByChatId({ 
+  chatId 
+}: { 
+  chatId: string 
+}): Promise<VllmChatJob | null> {
+  try {
+    const [job] = await db
+      .select()
+      .from(vllmChatJob)
+      .where(eq(vllmChatJob.chatId, chatId))
+      .orderBy(desc(vllmChatJob.createdAt))
+      .limit(1);
+    return job || null;
+  } catch (error) {
+    console.error('Failed to get vLLM job by chat ID from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Get active vLLM job for a user
+ * Returns the most recent active job for a user
+ */
+export async function getActiveVllmJobByUserId({ 
+  userId 
+}: { 
+  userId: string 
+}): Promise<VllmChatJob | null> {
+  try {
+    const [job] = await db
+      .select()
+      .from(vllmChatJob)
+      .where(
+        and(
+          eq(vllmChatJob.userId, userId),
+          eq(vllmChatJob.status, 'active')
+        )
+      )
+      .orderBy(desc(vllmChatJob.createdAt))
+      .limit(1);
+    return job || null;
+  } catch (error) {
+    console.error('Failed to get active vLLM job by user ID from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Get vLLM job by Slurm job ID
+ */
+export async function getVllmJobByJobId({ 
+  slurmJobId 
+}: { 
+  slurmJobId: string 
+}): Promise<VllmChatJob | null> {
+  try {
+    const [job] = await db
+      .select()
+      .from(vllmChatJob)
+      .where(eq(vllmChatJob.slurmJobId, slurmJobId))
+      .limit(1);
+    return job || null;
+  } catch (error) {
+    console.error('Failed to get vLLM job by Slurm job ID from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Update vLLM job status
+ */
+export async function updateVllmJobStatus({
+  chatId,
+  status,
+}: {
+  chatId: string;
+  status: 'active' | 'inactive' | 'failed';
+}): Promise<void> {
+  try {
+    await db
+      .update(vllmChatJob)
+      .set({ 
+        status, 
+        updatedAt: new Date() 
+      })
+      .where(eq(vllmChatJob.chatId, chatId));
+  } catch (error) {
+    console.error('Failed to update vLLM job status in database', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete vLLM job by chat ID
+ */
+export async function deleteVllmJobByChatId({ 
+  chatId 
+}: { 
+  chatId: string 
+}): Promise<void> {
+  try {
+    await db.delete(vllmChatJob).where(eq(vllmChatJob.chatId, chatId));
+  } catch (error) {
+    console.error('Failed to delete vLLM job by chat ID from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all vLLM jobs for a user
+ */
+export async function getVllmJobsByUserId({ 
+  userId 
+}: { 
+  userId: string 
+}): Promise<VllmChatJob[]> {
+  try {
+    return await db
+      .select()
+      .from(vllmChatJob)
+      .where(eq(vllmChatJob.userId, userId))
+      .orderBy(desc(vllmChatJob.createdAt));
+  } catch (error) {
+    console.error('Failed to get vLLM jobs by user ID from database', error);
     throw error;
   }
 }
