@@ -1,3 +1,11 @@
+/**
+vLLM Chat static proxy route. Similar to the app/(chat)/api/chat/route.ts route, but uses the vLLM provider instead of the OpenAI provider.
+
+This route is used to proxy chat requests to the vLLM server.
+
+It is used when the user selects the "vLLM Local" model in the model selector.
+*/
+
 import {
   type Message,
   createDataStreamResponse,
@@ -14,6 +22,8 @@ import {
   getUserById,
   saveChat,
   saveMessages,
+  saveVllmChatJob,
+  getVllmJobByChatId,
 } from '@/lib/db/queries';
 import {
   generateUUID,
@@ -70,8 +80,13 @@ export async function POST(request: Request) {
       id,
       messages,
       selectedChatModel,
-    }: { id: string; messages: Array<Message>; selectedChatModel?: string } =
-      await request.json();
+      vllmJobId,
+    }: { 
+      id: string; 
+      messages: Array<Message>; 
+      selectedChatModel?: string;
+      vllmJobId?: string;
+    } = await request.json();
 
     // Step 1: Verify user is logged in
     const session = await auth();
@@ -107,6 +122,7 @@ export async function POST(request: Request) {
 
     // Step 3: Check if chat exists and verify ownership
     const existingChat = await getChatById({ id });
+    let isNewChat = false;
 
     if (existingChat) {
       // Verify the chat belongs to the current user
@@ -117,9 +133,35 @@ export async function POST(request: Request) {
         );
       }
     } else {
-      // Create new chat for this user - use vLLM to generate title (not OpenAI)
+      // Create new chat for this user - use vLLM to generate title
+      isNewChat = true;
       const title = await generateTitleWithVllm(userMessage);
       await saveChat({ id, userId, title });
+    }
+
+    // Step 4: Save vLLM job association if job ID is provided
+    if (vllmJobId) {
+      // Check if we already have a job record for this chat
+      const existingJob = await getVllmJobByChatId({ chatId: id });
+      
+      if (!existingJob) {
+        // Save the vLLM job association
+        console.log(`[vLLM Chat] Saving job association - chatId: ${id}, jobId: ${vllmJobId}`);
+        try {
+          await saveVllmChatJob({
+            chatId: id,
+            userId,
+            slurmJobId: vllmJobId,
+            modelName: VLLM_MODEL,
+            endpointUrl: process.env.VLLM_BASE_URL,
+          });
+        } catch (error) {
+          // Log but don't fail if job association fails (table might not exist yet)
+          console.warn('[vLLM Chat] Failed to save job association:', error);
+        }
+      } else {
+        console.log(`[vLLM Chat] Job association already exists for chatId: ${id}`);
+      }
     }
 
     // Save the user message to the database
