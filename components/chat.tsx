@@ -99,6 +99,11 @@ function ChatInner({
   } = useChat({
     id: chatId,
     api: apiEndpoint,
+    headers: {
+      // Request AI SDK data stream format for useChat hook compatibility
+      // Without this header, the API returns standard OpenAI SSE format
+      'x-response-format': 'ai-sdk',
+    },
     body: { 
       id: chatId, 
       selectedChatModel: selectedModel,
