@@ -23,6 +23,7 @@ class ModelDeploymentCreate(ModelDeploymentBase):
     qos: Optional[str] = None
     time: Optional[str] = None
     data_type: Optional[str] = None
+    work_dir: Optional[str] = None  # Optional working directory for vec-inf jobs
     enable_cloudflare_tunnel: Optional[bool] = False  # Added flag for enabling Cloudflare tunnel
 
 

@@ -90,6 +90,11 @@ class LLMInferenceClient:
             mapped["venv"] = settings.DEFAULT_VENV
             logger.info(f"Using default venv from settings: {settings.DEFAULT_VENV}")
 
+        # Optional working directory for vec-inf jobs
+        # This allows API payloads to pass work_dir through to LaunchOptions
+        if params.get("work_dir") is not None:
+            mapped["work_dir"] = params["work_dir"]
+
         # Account from settings if not provided
         if params.get("account") is not None:
             mapped["account"] = params["account"]

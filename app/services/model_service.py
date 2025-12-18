@@ -510,11 +510,142 @@ class ModelService:
         if not result.get("success", False):
             logger.error(f"Failed to get detailed models: {result.get('error', 'Unknown error')}")
             return []
-        # The new API should return a list of models directly in result["models"]
-        models = result.get("models", [])
-        if isinstance(models, list):
-            return models
-        return []
+        
+        # Get list of model names
+        model_names = result.get("models", [])
+        if not isinstance(model_names, list):
+            logger.error(f"Expected list of model names, got {type(model_names)}")
+            return []
+        
+        # Fetch detailed information for each model
+        detailed_models = []
+        for model_name in model_names:
+            # Handle both string model names and dict/model objects
+            if isinstance(model_name, str):
+                # Fetch model details
+                details_result = self.llm_client.get_model_details(model_name)
+                if details_result.get("success", False):
+                    model_config = details_result.get("details", {})
+                    # Convert model config to expected format
+                    # Handle both dict and object formats
+                    if isinstance(model_config, dict):
+                        model_dict = model_config
+                    elif hasattr(model_config, '__dict__'):
+                        # Object with __dict__, convert to dict
+                        model_dict = model_config.__dict__.copy()
+                    else:
+                        # Try to access as attributes and convert to dict
+                        model_dict = {}
+                        for attr in ['model_family', 'model_variant', 'model_type', 'gpus_per_node', 
+                                    'num_gpus', 'num_nodes', 'vocab_size', 'huggingface_id', 
+                                    'vllm_args', 'max_model_len', 'pipeline_parallelism']:
+                            if hasattr(model_config, attr):
+                                model_dict[attr] = getattr(model_config, attr)
+                    
+                    # Helper to get value from dict or object
+                    def get_value(key, default=None):
+                        if key in model_dict:
+                            return model_dict[key]
+                        if not isinstance(model_config, dict) and hasattr(model_config, key):
+                            return getattr(model_config, key)
+                        return default
+                    
+                    # Extract fields and normalize names
+                    # Check if max_model_len and pipeline_parallelism are already extracted
+                    max_model_len = get_value("max_model_len")
+                    if not max_model_len:
+                        max_model_len = self._extract_max_model_len(model_dict, model_config)
+                    
+                    pipeline_parallelism = get_value("pipeline_parallelism")
+                    if pipeline_parallelism is None:
+                        pipeline_parallelism = self._extract_pipeline_parallelism(model_dict, model_config)
+                    
+                    model_data = {
+                        "model_name": model_name,
+                        "model_family": get_value("model_family", ""),
+                        "model_variant": get_value("model_variant", ""),
+                        "model_type": get_value("model_type", "LLM"),
+                        "num_gpus": get_value("gpus_per_node") or get_value("num_gpus", 1),
+                        "num_nodes": get_value("num_nodes", 1),
+                        "max_model_len": max_model_len,
+                        "pipeline_parallelism": pipeline_parallelism,
+                        "vocab_size": get_value("vocab_size"),
+                        "huggingface_id": get_value("huggingface_id"),
+                    }
+                    detailed_models.append(model_data)
+                else:
+                    logger.warning(f"Failed to get details for model {model_name}: {details_result.get('error', 'Unknown error')}")
+            elif isinstance(model_name, dict):
+                # Already a dict, use as-is
+                detailed_models.append(model_name)
+            else:
+                logger.warning(f"Unexpected model format: {type(model_name)}")
+        
+        return detailed_models
+    
+    def _extract_max_model_len(self, model_dict: Dict[str, Any], model_config: Any = None) -> int:
+        """Extract max_model_len from vllm_args or model config."""
+        # Check vllm_args
+        vllm_args = model_dict.get("vllm_args", {})
+        if not vllm_args and model_config and not isinstance(model_config, dict):
+            vllm_args = getattr(model_config, "vllm_args", {})
+        
+        if isinstance(vllm_args, dict):
+            max_len = vllm_args.get("--max-model-len")
+            if max_len:
+                return int(max_len)
+        elif isinstance(vllm_args, str):
+            # Parse from string format
+            if "--max-model-len" in vllm_args:
+                parts = vllm_args.split("--max-model-len")
+                if len(parts) > 1:
+                    try:
+                        return int(parts[1].split()[0])
+                    except (ValueError, IndexError):
+                        pass
+        
+        # Check direct field
+        max_len = model_dict.get("max_model_len")
+        if max_len:
+            return int(max_len)
+        if model_config and not isinstance(model_config, dict):
+            max_len = getattr(model_config, "max_model_len", None)
+            if max_len:
+                return int(max_len)
+        
+        return 4096
+    
+    def _extract_pipeline_parallelism(self, model_dict: Dict[str, Any], model_config: Any = None) -> bool:
+        """Extract pipeline_parallelism from vllm_args or model config."""
+        # Check vllm_args
+        vllm_args = model_dict.get("vllm_args", {})
+        if not vllm_args and model_config and not isinstance(model_config, dict):
+            vllm_args = getattr(model_config, "vllm_args", {})
+        
+        if isinstance(vllm_args, dict):
+            pipeline_size = vllm_args.get("--pipeline-parallel-size")
+            if pipeline_size:
+                return int(pipeline_size) > 1
+        elif isinstance(vllm_args, str):
+            # Parse from string format
+            if "--pipeline-parallel-size" in vllm_args:
+                parts = vllm_args.split("--pipeline-parallel-size")
+                if len(parts) > 1:
+                    try:
+                        return int(parts[1].split()[0]) > 1
+                    except (ValueError, IndexError):
+                        pass
+        
+        # Check direct field
+        pipeline_parallelism = model_dict.get("pipeline_parallelism")
+        if pipeline_parallelism is not None:
+            return bool(pipeline_parallelism)
+        if model_config and not isinstance(model_config, dict):
+            pipeline_parallelism = getattr(model_config, "pipeline_parallelism", None)
+            if pipeline_parallelism is not None:
+                return bool(pipeline_parallelism)
+        
+        return False
 
     def _process_model(self, model_data: Dict[str, Any], existing_model: Optional[AvailableModel] = None) -> Dict[str, Any]:
         """Process a single model and prepare it for database operation.
