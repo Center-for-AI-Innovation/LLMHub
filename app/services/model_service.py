@@ -176,8 +176,14 @@ class ModelService:
             db.refresh(db_deployment)
             return db_deployment
         
-        # Extract the Slurm job ID from the result
-        slurm_job_id = result.get("job_id")
+        # Extract the Slurm job ID from the result (support multiple keys)
+        slurm_job_id: Optional[str] = result.get("job_id") or result.get("slurm_job_id")
+        # vec-inf sometimes emits a trailing "\nAccount:" due to environment prompts; sanitize
+        if isinstance(slurm_job_id, str):
+            slurm_job_id = slurm_job_id.strip()
+            # Remove any trailing fragments after a newline
+            if "\n" in slurm_job_id:
+                slurm_job_id = slurm_job_id.split("\n", 1)[0].strip()
         if not slurm_job_id:
             # Release allocated resources if launch failed
             if num_gpus:
@@ -500,21 +506,14 @@ class ModelService:
 
     def get_detailed_models(self) -> List[Dict[str, Any]]:
         """Get detailed information about all available models."""
-        result = self.llm_client.run_command(["vec-inf", "list", "--json-mode", "--detailed"])
-        
+        result = self.llm_client.list_available_models()
         if not result.get("success", False):
             logger.error(f"Failed to get detailed models: {result.get('error', 'Unknown error')}")
             return []
-        
-        # Parse the output if it's a string
-        if isinstance(result.get("output"), str):
-            try:
-                models = json.loads(result["output"])
-                if isinstance(models, list):
-                    return models
-            except json.JSONDecodeError:
-                logger.error(f"Failed to parse JSON from output: {result.get('output')}")
-        
+        # The new API should return a list of models directly in result["models"]
+        models = result.get("models", [])
+        if isinstance(models, list):
+            return models
         return []
 
     def _process_model(self, model_data: Dict[str, Any], existing_model: Optional[AvailableModel] = None) -> Dict[str, Any]:

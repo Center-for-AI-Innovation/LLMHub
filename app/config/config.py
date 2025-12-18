@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # HPC settings
     SLURM_LOG_DIR: Optional[str] = None  # Default log directory for Slurm jobs
     SLURM_ACCOUNT: Optional[str] = None  # SLURM account for job submission
+    DEFAULT_VENV: str = "apptainer"  # Default container runtime (apptainer/singularity)
+    MODEL_CONFIG_PATH: Optional[str] = None  # Path to custom model configuration YAML file
+    VEC_INF_CONFIG_DIR: Optional[str] = None  # Directory containing environment.yaml and models.yaml for vec-inf
     
     # Background service settings
     SYNC_INTERVAL: int = int(os.getenv("SYNC_INTERVAL", "60"))  # deployment sync interval in seconds
