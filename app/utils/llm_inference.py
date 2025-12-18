@@ -53,7 +53,7 @@ class LLMInferenceClient:
         Supported incoming params:
           - num_gpus -> gpus_per_node
           - num_nodes -> num_nodes
-          - partition, qos, time, data_type, account
+          - partition, qos, time, data_type, resource_type, account
           - max_model_len, max_num_seqs -> vllm_args string
         """
         mapped: Dict[str, Any] = {}
@@ -84,9 +84,13 @@ class LLMInferenceClient:
                 mapped["time"] = str(time_value)
         if params.get("data_type") is not None:
             mapped["data_type"] = params["data_type"]
+        if params.get("resource_type") is not None:
+            mapped["resource_type"] = params["resource_type"]
         if params.get("venv") is not None:
             mapped["venv"] = params["venv"]
-        elif settings.DEFAULT_VENV:
+        elif settings.DEFAULT_VENV and settings.DEFAULT_VENV != "apptainer":
+            # Only set venv if it's an actual path, not a container runtime name
+            # "apptainer" is a runtime name, not a venv path
             mapped["venv"] = settings.DEFAULT_VENV
             logger.info(f"Using default venv from settings: {settings.DEFAULT_VENV}")
 
@@ -103,13 +107,14 @@ class LLMInferenceClient:
             logger.info(f"Using SLURM account from environment: {self.slurm_account}")
 
         # vLLM args composition
+        # Format: "--max-model-len=8192,--max-num-seqs=256" (comma-separated with equals)
         vllm_parts: List[str] = []
         if params.get("max_model_len") is not None:
-            vllm_parts += ["--max-model-len", str(params["max_model_len"])]
+            vllm_parts.append(f"--max-model-len={params['max_model_len']}")
         if params.get("max_num_seqs") is not None:
-            vllm_parts += ["--max-num-seqs", str(params["max_num_seqs"])]
+            vllm_parts.append(f"--max-num-seqs={params['max_num_seqs']}")
         if vllm_parts:
-            mapped["vllm_args"] = " ".join(vllm_parts)
+            mapped["vllm_args"] = ",".join(vllm_parts)
 
         # Cloudflare tunnel currently controlled by CLI flags; SDK support may differ.
         # If SDK exposes it via env/config, wire it here in the future.
