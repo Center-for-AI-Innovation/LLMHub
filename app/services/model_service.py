@@ -663,7 +663,8 @@ class ModelService:
         
         # Extract model information
         model_family = model_data.get("model_family", "")
-        model_variant = model_data.get("model_variant", "")
+        # Ensure variant is never NULL for the database NOT NULL constraint
+        model_variant = model_data.get("model_variant") or ""
         model_type = model_data.get("model_type", "LLM")
         num_gpus = model_data.get("num_gpus", 1)
         num_nodes = model_data.get("num_nodes", 1)
