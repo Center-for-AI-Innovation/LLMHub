@@ -31,15 +31,6 @@ export function isChatCompletionsEndpoint(path: string[]): boolean {
 }
 
 /**
- * Check if the request wants AI SDK data stream format
- * Requests with 'x-response-format: ai-sdk' header get Vercel AI SDK format
- * All other requests get standard OpenAI-compatible responses
- */
-export function isAiSdkRequest(request: Request): boolean {
-  return request.headers.get('x-response-format') === 'ai-sdk';
-}
-
-/**
  * Create a dynamic vLLM provider for a specific deployment
  * 
  * @param deployment - The deployment info containing endpoint URLs

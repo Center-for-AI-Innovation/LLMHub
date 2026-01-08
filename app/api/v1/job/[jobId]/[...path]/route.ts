@@ -26,16 +26,11 @@ import {
   getDeploymentByJobId,
   validateDeployment,
   userOwnsDeployment,
-  buildVllmUrl,
-  proxyStreamingRequest,
-  proxyRequest,
-  isStreamingEndpoint,
   createErrorResponse,
   isTestJobId,
 } from '@/lib/vllm-proxy';
 import {
   isChatCompletionsEndpoint,
-  isAiSdkRequest,
   handleChatCompletions,
 } from '@/lib/vllm-ai-sdk';
 
@@ -103,21 +98,10 @@ async function handleRequest(
     // Step 6: Handle chat completions specially using AI SDK
     // Only use AI SDK format when the x-ai-sdk header is present (from useChat hook)
     // Direct API calls without this header get standard OpenAI-compatible responses
-    if (isChatCompletionsEndpoint(path) && request.method === 'POST' && isAiSdkRequest(request)) {
+    if (isChatCompletionsEndpoint(path) && request.method === 'POST') {
       console.log(`[vLLM Job Proxy] Using AI SDK for chat completions - job: ${jobId}`);
       return await handleChatCompletions(request, deployment, userId);
     }
-
-    // Step 7: Build the target vLLM URL for other endpoints
-    const targetUrl = buildVllmUrl(deployment, path);
-
-    // Step 8: Proxy the request
-    // Use streaming proxy for completions endpoints (non-chat)
-    if (isStreamingEndpoint(path)) {
-      return await proxyStreamingRequest(targetUrl, request);
-    }
-    
-    return await proxyRequest(targetUrl, request);
   } catch (error) {
     console.error('vLLM Proxy error:', error);
     return createErrorResponse(
