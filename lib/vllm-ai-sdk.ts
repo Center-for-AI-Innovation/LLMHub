@@ -106,7 +106,7 @@ export async function handleChatCompletions(
 
   // Create dynamic provider for this deployment
   const vllmProvider = createVllmProvider(deployment);
-  const modelName = deployment.modelName || process.env.VLLM_MODEL || 'default';
+  const modelName = deployment.modelName ?? process.env.VLLM_MODEL;
 
   return createDataStreamResponse({
     execute: (dataStream) => {
