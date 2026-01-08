@@ -142,7 +142,11 @@ export async function handleChatCompletions(
                 })),
               });
             } catch (error) {
-              console.error('[vLLM AI SDK] Failed to save chat response:', error);
+              console.error('[vLLM AI SDK] Failed to save chat response:', {
+                error,
+                chatId,
+                userId,
+              });
             }
           }
         },
