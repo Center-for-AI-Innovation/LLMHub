@@ -185,6 +185,13 @@ export async function POST(request: Request) {
             // Only save messages for the authenticated user
             if (session.user?.id) {
               try {
+                // Verify ownership before saving response messages
+                const chat = await getChatById({ id });
+                if (!chat || chat.userId !== userId) {
+                  console.error('[vLLM Chat] Unauthorized attempt to save response to chat:', id);
+                  return;
+                }
+
                 const sanitizedResponseMessages = sanitizeResponseMessages({
                   messages: response.messages,
                   reasoning,

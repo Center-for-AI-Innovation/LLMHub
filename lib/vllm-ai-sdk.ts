@@ -91,6 +91,11 @@ export async function handleChatCompletions(
         ? userMessage.content.slice(0, 80)
         : 'New Chat';
       await saveChat({ id: chatId, userId, title });
+    } else {
+      // Verify the chat belongs to the current user
+      if (existingChat.userId !== userId) {
+        return createErrorResponse('Unauthorized - You do not have access to this chat', 403);
+      }
     }
 
     // Save the user message
@@ -115,6 +120,13 @@ export async function handleChatCompletions(
         onFinish: async ({ response, reasoning }) => {
           if (id) {
             try {
+              // Verify ownership before saving response messages
+              const chat = await getChatById({ id });
+              if (!chat || chat.userId !== userId) {
+                console.error('[vLLM AI SDK] Unauthorized attempt to save response to chat:', id);
+                return;
+              }
+
               const sanitizedResponseMessages = sanitizeResponseMessages({
                 messages: response.messages,
                 reasoning,
