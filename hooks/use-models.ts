@@ -24,7 +24,7 @@ export interface ModelDeployment {
   id: string;
   modelId: string;
   modelName: string;
-  userId: string[]; // multiple users can have access to the same deployment
+  userId: string;
   slurmJobId: string;
   status: 'pending' | 'launching' | 'ready' | 'running' | 'failed' | 'shutdown' | 'completed';
   endpointUrl: string | null;

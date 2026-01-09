@@ -159,7 +159,7 @@ export const modelDeployment = pgTable('ModelDeployment', {
     .notNull()
     .references(() => availableModel.id),
   modelName: varchar('modelName', { length: 255 }).notNull(),
-  userId: uuid('userId').array().notNull().references(() => user.id),
+  userId: uuid('userId').notNull().references(() => user.id),
   slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
   status: varchar('status', {
     enum: ['pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],

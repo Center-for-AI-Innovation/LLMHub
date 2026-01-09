@@ -263,10 +263,6 @@ export function validateDeployment(deployment: ModelDeployment): { isValid: bool
  * @returns true if the user has access to the deployment
  */
 export function userOwnsDeployment(deployment: ModelDeployment, userId: string): boolean {
-  // Handle both single userId (string) and array of userIds
-  if (Array.isArray(deployment.userId)) {
-    return deployment.userId.includes(userId);
-  }
   return deployment.userId === userId;
 }
 

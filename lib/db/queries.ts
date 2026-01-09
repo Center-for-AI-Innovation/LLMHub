@@ -456,11 +456,10 @@ export async function getModelDeploymentByJobId(slurmJobId: string): Promise<Mod
 
 export async function getModelDeploymentsByUserId(userId: string): Promise<ModelDeployment[]> {
   try {
-    // userId is an array column, use SQL array containment operator
     return await db
       .select()
       .from(modelDeployment)
-      .where(sql`${modelDeployment.userId} @> ARRAY[${userId}]::uuid[]`);
+      .where(eq(modelDeployment.userId, userId));
   } catch (error) {
     console.error('Failed to get model deployments by user id from database');
     throw error;
@@ -473,14 +472,13 @@ export async function getModelDeploymentsByUserId(userId: string): Promise<Model
  */
 export async function getActiveModelDeploymentByUserId(userId: string): Promise<ModelDeployment | null> {
   try {
-    // userId is an array column, use SQL array containment operator
     // Look for deployments where status is 'ready' or 'running'
     const [deployment] = await db
       .select()
       .from(modelDeployment)
       .where(
         and(
-          sql`${modelDeployment.userId} @> ARRAY[${userId}]::uuid[]`,
+          eq(modelDeployment.userId, userId),
           or(
             eq(modelDeployment.status, 'ready'),
             eq(modelDeployment.status, 'running')
