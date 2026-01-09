@@ -155,13 +155,14 @@ export type ResourceAllocation = InferSelectModel<typeof resourceAllocation>;
 
 export const modelDeployment = pgTable('ModelDeployment', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
-  modelName: varchar('modelName', { length: 255 }).notNull(),
-  userId: uuid('userId')
+  modelId: varchar('modelId', { length: 255 })
     .notNull()
-    .references(() => user.id),
+    .references(() => availableModel.id),
+  modelName: varchar('modelName', { length: 255 }).notNull(),
+  userId: uuid('userId').array().notNull().references(() => user.id),
   slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
   status: varchar('status', {
-    enum: ['pending', 'launching', 'ready', 'failed', 'shutdown'],
+    enum: ['pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],
   })
     .notNull()
     .default('pending'),
@@ -169,9 +170,9 @@ export const modelDeployment = pgTable('ModelDeployment', {
   tunnelUrl: varchar('tunnelUrl', { length: 255 }),
   errorMessage: text('errorMessage'),
   resourceAllocation: json('resourceAllocation'),
-  expirationTime: timestamp('expirationTime'),
   createdAt: timestamp('createdAt').notNull().defaultNow(),
   updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  expiresAt: timestamp('expiresAt'),
 });
 
 export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
@@ -193,28 +194,3 @@ export const availableModel = pgTable('AvailableModel', {
 });
 
 export type AvailableModel = InferSelectModel<typeof availableModel>;
-
-// Table to link chats with vLLM jobs
-// This stores the mapping between a chat session and the vLLM job ID used for that chat
-export const vllmChatJob = pgTable('VllmChatJob', {
-  id: uuid('id').primaryKey().notNull().defaultRandom(),
-  chatId: uuid('chatId')
-    .notNull()
-    .references(() => chat.id),
-  userId: uuid('userId')
-    .notNull()
-    .references(() => user.id),
-  slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
-  modelName: varchar('modelName', { length: 255 }),
-  // The actual vLLM server URL (e.g., http://worker-node:8000)
-  endpointUrl: varchar('endpointUrl', { length: 255 }),
-  // The frontend proxy URL for users to call (e.g., /api/v1/job/{jobId}/chat/completions)
-  proxyUrl: varchar('proxyUrl', { length: 255 }),
-  status: varchar('status', { enum: ['active', 'inactive', 'failed'] })
-    .notNull()
-    .default('active'),
-  createdAt: timestamp('createdAt').notNull().defaultNow(),
-  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
-});
-
-export type VllmChatJob = InferSelectModel<typeof vllmChatJob>;
