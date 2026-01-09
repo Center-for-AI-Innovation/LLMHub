@@ -14,6 +14,10 @@
  * 2. Verifies user owns the deployment
  * 3. Verifies deployment is in "ready" status
  * 4. Proxies the request to the actual vLLM endpoint
+ * 
+ * For chat/completions with the x-ai-sdk header, uses Vercel AI SDK's 
+ * createDataStreamResponse to ensure compatibility with the useChat hook.
+ * Direct API calls without this header receive standard OpenAI-compatible responses.
  */
 
 import { auth } from '@/app/(auth)/auth';
@@ -22,13 +26,13 @@ import {
   getDeploymentByJobId,
   validateDeployment,
   userOwnsDeployment,
-  buildVllmUrl,
-  proxyStreamingRequest,
-  proxyRequest,
-  isStreamingEndpoint,
   createErrorResponse,
   isTestJobId,
 } from '@/lib/vllm-proxy';
+import {
+  isChatCompletionsEndpoint,
+  handleChatCompletions,
+} from '@/lib/vllm-ai-sdk';
 
 export const maxDuration = 60;
 
@@ -91,16 +95,13 @@ async function handleRequest(
       return createErrorResponse(validation.error || 'Deployment is not available', 503);
     }
 
-    // Step 6: Build the target vLLM URL
-    const targetUrl = buildVllmUrl(deployment, path);
-
-    // Step 7: Proxy the request
-    // Use streaming proxy for chat/completions endpoints
-    if (isStreamingEndpoint(path)) {
-      return await proxyStreamingRequest(targetUrl, request);
+    // Step 6: Handle chat completions specially using AI SDK
+    // Only use AI SDK format when the x-ai-sdk header is present (from useChat hook)
+    // Direct API calls without this header get standard OpenAI-compatible responses
+    if (isChatCompletionsEndpoint(path) && request.method === 'POST') {
+      console.log(`[vLLM Job Proxy] Using AI SDK for chat completions - job: ${jobId}`);
+      return await handleChatCompletions(request, deployment, userId);
     }
-    
-    return await proxyRequest(targetUrl, request);
   } catch (error) {
     console.error('vLLM Proxy error:', error);
     return createErrorResponse(

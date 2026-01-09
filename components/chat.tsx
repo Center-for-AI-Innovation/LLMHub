@@ -99,6 +99,7 @@ function ChatInner({
   } = useChat({
     id: chatId,
     api: apiEndpoint,
+    headers: {},
     body: { 
       id: chatId, 
       selectedChatModel: selectedModel,
