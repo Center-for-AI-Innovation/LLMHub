@@ -19,9 +19,9 @@ import {
 } from 'ai';
 
 import { getChatById, saveChat, saveMessages } from '@/lib/db/queries';
-import { generateUUID, getMostRecentUserMessage, sanitizeResponseMessages } from '@/lib/utils';
+import { generateUUID, getMostRecentUserMessage, sanitizeResponseMessages, createErrorResponse } from '@/lib/utils';
 import { systemPrompt } from '@/lib/ai/prompts';
-import { createErrorResponse, type DeploymentInfo } from '@/lib/vllm-proxy';
+import type { ModelDeployment } from '@/hooks/use-models';
 
 /**
  * Check if the path is a chat completions endpoint
@@ -36,7 +36,7 @@ export function isChatCompletionsEndpoint(path: string[]): boolean {
  * @param deployment - The deployment info containing endpoint URLs
  * @returns An OpenAI-compatible provider configured for the deployment
  */
-export function createVllmProvider(deployment: DeploymentInfo) {
+export function createVllmProvider(deployment: ModelDeployment) {
   const baseUrl = deployment.tunnelUrl || deployment.endpointUrl;
   if (!baseUrl) {
     throw new Error('No endpoint URL available for deployment');
@@ -62,7 +62,7 @@ export function createVllmProvider(deployment: DeploymentInfo) {
  */
 export async function handleChatCompletions(
   request: Request,
-  deployment: DeploymentInfo,
+  deployment: ModelDeployment,
   userId: string
 ): Promise<Response> {
   const body = await request.json();

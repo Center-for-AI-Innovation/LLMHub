@@ -1,38 +1,20 @@
 /**
  * vLLM Job Management API
  * 
+ * Route for hook use-vllm-job to get user active vLLM job
  * Manages vLLM job IDs for the authenticated user.
+ * Fetches job information from the ModelDeployment table.
  * 
- * GET: Fetch user's active vLLM job from the database
- * POST: Create a new job (test job in development mode)
- * DELETE: Clear/deactivate the user's current job
+ * GET: Fetch user's active vLLM job from ModelDeployment table
+ * POST: Refresh/revalidate the deployment info
  */
 
 import { NextResponse } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
-import {
-  getActiveVllmJobByUserId,
-  saveVllmChatJob,
-  updateVllmJobStatus,
-  saveChat,
-  buildProxyUrl,
-} from '@/lib/db/queries';
-import { generateUUID } from '@/lib/utils';
-
-// vLLM configuration
-const VLLM_MODEL = process.env.VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct';
-const VLLM_BASE_URL = process.env.VLLM_BASE_URL?.replace(/\/v1\/?$/, '') || 'http://localhost:8000';
+import { getActiveModelDeploymentByUserId } from '@/lib/db/queries';
 
 /**
- * Generate a test job ID with "test-" prefix
- */
-function generateTestJobId(): string {
-  const randomNum = Math.floor(100000 + Math.random() * 900000);
-  return `test-${randomNum}`;
-}
-
-/**
- * GET - Get user's active vLLM job
+ * GET - Get user's active vLLM job from ModelDeployment table
  */
 export async function GET() {
   try {
@@ -47,76 +29,36 @@ export async function GET() {
 
     const userId = session.user.id;
 
-    // Try to get active job from database
+    // Get active deployment from ModelDeployment table
     try {
-      const activeJob = await getActiveVllmJobByUserId({ userId });
+      const activeDeployment = await getActiveModelDeploymentByUserId(userId);
       
-      if (activeJob) {
+      if (activeDeployment) {
+        // Found an active deployment in ModelDeployment table
+        // proxyUrl is built inline - clients can also use getVllmChatEndpoint from use-vllm-job hook
         return NextResponse.json({
-          jobId: activeJob.slurmJobId,
-          chatId: activeJob.chatId,
-          proxyUrl: activeJob.proxyUrl || buildProxyUrl(activeJob.slurmJobId),
-          endpointUrl: activeJob.endpointUrl,
-          modelName: activeJob.modelName,
-          status: activeJob.status,
-          isTest: activeJob.slurmJobId.startsWith('test-'),
+          jobId: activeDeployment.slurmJobId,
+          deploymentId: activeDeployment.id,
+          modelId: activeDeployment.modelId,
+          proxyUrl: `/api/v1/job/${activeDeployment.slurmJobId}/chat/completions`,
+          endpointUrl: activeDeployment.endpointUrl,
+          tunnelUrl: activeDeployment.tunnelUrl,
+          modelName: activeDeployment.modelName,
+          status: activeDeployment.status,
+          expiresAt: activeDeployment.expiresAt,
+          createdAt: activeDeployment.createdAt,
         });
       }
     } catch (error) {
-      // Table might not exist yet, continue to create a test job
-      console.log('[vLLM Job API] Database query failed, may need migration:', error);
+      // ModelDeployment table might not exist or query failed
+      console.error('[vLLM Job API] ModelDeployment query failed:', error);
+      return NextResponse.json(
+        { error: 'Failed to query deployments', jobId: null },
+        { status: 500 }
+      );
     }
 
-    // In development mode, auto-create a test job if none exists
-    const isDevelopment = process.env.NODE_ENV === 'development';
-    
-    if (isDevelopment) {
-      const jobId = generateTestJobId();
-      const chatId = generateUUID();
-      
-      // Create a chat for this job
-      try {
-        await saveChat({
-          id: chatId,
-          userId,
-          title: 'vLLM Chat Session',
-        });
-
-        const proxyUrl = buildProxyUrl(jobId);
-        
-        await saveVllmChatJob({
-          chatId,
-          userId,
-          slurmJobId: jobId,
-          modelName: VLLM_MODEL,
-          endpointUrl: VLLM_BASE_URL,
-          proxyUrl,
-        });
-
-        return NextResponse.json({
-          jobId,
-          chatId,
-          proxyUrl,
-          endpointUrl: VLLM_BASE_URL,
-          modelName: VLLM_MODEL,
-          status: 'active',
-          isTest: true,
-        });
-      } catch (error) {
-        // If database save fails, return job ID anyway for testing
-        console.warn('[vLLM Job API] Failed to save job to database:', error);
-        return NextResponse.json({
-          jobId,
-          chatId: null,
-          proxyUrl: buildProxyUrl(jobId),
-          status: 'active',
-          isTest: true,
-          warning: 'Job not persisted to database',
-        });
-      }
-    }
-
-    // In production, return null if no active job
+    // No active deployment found
     return NextResponse.json({
       jobId: null,
       message: 'No active vLLM deployment. Please launch a model first.',
@@ -132,7 +74,8 @@ export async function GET() {
 }
 
 /**
- * POST - Create a new vLLM job
+ * POST - Refresh/revalidate the deployment info
+ * This endpoint forces a fresh fetch from the database
  */
 export async function POST() {
   try {
@@ -146,96 +89,40 @@ export async function POST() {
     }
 
     const userId = session.user.id;
-    const isDevelopment = process.env.NODE_ENV === 'development';
 
-    if (!isDevelopment) {
-      return NextResponse.json(
-        { error: 'Creating test jobs is only available in development mode', jobId: null },
-        { status: 403 }
-      );
-    }
-
-    const jobId = generateTestJobId();
-    const chatId = generateUUID();
-    const proxyUrl = buildProxyUrl(jobId);
-
+    // Get the latest active deployment from ModelDeployment table
     try {
-      // Create a chat for this job
-      await saveChat({
-        id: chatId,
-        userId,
-        title: 'vLLM Chat Session',
-      });
-
-      await saveVllmChatJob({
-        chatId,
-        userId,
-        slurmJobId: jobId,
-        modelName: VLLM_MODEL,
-        endpointUrl: VLLM_BASE_URL,
-        proxyUrl,
-      });
+      const activeDeployment = await getActiveModelDeploymentByUserId(userId);
+      
+      if (activeDeployment) {
+        return NextResponse.json({
+          jobId: activeDeployment.slurmJobId,
+          deploymentId: activeDeployment.id,
+          modelId: activeDeployment.modelId,
+          proxyUrl: `/api/v1/job/${activeDeployment.slurmJobId}/chat/completions`,
+          endpointUrl: activeDeployment.endpointUrl,
+          tunnelUrl: activeDeployment.tunnelUrl,
+          modelName: activeDeployment.modelName,
+          status: activeDeployment.status,
+          expiresAt: activeDeployment.expiresAt,
+          createdAt: activeDeployment.createdAt,
+          refreshed: true,
+        });
+      }
     } catch (error) {
-      console.warn('[vLLM Job API] Failed to save job to database:', error);
+      console.error('[vLLM Job API] Failed to refresh deployment:', error);
     }
 
     return NextResponse.json({
-      jobId,
-      chatId,
-      proxyUrl,
-      endpointUrl: VLLM_BASE_URL,
-      modelName: VLLM_MODEL,
-      status: 'active',
-      isTest: true,
+      jobId: null,
+      message: 'No active vLLM deployment found. Please launch a model first.',
+      refreshed: true,
     });
 
   } catch (error) {
     console.error('[vLLM Job API] Error:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error', jobId: null },
-      { status: 500 }
-    );
-  }
-}
-
-/**
- * DELETE - Deactivate user's current vLLM job
- */
-export async function DELETE() {
-  try {
-    const session = await auth();
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const userId = session.user.id;
-
-    try {
-      const activeJob = await getActiveVllmJobByUserId({ userId });
-      
-      if (activeJob) {
-        await updateVllmJobStatus({
-          chatId: activeJob.chatId,
-          status: 'inactive',
-        });
-      }
-    } catch (error) {
-      console.warn('[vLLM Job API] Failed to deactivate job:', error);
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Job deactivated',
-    });
-
-  } catch (error) {
-    console.error('[vLLM Job API] Error:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }

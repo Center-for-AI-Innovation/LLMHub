@@ -21,18 +21,13 @@
  */
 
 import { auth } from '@/app/(auth)/auth';
-import { getUserById, getVllmJobByJobId } from '@/lib/db/queries';
-import {
-  getDeploymentByJobId,
-  validateDeployment,
-  userOwnsDeployment,
-  createErrorResponse,
-  isTestJobId,
-} from '@/lib/vllm-proxy';
+import { getUserById, getModelDeploymentByJobId } from '@/lib/db/queries';
 import {
   isChatCompletionsEndpoint,
   handleChatCompletions,
 } from '@/lib/vllm-ai-sdk';
+import { createErrorResponse, validateDeployment, userOwnsDeployment } from '@/lib/utils';
+import type { ModelDeployment } from '@/hooks/use-models';
 
 export const maxDuration = 60;
 
@@ -63,30 +58,15 @@ async function handleRequest(
     }
 
     // Step 3: Look up the deployment by Slurm job ID
-    // Pass userId for test deployments (job IDs starting with "test-")
-    const deployment = await getDeploymentByJobId(jobId, userId);
+    const deployment = await getModelDeploymentByJobId(jobId) as ModelDeployment | null;
 
     if (!deployment) {
       return createErrorResponse(`Deployment not found for job ID: ${jobId}`, 404);
     }
 
     // Step 4: Verify user owns the deployment
-    // Skip ownership check for test deployments (they're created with the current user's ID)
-    if (!isTestJobId(jobId)) {
-      // First check backend deployment ownership
-      if (!userOwnsDeployment(deployment, userId)) {
-        // Also check frontend VllmChatJob table for ownership
-        try {
-          const chatJob = await getVllmJobByJobId({ slurmJobId: jobId });
-          if (!chatJob || chatJob.userId !== userId) {
-            return createErrorResponse('Unauthorized - You do not have access to this deployment', 403);
-          }
-          console.log(`[vLLM Proxy] Job ownership verified via VllmChatJob table for job: ${jobId}`);
-        } catch {
-          // If table doesn't exist or query fails, fall back to deployment ownership check
-          return createErrorResponse('Unauthorized - You do not have access to this deployment', 403);
-        }
-      }
+    if (!userOwnsDeployment(deployment, userId)) {
+      return createErrorResponse('Unauthorized - You do not have access to this deployment', 403);
     }
 
     // Step 5: Validate deployment is ready
@@ -95,13 +75,34 @@ async function handleRequest(
       return createErrorResponse(validation.error || 'Deployment is not available', 503);
     }
 
-    // Step 6: Handle chat completions specially using AI SDK
-    // Only use AI SDK format when the x-ai-sdk header is present (from useChat hook)
-    // Direct API calls without this header get standard OpenAI-compatible responses
+    // Step 6: Handle chat completions 
     if (isChatCompletionsEndpoint(path) && request.method === 'POST') {
       console.log(`[vLLM Job Proxy] Using AI SDK for chat completions - job: ${jobId}`);
       return await handleChatCompletions(request, deployment, userId);
     }
+
+    // For other endpoints (models, completions, embeddings), proxy to vLLM
+    const vllmPath = `/v1/${path.join('/')}`;
+    const targetUrl = `${deployment.endpointUrl}${vllmPath}`;
+    
+    console.log(`[vLLM Job Proxy] Proxying ${request.method} to: ${targetUrl}`);
+    
+    const proxyResponse = await fetch(targetUrl, {
+      method: request.method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: request.method !== 'GET' && request.method !== 'HEAD' 
+        ? await request.text() 
+        : undefined,
+    });
+
+    return new Response(proxyResponse.body, {
+      status: proxyResponse.status,
+      headers: {
+        'Content-Type': proxyResponse.headers.get('Content-Type') || 'application/json',
+      },
+    });
   } catch (error) {
     console.error('vLLM Proxy error:', error);
     return createErrorResponse(

@@ -1,33 +1,36 @@
 /**
  * Hook for managing vLLM job ID for the proxy
  * 
- * This hook fetches or creates a vLLM job ID from the database.
- * In development mode, it creates test job IDs.
- * In production, it fetches from the user's active deployments.
+ * This hook fetches the vLLM job ID from the ModelDeployment table.
+ * It returns the job ID of the user's active deployment.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import useSWR from 'swr';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 interface VllmJobResponse {
   jobId: string | null;
-  chatId?: string;
+  deploymentId?: string;
+  modelId?: string;
   proxyUrl?: string;
   endpointUrl?: string;
+  tunnelUrl?: string;
   modelName?: string;
   status?: string;
-  isTest?: boolean;
+  expiresAt?: string;
+  createdAt?: string;
   error?: string;
+  message?: string;
 }
 
 /**
  * Hook for managing the vLLM job ID
  * 
- * Fetches the job ID from the database or creates a test job in development mode.
+ * Fetches the job ID from the user's active ModelDeployment.
  * 
- * @returns Object with jobId, refresh function, and loading state
+ * @returns Object with jobId, deployment info, refresh function, and loading state
  */
 export function useVllmJob() {
   const { data, error, isLoading, mutate } = useSWR<VllmJobResponse>(
@@ -42,12 +45,16 @@ export function useVllmJob() {
   );
 
   const jobId = data?.jobId || null;
+  const deploymentId = data?.deploymentId || null;
+  const modelId = data?.modelId || null;
   const proxyUrl = data?.proxyUrl || null;
   const endpointUrl = data?.endpointUrl || null;
+  const tunnelUrl = data?.tunnelUrl || null;
   const modelName = data?.modelName || null;
-  const isTest = data?.isTest || false;
+  const status = data?.status || null;
+  const expiresAt = data?.expiresAt || null;
 
-  // Function to refresh/regenerate the job ID
+  // Function to refresh/revalidate the deployment info
   const refreshJobId = useCallback(async () => {
     const response = await fetch('/api/v1/vllm/job', {
       method: 'POST',
@@ -57,31 +64,31 @@ export function useVllmJob() {
     return newData;
   }, [mutate]);
 
-  // Function to clear the job ID
-  const clearJobId = useCallback(async () => {
-    await fetch('/api/v1/vllm/job', {
-      method: 'DELETE',
-    });
-    mutate({ jobId: null }, false);
-  }, [mutate]);
+  // Check if there's an active deployment
+  const hasActiveDeployment = jobId !== null && (status === 'ready' || status === 'running');
 
   return {
     jobId,
+    deploymentId,
+    modelId,
     proxyUrl,
     endpointUrl,
+    tunnelUrl,
     modelName,
+    status,
     isLoading,
-    isTest,
+    expiresAt,
+    hasActiveDeployment,
     error: error?.message || data?.error,
+    message: data?.message,
     refreshJobId,
-    clearJobId,
   };
 }
 
 /**
  * Get the API endpoint for vLLM chat based on the job ID
  * 
- * @param jobId - The Slurm job ID (or test job ID)
+ * @param jobId - The Slurm job ID
  * @returns The API endpoint URL
  */
 export function getVllmChatEndpoint(jobId: string): string {
@@ -91,7 +98,7 @@ export function getVllmChatEndpoint(jobId: string): string {
 /**
  * Get the API endpoint for vLLM models based on the job ID
  * 
- * @param jobId - The Slurm job ID (or test job ID)
+ * @param jobId - The Slurm job ID
  * @returns The API endpoint URL
  */
 export function getVllmModelsEndpoint(jobId: string): string {
