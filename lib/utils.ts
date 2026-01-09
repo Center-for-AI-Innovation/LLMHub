@@ -8,6 +8,7 @@ import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 import type { Message as DBMessage, Document } from '@/lib/db/schema';
+import type { ModelDeployment } from '@/hooks/use-models';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -226,4 +227,69 @@ export function getDocumentTimestampByIndex(
   if (index > documents.length) return new Date();
 
   return documents[index].createdAt;
+}
+
+
+/**
+ * Validate that a deployment is ready for proxying
+ * 
+ * @param deployment - The deployment to validate
+ * @returns Object with isValid flag and error message if invalid
+ */
+export function validateDeployment(deployment: ModelDeployment): { isValid: boolean; error?: string } {
+  // Accept both 'ready' and 'running' as valid statuses
+  if (deployment.status !== 'ready' && deployment.status !== 'running') {
+    return {
+      isValid: false,
+      error: `Deployment is not ready. Current status: ${deployment.status}`,
+    };
+  }
+  
+  if (!deployment.endpointUrl) {
+    return {
+      isValid: false,
+      error: 'Deployment endpoint URL is not available',
+    };
+  }
+  
+  return { isValid: true };
+}
+
+/**
+ * Check if the current user owns/has access to the deployment
+ * 
+ * @param deployment - The deployment
+ * @param userId - The current user's ID
+ * @returns true if the user has access to the deployment
+ */
+export function userOwnsDeployment(deployment: ModelDeployment, userId: string): boolean {
+  // Handle both single userId (string) and array of userIds
+  if (Array.isArray(deployment.userId)) {
+    return deployment.userId.includes(userId);
+  }
+  return deployment.userId === userId;
+}
+
+
+/**
+ * Create an error response in JSON format
+ * 
+ * @param message - Error message
+ * @param status - HTTP status code
+ * @returns JSON Response
+ */
+export function createErrorResponse(message: string, status: number): Response {
+  return new Response(
+    JSON.stringify({
+      error: {
+        message,
+        type: 'proxy_error',
+        code: status,
+      },
+    }),
+    {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  );
 }
