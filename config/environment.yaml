@@ -11,9 +11,9 @@ limits:
   max_cpus_per_task: 64
 
 allowed_values:
-  qos: ["normal", "m4", "m2"]
+  qos: ["normal", "high", "ta", "gpu2", "low", "gpu4", "ic-chelle+", "scav_high"]
   partition: ["IllinoisComputes-GPU", "secondary"]
-  resource_type: ["l40s", "h100"]
+  resource_type: ["A40", "A100", "H100", "V100", "TeslaT4", "RTXA6000", "l40s", "h100"]
 
 required_args:
   account: "VEC_INF_ACCOUNT"

@@ -486,7 +486,7 @@ models:
     gpus_per_node: 4
     num_nodes: 8
     vocab_size: 128256
-    qos: m4
+    qos: normal
     time: 02:00:00
     partition: {{INFRA_PARTITION}}
     vllm_args:
@@ -1300,7 +1300,7 @@ models:
     gpus_per_node: {{INFRA_GPUS_PER_NODE}}
     num_nodes: 1
     vocab_size: 151936
-    qos: m2
+    qos: normal
     time: {{INFRA_TIME}}
     partition: {{INFRA_PARTITION}}
     vllm_args:
