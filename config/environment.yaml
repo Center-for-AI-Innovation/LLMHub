@@ -1,5 +1,5 @@
 paths:
-  image_path: "/projects/bfmz/rohan13/containers/vllm.sif"
+  image_path: "/u/rohan13/githubs/llm-inference/containers/vllm.sif"
 
 containerization:
   module_load_cmd: "module load apptainer"
