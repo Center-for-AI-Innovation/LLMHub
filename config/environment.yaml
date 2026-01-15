@@ -1,5 +1,5 @@
 paths:
-  image_path: "/model-weights/vec-inf-shared/vector-inference_latest.sif"
+  image_path: "/projects/bfmz/rohan13/containers/vllm.sif"
 
 containerization:
   module_load_cmd: "module load apptainer"
