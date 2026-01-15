@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     DEFAULT_VENV: str = "apptainer"  # Default container runtime (apptainer/singularity)
     MODEL_CONFIG_PATH: Optional[str] = None  # Path to custom model configuration YAML file
     VEC_INF_CONFIG_DIR: Optional[str] = None  # Directory containing environment.yaml and models.yaml for vec-inf
+    VEC_INF_ACCOUNT: Optional[str] = None  # SLURM account for vec-inf (can override SLURM_ACCOUNT)
+    VEC_INF_WORK_DIR: Optional[str] = None  # Working directory for vec-inf jobs
     
     # Background service settings
     SYNC_INTERVAL: int = int(os.getenv("SYNC_INTERVAL", "60"))  # deployment sync interval in seconds
