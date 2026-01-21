@@ -14,6 +14,18 @@ const customOpenAI = createOpenAI({
   apiKey: process.env.NCSA_API_KEY,
 });
 
+// Create vLLM provider for local vLLM server (OpenAI-compatible)
+const vllmBaseURL = process.env.VLLM_BASE_URL || 'http://localhost:8000/v1';
+const vllmApiKey = process.env.VLLM_API_KEY || 'dummy-key'; // vLLM doesn't require API key by default
+
+export const vllmProvider = createOpenAI({
+  baseURL: vllmBaseURL,
+  apiKey: vllmApiKey,
+});
+
+// Default vLLM model
+export const VLLM_MODEL = process.env.VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct';
+
 export const myProvider = customProvider({
   languageModels: {
     'chat-model-small': openai('gpt-4o-mini'),
@@ -24,6 +36,8 @@ export const myProvider = customProvider({
     }),
     'title-model': openai('gpt-4-turbo'),
     'artifact-model': openai('gpt-4o-mini'),
+    // vLLM model - uses local vLLM server
+    'vllm-model': vllmProvider(VLLM_MODEL),
   },
   imageModels: {
     'small-model': openai.image('dall-e-2'),
@@ -52,5 +66,10 @@ export const chatModels: Array<ChatModel> = [
     id: 'chat-model-reasoning',
     name: 'Reasoning model',
     description: 'Uses advanced reasoning',
+  },
+  {
+    id: 'vllm-model',
+    name: 'vLLM Local',
+    description: `Local vLLM model (${VLLM_MODEL})`,
   },
 ];

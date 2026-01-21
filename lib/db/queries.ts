@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { genSaltSync, hashSync } from 'bcrypt-ts';
-import { and, asc, desc, eq, gt, gte, inArray, or, ilike } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, or, ilike, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
@@ -16,6 +16,8 @@ import {
   message,
   vote,
   availableModel,
+  modelDeployment,
+  type ModelDeployment,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 
@@ -36,6 +38,16 @@ export async function getUser(email: string): Promise<Array<User>> {
   }
 }
 
+export async function getUserById(id: string): Promise<User | null> {
+  try {
+    const [selectedUser] = await db.select().from(user).where(eq(user.id, id));
+    return selectedUser || null;
+  } catch (error) {
+    console.error('Failed to get user by id from database');
+    throw error;
+  }
+}
+
 export async function createUser(email: string, password: string) {
   const salt = genSaltSync(10);
   const hash = hashSync(password, salt);
@@ -47,6 +59,7 @@ export async function createUser(email: string, password: string) {
     throw error;
   }
 }
+
 
 export async function saveChat({
   id,
@@ -107,6 +120,7 @@ export async function getChatById({ id }: { id: string }) {
 
 export async function saveMessages({ messages }: { messages: Array<Message> }) {
   try {
+    console.log('messages', messages);
     return await db.insert(message).values(messages);
   } catch (error) {
     console.error('Failed to save messages in database', error);
@@ -417,3 +431,66 @@ export async function getChatWithMessages({ id }: { id: string }) {
     throw error;
   }
 }
+
+// ==========================================
+// Model Deployment Utility Functions
+// ==========================================
+
+/**
+ * Get model deployment by Slurm job ID
+ */
+export async function getModelDeploymentByJobId(slurmJobId: string): Promise<ModelDeployment | null> {
+  try {
+    const [deployment] = await db
+      .select()
+      .from(modelDeployment)
+      .where(eq(modelDeployment.slurmJobId, slurmJobId))
+      .limit(1);
+    return deployment || null;
+  } catch (error) {
+    console.error('Failed to get model deployment by job ID from database', error);
+    throw error;
+  }
+}
+
+
+export async function getModelDeploymentsByUserId(userId: string): Promise<ModelDeployment[]> {
+  try {
+    return await db
+      .select()
+      .from(modelDeployment)
+      .where(eq(modelDeployment.userId, userId));
+  } catch (error) {
+    console.error('Failed to get model deployments by user id from database');
+    throw error;
+  }
+}
+
+/**
+ * Get the active/running model deployment for a user
+ * Returns the most recent deployment where the user has access and status is 'ready' or 'running'
+ */
+export async function getActiveModelDeploymentByUserId(userId: string): Promise<ModelDeployment | null> {
+  try {
+    // Look for deployments where status is 'ready' or 'running'
+    const [deployment] = await db
+      .select()
+      .from(modelDeployment)
+      .where(
+        and(
+          eq(modelDeployment.userId, userId),
+          or(
+            eq(modelDeployment.status, 'ready'),
+            eq(modelDeployment.status, 'running')
+          )
+        )
+      )
+      .orderBy(desc(modelDeployment.updatedAt))
+      .limit(1);
+    return deployment || null;
+  } catch (error) {
+    console.error('Failed to get active model deployment by user id from database', error);
+    throw error;
+  }
+}
+

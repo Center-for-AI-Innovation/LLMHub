@@ -155,13 +155,14 @@ export type ResourceAllocation = InferSelectModel<typeof resourceAllocation>;
 
 export const modelDeployment = pgTable('ModelDeployment', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
-  modelName: varchar('modelName', { length: 255 }).notNull(),
-  userId: uuid('userId')
+  modelId: varchar('modelId', { length: 255 })
     .notNull()
-    .references(() => user.id),
+    .references(() => availableModel.id),
+  modelName: varchar('modelName', { length: 255 }).notNull(),
+  userId: uuid('userId').notNull().references(() => user.id),
   slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
   status: varchar('status', {
-    enum: ['pending', 'launching', 'ready', 'failed', 'shutdown'],
+    enum: ['pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],
   })
     .notNull()
     .default('pending'),
@@ -169,9 +170,9 @@ export const modelDeployment = pgTable('ModelDeployment', {
   tunnelUrl: varchar('tunnelUrl', { length: 255 }),
   errorMessage: text('errorMessage'),
   resourceAllocation: json('resourceAllocation'),
-  expirationTime: timestamp('expirationTime'),
   createdAt: timestamp('createdAt').notNull().defaultNow(),
   updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  expiresAt: timestamp('expiresAt'),
 });
 
 export type ModelDeployment = InferSelectModel<typeof modelDeployment>;

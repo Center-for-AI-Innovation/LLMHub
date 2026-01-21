@@ -57,6 +57,13 @@
       "when": 1741562386748,
       "tag": "0007_bright_boom_boom",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1769010516567,
+      "tag": "0009_blushing_warlock",
+      "breakpoints": true
     }
   ]
 }

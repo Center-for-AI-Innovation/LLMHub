@@ -9,8 +9,8 @@ export interface ModelSpecs {
 }
 
 export interface ModelInfo {
-  id: string;
-  name: string;
+  modelId: string;
+  modelName: string;
   description: string;
   status: 'WARM' | 'COLD' | 'OFFLINE';
   type: 'Small' | 'Medium' | 'Large';
@@ -19,13 +19,21 @@ export interface ModelInfo {
   specs: ModelSpecs;
 }
 
+// Matches ModelDeployment table in lib/db/schema.ts
 export interface ModelDeployment {
   id: string;
   modelId: string;
+  modelName: string;
   userId: string;
-  status: 'RUNNING' | 'STARTING' | 'FAILED' | 'STOPPED';
+  slurmJobId: string;
+  status: 'pending' | 'launching' | 'ready' | 'running' | 'failed' | 'shutdown' | 'completed';
+  endpointUrl: string | null;
+  tunnelUrl: string | null;
+  errorMessage: string | null;
+  resourceAllocation: Record<string, unknown> | null;
   createdAt: string;
-  expiresAt?: string;
+  updatedAt: string;
+  expiresAt: string | null;
 }
 
 // Fetch all models

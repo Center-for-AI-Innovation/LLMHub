@@ -11,9 +11,18 @@ export default auth(async (req: NextRequest) => {
     nextUrl.pathname.startsWith('/dashboard') ||
     nextUrl.pathname.startsWith('/chat') ||
     nextUrl.pathname.startsWith('/api/chat') ||
-    nextUrl.pathname.startsWith('/api/models');
+    nextUrl.pathname.startsWith('/api/models') ||
+    nextUrl.pathname.startsWith('/api/v1/job') ||
+    nextUrl.pathname.startsWith('/api/v1/vllm');
 
   if (isProtectedRoute && !isLoggedIn) {
+    // For API routes, return 401 instead of redirecting
+    if (nextUrl.pathname.startsWith('/api/')) {
+      return new NextResponse(
+        JSON.stringify({ error: 'Unauthorized - Please log in to continue' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     return NextResponse.redirect(new URL('/login', nextUrl));
   }
 
@@ -26,5 +35,7 @@ export const config = {
     '/chat/:path*',
     '/api/chat/:path*',
     '/api/models/:path*',
+    '/api/v1/job/:path*',
+    '/api/v1/vllm/:path*',
   ],
 };
