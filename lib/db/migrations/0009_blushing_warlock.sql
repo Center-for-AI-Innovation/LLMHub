@@ -1,4 +1,3 @@
-DROP TABLE "VllmChatJob";--> statement-breakpoint
 ALTER TABLE "ModelDeployment" RENAME COLUMN "expirationTime" TO "expiresAt";--> statement-breakpoint
 ALTER TABLE "ModelDeployment" ADD COLUMN "modelId" varchar(255) NOT NULL;--> statement-breakpoint
 DO $$ BEGIN
