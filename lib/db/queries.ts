@@ -60,6 +60,70 @@ export async function createUser(email: string, password: string) {
   }
 }
 
+// Update the user's API key in the database
+export async function updateUserApiKey({
+  userId,
+  apiKeyHash,
+  apiKeyExpiresAt,
+}: {
+  userId: string;
+  apiKeyHash: string;
+  apiKeyExpiresAt: Date;
+}) {
+  try {
+    return await db
+      .update(user)
+      .set({ apiKeyHash, apiKeyExpiresAt })
+      .where(eq(user.id, userId));
+  } catch (error) {
+    console.error('Failed to update user API key in database');
+    throw error;
+  }
+}
+
+// Get the user's API key metadata from the database
+export async function getUserApiKeyMetadata(userId: string) {
+  try {
+    const [selectedUser] = await db
+      .select({
+        apiKeyHash: user.apiKeyHash,
+        apiKeyExpiresAt: user.apiKeyExpiresAt,
+      })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+
+    return {
+      apiKeyHash: selectedUser?.apiKeyHash ?? null,
+      apiKeyExpiresAt: selectedUser?.apiKeyExpiresAt ?? null,
+    };
+  } catch (error) {
+    console.error('Failed to get user API key metadata from database');
+    throw error;
+  }
+}
+
+// Look up a user by API key hash (for API key auth flows)
+export async function getUserByApiKeyHash(apiKeyHash: string) {
+  try {
+    const [selectedUser] = await db
+      .select({
+        id: user.id,
+        email: user.email,
+        apiKeyHash: user.apiKeyHash,
+        apiKeyExpiresAt: user.apiKeyExpiresAt,
+      })
+      .from(user)
+      .where(eq(user.apiKeyHash, apiKeyHash))
+      .limit(1);
+
+    return selectedUser ?? null;
+  } catch (error) {
+    console.error('Failed to get user by API key hash from database');
+    throw error;
+  }
+}
+
 
 export async function saveChat({
   id,
