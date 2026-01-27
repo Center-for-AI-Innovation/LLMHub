@@ -94,7 +94,7 @@ export async function getUserApiKeyMetadata(userId: string) {
       .limit(1);
 
     return {
-      apiKeyHash: selectedUser?.apiKeyHash ?? null,
+      hasApiKey: Boolean(selectedUser?.apiKeyHash),
       apiKeyExpiresAt: selectedUser?.apiKeyExpiresAt ?? null,
     };
   } catch (error) {

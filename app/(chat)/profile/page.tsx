@@ -16,7 +16,7 @@ export default async function ProfilePage() {
 
   // The API Key is not being passed to the client
   // The client component ApiKeyPanel only gets a boolean stating if the user has an API key
-  const { apiKeyHash, apiKeyExpiresAt } = await getUserApiKeyMetadata(
+  const { hasApiKey, apiKeyExpiresAt } = await getUserApiKeyMetadata(
     session.user.id,
   );
 
@@ -31,7 +31,7 @@ export default async function ProfilePage() {
 
       <div className="max-w-2xl">
         <ApiKeyPanel
-          hasApiKey={Boolean(apiKeyHash)}
+          hasApiKey={hasApiKey}
           expiresAt={apiKeyExpiresAt ? apiKeyExpiresAt.toISOString() : null}
         />
       </div>
