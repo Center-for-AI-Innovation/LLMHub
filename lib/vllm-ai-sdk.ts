@@ -99,7 +99,7 @@ export async function handleChatCompletions(
       const title = typeof userMessage.content === 'string'
         ? userMessage.content.slice(0, 80)
         : 'New Chat';
-      await saveChat({ id: chatId, userId, title });
+      await saveChat({ id: chatId, userId, title, isBrowserChat: true });
     } else {
       // Verify the chat belongs to the current user
       if (existingChat.userId !== userId) {

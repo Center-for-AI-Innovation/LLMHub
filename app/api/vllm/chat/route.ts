@@ -143,7 +143,7 @@ export async function POST(request: Request) {
       } else {
         // Create new chat for this user - use vLLM to generate title
         const title = await generateTitleWithVllm(userMessage);
-        await saveChat({ id, userId, title });
+        await saveChat({ id, userId, title, isBrowserChat: true });
       }
 
       // Save the user message to the database
@@ -244,7 +244,7 @@ export async function POST(request: Request) {
     } else {
       // Create new chat for this user - use vLLM to generate title
       const title = await generateTitleWithVllm(userMessage);
-      await saveChat({ id: chatId, userId, title });
+      await saveChat({ id: chatId, userId, title, isBrowserChat: false });
     }
 
     // Save the user message to the database
@@ -260,8 +260,11 @@ export async function POST(request: Request) {
       experimental_generateMessageId: generateUUID,
     });
 
+    const responseMessages =
+      response.messages as Array<(typeof response.messages)[number] & { id: string }>;
+
     const sanitizedResponseMessages = sanitizeResponseMessages({
-      messages: response.messages,
+      messages: responseMessages,
       reasoning,
     });
 
@@ -278,7 +281,7 @@ export async function POST(request: Request) {
     });
 
     // Get message ids from response messages
-    const messageId = response.messages[0]?.id;
+    const messageId = responseMessages[0]?.id;
 
     return new Response(
       JSON.stringify({

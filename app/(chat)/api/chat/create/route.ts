@@ -15,6 +15,7 @@ export async function POST(request: Request) {
       id,
       userId: session.user.id,
       title: 'New Chat',
+      isBrowserChat: true,
     });
 
     return Response.json({ id });
