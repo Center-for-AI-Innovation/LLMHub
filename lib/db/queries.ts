@@ -110,7 +110,6 @@ export async function getUserByApiKeyHash(apiKeyHash: string) {
       .select({
         id: user.id,
         email: user.email,
-        apiKeyHash: user.apiKeyHash,
         apiKeyExpiresAt: user.apiKeyExpiresAt,
       })
       .from(user)
