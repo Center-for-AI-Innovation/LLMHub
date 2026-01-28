@@ -23,11 +23,14 @@ import {
   saveChat,
   saveMessages,
 } from '@/lib/db/queries';
+import { extractBearerApiKey, getUserFromApiKey } from '@/lib/security/api-keys';
 import {
+  createErrorResponse,
   generateUUID,
   getMostRecentUserMessage,
   sanitizeResponseMessages,
 } from '@/lib/utils';
+import { isAiSdkRequest } from '@/lib/vllm-ai-sdk';
 
 export const maxDuration = 60;
 
@@ -79,126 +82,231 @@ export async function POST(request: Request) {
       messages,
       selectedChatModel,
     }: { 
-      id: string; 
+      id?: string; 
       messages: Array<Message>; 
       selectedChatModel?: string;
     } = await request.json();
 
-    // Step 1: Verify user is logged in
-    const session = await auth();
+    const isBrowserRequest = isAiSdkRequest(request);
 
-    if (!session || !session.user || !session.user.id) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized - Please log in to continue' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
-      );
+    if (isBrowserRequest) {
+      // Step 1: Verify user is logged in
+      const session = await auth();
+
+      if (!session || !session.user || !session.user.id) {
+        return new Response(
+          JSON.stringify({ error: 'Unauthorized - Please log in to continue' }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const userId = session.user.id;
+
+      // Step 2: Verify user exists in database
+      const dbUser = await getUserById(userId);
+
+      if (!dbUser) {
+        return new Response(
+          JSON.stringify({ error: 'User not found in database' }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Validate message content
+      const userMessage = getMostRecentUserMessage(messages);
+
+      if (!userMessage) {
+        return new Response(
+          JSON.stringify({ error: 'No user message found' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (!id) {
+        return new Response(
+          JSON.stringify({ error: 'Chat ID is required' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Step 3: Check if chat exists and verify ownership
+      const existingChat = await getChatById({ id });
+
+      if (existingChat) {
+        // Verify the chat belongs to the current user
+        if (existingChat.userId !== userId) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized - You do not have access to this chat' }),
+            { status: 403, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+      } else {
+        // Create new chat for this user - use vLLM to generate title
+        const title = await generateTitleWithVllm(userMessage);
+        await saveChat({ id, userId, title, isBrowserChat: true });
+      }
+
+      // Save the user message to the database
+      await saveMessages({
+        messages: [{ ...userMessage, createdAt: new Date(), chatId: id }],
+      });
+
+      // Step 4: Proxy request to vLLM and stream response
+      return createDataStreamResponse({
+        execute: (dataStream) => {
+          const result = streamText({
+            // Use vLLM provider with the actual model name
+            // VLLM_MODEL contains the actual model name like 'Qwen/Qwen2.5-1.5B-Instruct'
+            model: vllmProvider(VLLM_MODEL),
+            system: systemPrompt({ selectedChatModel: 'vllm-model' }),
+            messages,
+            maxSteps: 5,
+            experimental_transform: smoothStream({ chunking: 'word' }),
+            experimental_generateMessageId: generateUUID,
+            onFinish: async ({ response, reasoning }) => {
+              // Only save messages for the authenticated user
+              if (session.user?.id) {
+                try {
+                  // Verify ownership before saving response messages
+                  const chat = await getChatById({ id });
+                  if (!chat || chat.userId !== userId) {
+                    console.error('[vLLM Chat] Unauthorized attempt to save response to chat:', id);
+                    return;
+                  }
+
+                  const sanitizedResponseMessages = sanitizeResponseMessages({
+                    messages: response.messages,
+                    reasoning,
+                  });
+
+                  await saveMessages({
+                    messages: sanitizedResponseMessages.map((message) => {
+                      return {
+                        id: message.id,
+                        chatId: id,
+                        role: message.role,
+                        content: message.content,
+                        createdAt: new Date(),
+                      };
+                    }),
+                  });
+                } catch (error) {
+                  console.error('Failed to save vLLM chat response:', error);
+                }
+              }
+            },
+            experimental_telemetry: {
+              isEnabled: true,
+              functionId: 'vllm-stream-text',
+            },
+          });
+
+          result.mergeIntoDataStream(dataStream, {
+            sendReasoning: true,
+          });
+        },
+        onError: (error: unknown) => {
+          console.error('vLLM Proxy API error:', error);
+          return `Error: ${error instanceof Error ? error.message : 'An unknown error occurred while connecting to vLLM'}`;
+        },
+      });
     }
 
-    const userId = session.user.id;
-
-    // Step 2: Verify user exists in database
-    const dbUser = await getUserById(userId);
-
-    if (!dbUser) {
-      return new Response(
-        JSON.stringify({ error: 'User not found in database' }),
-        { status: 403, headers: { 'Content-Type': 'application/json' } }
-      );
+    const apiKey = extractBearerApiKey(request.headers.get('authorization'));
+    if (!apiKey) {
+      return createErrorResponse('Unauthorized - API key is required', 401);
     }
+
+    const apiUser = await getUserFromApiKey(apiKey);
+    if (!apiUser) {
+      return createErrorResponse('Unauthorized - Invalid API key', 401);
+    }
+
+    const userId = apiUser.id;
 
     // Validate message content
     const userMessage = getMostRecentUserMessage(messages);
 
     if (!userMessage) {
-      return new Response(
-        JSON.stringify({ error: 'No user message found' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+      return createErrorResponse('No user message found', 400);
     }
 
+    const chatId = id || generateUUID();
+
     // Step 3: Check if chat exists and verify ownership
-    const existingChat = await getChatById({ id });
-    let isNewChat = false;
+    const existingChat = await getChatById({ id: chatId });
 
     if (existingChat) {
       // Verify the chat belongs to the current user
       if (existingChat.userId !== userId) {
-        return new Response(
-          JSON.stringify({ error: 'Unauthorized - You do not have access to this chat' }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } }
-        );
+        return createErrorResponse('Unauthorized - You do not have access to this chat', 403);
       }
     } else {
       // Create new chat for this user - use vLLM to generate title
-      isNewChat = true;
       const title = await generateTitleWithVllm(userMessage);
-      await saveChat({ id, userId, title });
+      await saveChat({ id: chatId, userId, title, isBrowserChat: false });
     }
 
     // Save the user message to the database
     await saveMessages({
-      messages: [{ ...userMessage, createdAt: new Date(), chatId: id }],
+      messages: [{ ...userMessage, createdAt: new Date(), chatId }],
     });
 
-    // Step 4: Proxy request to vLLM and stream response
-    return createDataStreamResponse({
-      execute: (dataStream) => {
-        const result = streamText({
-          // Use vLLM provider with the actual model name
-          // VLLM_MODEL contains the actual model name like 'Qwen/Qwen2.5-1.5B-Instruct'
-          model: vllmProvider(VLLM_MODEL),
-          system: systemPrompt({ selectedChatModel: 'vllm-model' }),
-          messages,
-          maxSteps: 5,
-          experimental_transform: smoothStream({ chunking: 'word' }),
-          experimental_generateMessageId: generateUUID,
-          onFinish: async ({ response, reasoning }) => {
-            // Only save messages for the authenticated user
-            if (session.user?.id) {
-              try {
-                // Verify ownership before saving response messages
-                const chat = await getChatById({ id });
-                if (!chat || chat.userId !== userId) {
-                  console.error('[vLLM Chat] Unauthorized attempt to save response to chat:', id);
-                  return;
-                }
-
-                const sanitizedResponseMessages = sanitizeResponseMessages({
-                  messages: response.messages,
-                  reasoning,
-                });
-
-                await saveMessages({
-                  messages: sanitizedResponseMessages.map((message) => {
-                    return {
-                      id: message.id,
-                      chatId: id,
-                      role: message.role,
-                      content: message.content,
-                      createdAt: new Date(),
-                    };
-                  }),
-                });
-              } catch (error) {
-                console.error('Failed to save vLLM chat response:', error);
-              }
-            }
-          },
-          experimental_telemetry: {
-            isEnabled: true,
-            functionId: 'vllm-stream-text',
-          },
-        });
-
-        result.mergeIntoDataStream(dataStream, {
-          sendReasoning: true,
-        });
-      },
-      onError: (error: unknown) => {
-        console.error('vLLM Proxy API error:', error);
-        return `Error: ${error instanceof Error ? error.message : 'An unknown error occurred while connecting to vLLM'}`;
-      },
+    const { text, finishReason, usage, response, reasoning } = await generateText({
+      model: vllmProvider(VLLM_MODEL),
+      system: systemPrompt({ selectedChatModel: selectedChatModel ?? 'vllm-model' }),
+      messages,
+      maxSteps: 5,
+      experimental_generateMessageId: generateUUID,
     });
+
+    const responseMessages =
+      response.messages as Array<(typeof response.messages)[number] & { id: string }>;
+
+    const sanitizedResponseMessages = sanitizeResponseMessages({
+      messages: responseMessages,
+      reasoning,
+    });
+
+    await saveMessages({
+      messages: sanitizedResponseMessages.map((message) => {
+        return {
+          id: message.id,
+          chatId,
+          role: message.role,
+          content: message.content,
+          createdAt: new Date(),
+        };
+      }),
+    });
+
+    // Get message ids from response messages
+    const messageId = responseMessages[0]?.id;
+
+    return new Response(
+      JSON.stringify({
+        id: messageId,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: VLLM_MODEL,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: text,
+            },
+            finish_reason: finishReason,
+          },
+        ],
+        usage: {
+          prompt_tokens: usage.promptTokens,
+          completion_tokens: usage.completionTokens,
+          total_tokens: usage.totalTokens,
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
   } catch (error) {
     console.error('vLLM Proxy error:', error);
     return new Response(

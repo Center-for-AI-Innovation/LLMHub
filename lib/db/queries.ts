@@ -110,7 +110,6 @@ export async function getUserByApiKeyHash(apiKeyHash: string) {
       .select({
         id: user.id,
         email: user.email,
-        apiKeyHash: user.apiKeyHash,
         apiKeyExpiresAt: user.apiKeyExpiresAt,
       })
       .from(user)
@@ -129,10 +128,12 @@ export async function saveChat({
   id,
   userId,
   title,
+  isBrowserChat,
 }: {
   id: string;
   userId: string;
   title: string;
+  isBrowserChat?: boolean;
 }) {
   try {
     return await db.insert(chat).values({
@@ -140,6 +141,7 @@ export async function saveChat({
       createdAt: new Date(),
       userId,
       title,
+      isBrowserChat: isBrowserChat ?? false,
     });
   } catch (error) {
     console.error('Failed to save chat in database');
@@ -159,12 +161,12 @@ export async function deleteChatById({ id }: { id: string }) {
   }
 }
 
-export async function getChatsByUserId({ id }: { id: string }) {
+export async function getBrowserChatsByUserId({ id }: { id: string }) {
   try {
     return await db
       .select()
       .from(chat)
-      .where(eq(chat.userId, id))
+      .where(and(eq(chat.userId, id), eq(chat.isBrowserChat, true)))
       .orderBy(desc(chat.createdAt));
   } catch (error) {
     console.error('Failed to get chats by user from database');
