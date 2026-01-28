@@ -101,7 +101,7 @@ function ChatInner({
     api: apiEndpoint,
     headers: {
       // Request AI SDK data stream format for useChat hook compatibility
-      // Without this header, the API returns standard OpenAI SSE format
+      // Without this header, the API returns JSON OpenAI compatible response
       'x-response-format': 'ai-sdk',
     },
     body: { 

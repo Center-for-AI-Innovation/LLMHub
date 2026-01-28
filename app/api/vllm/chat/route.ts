@@ -94,9 +94,9 @@ export async function POST(request: Request) {
       const session = await auth();
 
       if (!session || !session.user || !session.user.id) {
-        return new Response(
-          JSON.stringify({ error: 'Unauthorized - Please log in to continue' }),
-          { status: 401, headers: { 'Content-Type': 'application/json' } }
+        return createErrorResponse(
+          'Unauthorized - Please log in to continue',
+          401,
         );
       }
 
@@ -106,27 +106,18 @@ export async function POST(request: Request) {
       const dbUser = await getUserById(userId);
 
       if (!dbUser) {
-        return new Response(
-          JSON.stringify({ error: 'User not found in database' }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } }
-        );
+        return createErrorResponse('User not found in database', 403);
       }
 
       // Validate message content
       const userMessage = getMostRecentUserMessage(messages);
 
       if (!userMessage) {
-        return new Response(
-          JSON.stringify({ error: 'No user message found' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
+        return createErrorResponse('No user message found', 400);
       }
 
       if (!id) {
-        return new Response(
-          JSON.stringify({ error: 'Chat ID is required' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
+        return createErrorResponse('Chat ID is required', 400);
       }
 
       // Step 3: Check if chat exists and verify ownership
@@ -135,9 +126,9 @@ export async function POST(request: Request) {
       if (existingChat) {
         // Verify the chat belongs to the current user
         if (existingChat.userId !== userId) {
-          return new Response(
-            JSON.stringify({ error: 'Unauthorized - You do not have access to this chat' }),
-            { status: 403, headers: { 'Content-Type': 'application/json' } }
+          return createErrorResponse(
+            'Unauthorized - You do not have access to this chat',
+            403,
           );
         }
       } else {
@@ -237,6 +228,12 @@ export async function POST(request: Request) {
     const existingChat = await getChatById({ id: chatId });
 
     if (existingChat) {
+
+      // Verify chat is not a browser chat
+      if (existingChat.isBrowserChat) {
+        return createErrorResponse('Unauthorized - Browser chats can not be used for API requests', 403);
+      }
+
       // Verify the chat belongs to the current user
       if (existingChat.userId !== userId) {
         return createErrorResponse('Unauthorized - You do not have access to this chat', 403);
@@ -309,13 +306,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     console.error('vLLM Proxy error:', error);
-    return new Response(
-      JSON.stringify({ 
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('Internal server error', 500);
   }
 }
 
@@ -328,38 +319,26 @@ export async function GET(request: Request) {
   const chatId = searchParams.get('chatId');
 
   if (!chatId) {
-    return new Response(
-      JSON.stringify({ error: 'Chat ID is required' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('Chat ID is required', 400);
   }
 
   // Verify user is authenticated
   const session = await auth();
 
   if (!session || !session.user || !session.user.id) {
-    return new Response(
-      JSON.stringify({ error: 'Unauthorized' }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('Unauthorized', 401);
   }
 
   // Get the chat and verify ownership
   const chat = await getChatById({ id: chatId });
 
   if (!chat) {
-    return new Response(
-      JSON.stringify({ error: 'Chat not found' }),
-      { status: 404, headers: { 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('Chat not found', 404);
   }
 
   // Only the owner can access the chat
   if (chat.userId !== session.user.id) {
-    return new Response(
-      JSON.stringify({ error: 'Unauthorized - You do not have access to this chat' }),
-      { status: 403, headers: { 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse('Unauthorized - You do not have access to this chat', 403);
   }
 
   return new Response(
