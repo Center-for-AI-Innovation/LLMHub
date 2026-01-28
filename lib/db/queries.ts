@@ -436,6 +436,52 @@ export async function getChatWithMessages({ id }: { id: string }) {
 // Model Deployment Utility Functions
 // ==========================================
 
+export async function createModelDeployment({
+  modelId,
+  modelName,
+  userId,
+  slurmJobId,
+  status = 'pending',
+  endpointUrl,
+  tunnelUrl,
+  errorMessage,
+  resourceAllocation,
+  expiresAt,
+}: {
+  modelId: string;
+  modelName: string;
+  userId: string;
+  slurmJobId: string;
+  status?: ModelDeployment['status'];
+  endpointUrl?: string | null;
+  tunnelUrl?: string | null;
+  errorMessage?: string | null;
+  resourceAllocation?: Record<string, unknown> | null;
+  expiresAt?: Date | null;
+}): Promise<ModelDeployment> {
+  try {
+    const [deployment] = await db
+      .insert(modelDeployment)
+      .values({
+        modelId,
+        modelName,
+        userId,
+        slurmJobId,
+        status,
+        endpointUrl,
+        tunnelUrl,
+        errorMessage,
+        resourceAllocation,
+        expiresAt,
+      })
+      .returning();
+    return deployment;
+  } catch (error) {
+    console.error('Failed to create model deployment in database', error);
+    throw error;
+  }
+}
+
 /**
  * Get model deployment by Slurm job ID
  */
