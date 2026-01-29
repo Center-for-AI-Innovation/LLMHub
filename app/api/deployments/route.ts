@@ -1,12 +1,19 @@
-import { randomUUID } from 'crypto';
+import { randomInt } from 'crypto';
 import { NextResponse } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
-import { createModelDeployment, getAvailableModelById, getUser } from '@/lib/db/queries';
+import {
+  createModelDeployment,
+  getAvailableModelById,
+  getModelDeploymentsByUserId,
+  getUser,
+} from '@/lib/db/queries';
 
-// Backend API URL
-const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
 const DEV_MODEL_ID = process.env.DEV_VLLM_MODEL_ID || 'qwen2.5-1.5b-instruct';
+const SLURM_JOB_ID_LENGTH = 6;
+
+const createSlurmJobId = () =>
+  randomInt(0, 10 ** SLURM_JOB_ID_LENGTH).toString().padStart(SLURM_JOB_ID_LENGTH, '0');
 
 export async function GET() {
   try {
@@ -20,29 +27,10 @@ export async function GET() {
       );
     }
 
-    // Get the user's email from the session
-    const useremail = session.user.email;
     const userId = session.user.id;
-    
-    // Build the backend URL with useremail and userId parameters
-    const url = new URL(`${BACKEND_API_URL}/api/models/deployments`);
-    url.searchParams.append('useremail', useremail || '');
-    url.searchParams.append('userId', userId || '');
-    
-    // Fetch deployments from the backend with useremail
-    const response = await fetch(url.toString());
-    
-    if (!response.ok) {
-      throw new Error(`Backend API returned ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    // Ensure we always return an array
-    const deploymentsArray = Array.isArray(data) ? data : 
-                            (data && typeof data === 'object' && Array.isArray(data.deployments)) ? data.deployments : [];
-    
-    return NextResponse.json(deploymentsArray);
+
+    const deployments = await getModelDeploymentsByUserId(userId || '');
+    return NextResponse.json(deployments);
   } catch (error) {
     console.error('Error fetching deployments:', error);
     // Return empty array on error
@@ -93,8 +81,8 @@ export async function POST() {
       modelId: DEV_MODEL_ID,
       modelName: model.name,
       userId: devUser.id,
-      slurmJobId: `test-${randomUUID()}`,
-      status: 'ready',
+      slurmJobId: `test-${createSlurmJobId()}`,
+      status: 'RUNNING',
       endpointUrl: DEV_ENDPOINT_URL,
     });
 
@@ -107,3 +95,4 @@ export async function POST() {
     );
   }
 }
+

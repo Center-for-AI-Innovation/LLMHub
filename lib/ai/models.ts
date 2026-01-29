@@ -6,13 +6,15 @@ import {
   wrapLanguageModel,
 } from 'ai';
 
-export const DEFAULT_CHAT_MODEL: string = 'chat-model-small';
+export const DEFAULT_CHAT_MODEL: string = 'vllm-model';
 
+// TODO: We do not need to support OpenAI models.
+// We will only support models we deploy through SLURM
 // Create custom OpenAI provider for NCSA endpoints
-const customOpenAI = createOpenAI({
-  baseURL: process.env.NCSA_BASE_URL,
-  apiKey: process.env.NCSA_API_KEY,
-});
+// const customOpenAI = createOpenAI({
+//   baseURL: process.env.NCSA_BASE_URL,
+//   apiKey: process.env.NCSA_API_KEY,
+// });
 
 // Create vLLM provider for local vLLM server (OpenAI-compatible)
 const vllmBaseURL = process.env.VLLM_BASE_URL || 'http://localhost:8000/v1';
@@ -28,21 +30,17 @@ export const VLLM_MODEL = process.env.VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct'
 
 export const myProvider = customProvider({
   languageModels: {
-    'chat-model-small': openai('gpt-4o-mini'),
-    'chat-model-large': customOpenAI('Qwen/Qwen2.5-VL-72B-Instruct'),
-    'chat-model-reasoning': wrapLanguageModel({
-      model: fireworks('accounts/fireworks/models/deepseek-r1'),
-      middleware: extractReasoningMiddleware({ tagName: 'think' }),
-    }),
-    'title-model': openai('gpt-4-turbo'),
-    'artifact-model': openai('gpt-4o-mini'),
+    // 'chat-model-small': openai('gpt-4o-mini'),
+    // 'chat-model-large': customOpenAI('Qwen/Qwen2.5-VL-72B-Instruct'),
+    // 'chat-model-reasoning': wrapLanguageModel({
+    //   model: fireworks('accounts/fireworks/models/deepseek-r1'),
+    //   middleware: extractReasoningMiddleware({ tagName: 'think' }),
+    // }),
+    // 'title-model': openai('gpt-4-turbo'),
+    // 'artifact-model': openai('gpt-4o-mini'),
     // vLLM model - uses local vLLM server
     'vllm-model': vllmProvider(VLLM_MODEL),
-  },
-  imageModels: {
-    'small-model': openai.image('dall-e-2'),
-    'large-model': openai.image('dall-e-3'),
-  },
+  }
 });
 
 interface ChatModel {
@@ -53,23 +51,8 @@ interface ChatModel {
 
 export const chatModels: Array<ChatModel> = [
   {
-    id: 'chat-model-small',
-    name: 'Small model',
-    description: 'Small model for fast, lightweight tasks',
-  },
-  {
-    id: 'chat-model-large',
-    name: 'Large model',
-    description: 'Large model for complex, multi-step tasks',
-  },
-  {
-    id: 'chat-model-reasoning',
-    name: 'Reasoning model',
-    description: 'Uses advanced reasoning',
-  },
-  {
     id: 'vllm-model',
-    name: 'vLLM Local',
-    description: `Local vLLM model (${VLLM_MODEL})`,
+    name: `${VLLM_MODEL}`,
+    description: `Deployed vLLM model (${VLLM_MODEL})`,
   },
 ];
