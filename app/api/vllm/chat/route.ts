@@ -203,6 +203,7 @@ export async function POST(request: Request) {
       });
     }
 
+    // API call to vLLM - no Browser Request
     const apiKey = extractBearerApiKey(request.headers.get('authorization'));
     if (!apiKey) {
       return createErrorResponse('Unauthorized - API key is required', 401);
