@@ -29,6 +29,8 @@ import type { ArtifactKind } from '@/components/artifact';
 const client = postgres(process.env.POSTGRES_URL!);
 const db = drizzle(client);
 
+// User Utility Functions
+// ==========================================
 export async function getUser(email: string): Promise<Array<User>> {
   try {
     return await db.select().from(user).where(eq(user.email, email));
@@ -124,6 +126,9 @@ export async function getUserByApiKeyHash(apiKeyHash: string) {
 }
 
 
+// Chat and Message Utility Functions
+// ==========================================
+
 export async function saveChat({
   id,
   userId,
@@ -207,6 +212,116 @@ export async function getMessagesByChatId({ id }: { id: string }) {
   }
 }
 
+export async function getMessageById({ id }: { id: string }) {
+  try {
+    return await db.select().from(message).where(eq(message.id, id));
+  } catch (error) {
+    console.error('Failed to get message by id from database');
+    throw error;
+  }
+}
+
+
+export async function deleteMessagesByChatIdAfterTimestamp({
+  chatId,
+  timestamp,
+}: {
+  chatId: string;
+  timestamp: Date;
+}) {
+  try {
+    const messagesToDelete = await db
+      .select({ id: message.id })
+      .from(message)
+      .where(
+        and(eq(message.chatId, chatId), gte(message.createdAt, timestamp)),
+      );
+
+    const messageIds = messagesToDelete.map((message) => message.id);
+
+    if (messageIds.length > 0) {
+      await db
+        .delete(vote)
+        .where(
+          and(eq(vote.chatId, chatId), inArray(vote.messageId, messageIds)),
+        );
+
+      return await db
+        .delete(message)
+        .where(
+          and(eq(message.chatId, chatId), inArray(message.id, messageIds)),
+        );
+    }
+  } catch (error) {
+    console.error(
+      'Failed to delete messages by id after timestamp from database',
+    );
+    throw error;
+  }
+}
+
+export async function getChatWithMessages({ id }: { id: string }) {
+  try {
+    const chatData = await getChatById({ id });
+    const messagesData = await getMessagesByChatId({ id });
+    const votesData = await getVotesByChatId({ id });
+    
+    // Get all unique document IDs referenced in messages
+    const documentIds = [...new Set(
+      messagesData
+        .filter(msg => typeof msg.content === 'string' && msg.content.includes('documentId'))
+        .map(msg => {
+          try {
+            // Try to extract documentId from the message content
+            const content = msg.content as string;
+            const match = content.match(/"documentId":\s*"([^"]+)"/);
+            return match ? match[1] : null;
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(Boolean) as string[]
+    )];
+    
+    // Fetch documents if there are any unique IDs
+    const documentsData = documentIds.length > 0 
+      ? await Promise.all(documentIds.map(docId => getDocumentsById({ id: docId })))
+      : [];
+    
+    // Flatten the array of document arrays
+    const flattenedDocuments = documentsData.flat();
+    
+    return {
+      chat: chatData,
+      messages: messagesData,
+      votes: votesData,
+      documents: flattenedDocuments
+    };
+  } catch (error) {
+    console.error('Failed to get chat with messages from database', error);
+    throw error;
+  }
+}
+
+export async function updateChatVisiblityById({
+  chatId,
+  visibility,
+}: {
+  chatId: string;
+  visibility: 'private' | 'public';
+}) {
+  try {
+    return await db.update(chat).set({ visibility }).where(eq(chat.id, chatId));
+  } catch (error) {
+    console.error('Failed to update chat visibility in database');
+    throw error;
+  }
+}
+
+
+// Vote Utility Functions
+// ==========================================
+
 export async function voteMessage({
   chatId,
   messageId,
@@ -247,6 +362,10 @@ export async function getVotesByChatId({ id }: { id: string }) {
     throw error;
   }
 }
+
+
+// Document Utility Functions
+// ==========================================
 
 export async function saveDocument({
   id,
@@ -334,6 +453,9 @@ export async function deleteDocumentsByIdAfterTimestamp({
   }
 }
 
+// Suggestion Utility Functions
+// ==========================================
+
 export async function saveSuggestions({
   suggestions,
 }: {
@@ -365,67 +487,10 @@ export async function getSuggestionsByDocumentId({
   }
 }
 
-export async function getMessageById({ id }: { id: string }) {
-  try {
-    return await db.select().from(message).where(eq(message.id, id));
-  } catch (error) {
-    console.error('Failed to get message by id from database');
-    throw error;
-  }
-}
 
-export async function deleteMessagesByChatIdAfterTimestamp({
-  chatId,
-  timestamp,
-}: {
-  chatId: string;
-  timestamp: Date;
-}) {
-  try {
-    const messagesToDelete = await db
-      .select({ id: message.id })
-      .from(message)
-      .where(
-        and(eq(message.chatId, chatId), gte(message.createdAt, timestamp)),
-      );
-
-    const messageIds = messagesToDelete.map((message) => message.id);
-
-    if (messageIds.length > 0) {
-      await db
-        .delete(vote)
-        .where(
-          and(eq(vote.chatId, chatId), inArray(vote.messageId, messageIds)),
-        );
-
-      return await db
-        .delete(message)
-        .where(
-          and(eq(message.chatId, chatId), inArray(message.id, messageIds)),
-        );
-    }
-  } catch (error) {
-    console.error(
-      'Failed to delete messages by id after timestamp from database',
-    );
-    throw error;
-  }
-}
-
-export async function updateChatVisiblityById({
-  chatId,
-  visibility,
-}: {
-  chatId: string;
-  visibility: 'private' | 'public';
-}) {
-  try {
-    return await db.update(chat).set({ visibility }).where(eq(chat.id, chatId));
-  } catch (error) {
-    console.error('Failed to update chat visibility in database');
-    throw error;
-  }
-}
+// ==========================================
+// Model Deployment Utility Functions
+// ==========================================
 
 // Available Models
 export async function getAvailableModels() {
@@ -454,53 +519,6 @@ export async function searchAvailableModels({ query }: { query: string }) {
     )
     .orderBy(availableModel.family, availableModel.variant);
 }
-
-export async function getChatWithMessages({ id }: { id: string }) {
-  try {
-    const chatData = await getChatById({ id });
-    const messagesData = await getMessagesByChatId({ id });
-    const votesData = await getVotesByChatId({ id });
-    
-    // Get all unique document IDs referenced in messages
-    const documentIds = [...new Set(
-      messagesData
-        .filter(msg => typeof msg.content === 'string' && msg.content.includes('documentId'))
-        .map(msg => {
-          try {
-            // Try to extract documentId from the message content
-            const content = msg.content as string;
-            const match = content.match(/"documentId":\s*"([^"]+)"/);
-            return match ? match[1] : null;
-          } catch (e) {
-            return null;
-          }
-        })
-        .filter(Boolean) as string[]
-    )];
-    
-    // Fetch documents if there are any unique IDs
-    const documentsData = documentIds.length > 0 
-      ? await Promise.all(documentIds.map(docId => getDocumentsById({ id: docId })))
-      : [];
-    
-    // Flatten the array of document arrays
-    const flattenedDocuments = documentsData.flat();
-    
-    return {
-      chat: chatData,
-      messages: messagesData,
-      votes: votesData,
-      documents: flattenedDocuments
-    };
-  } catch (error) {
-    console.error('Failed to get chat with messages from database', error);
-    throw error;
-  }
-}
-
-// ==========================================
-// Model Deployment Utility Functions
-// ==========================================
 
 /**
  * Get model deployment by Slurm job ID
