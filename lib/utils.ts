@@ -9,6 +9,7 @@ import { twMerge } from 'tailwind-merge';
 
 import type { AuthorizedUsers, Message as DBMessage, Document } from '@/lib/db/schema';
 import type { ModelDeployment } from '@/hooks/use-models';
+import { getAuthorizedUsersByModelId } from './db/queries';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -262,8 +263,19 @@ export function validateDeployment(deployment: ModelDeployment): { isValid: bool
  * @param userId - The current user's ID
  * @returns true if the user has access to the deployment
  */
-export function userOwnsDeployment(deployment: ModelDeployment, userId: string): boolean {
-  return deployment.userId === userId;
+export async function isUserAuthorizedToAccessDeployment(deployment: ModelDeployment, userId: string): Promise<boolean> {
+  try {
+    const authorizedUsersData = await getAuthorizedUsersByModelId(deployment.modelId) as AuthorizedUsers | null;
+    if (!authorizedUsersData) {
+      return false;
+    }
+    const allowedUserIds = authorizedUsersData.allowedUserIds;
+    const ownerId = authorizedUsersData.ownerId;
+    return allowedUserIds?.includes(userId) || ownerId === userId;
+  } catch (error) {
+    console.error('Failed to check if the user is authorized to access the deployment', error);
+    return false;
+  }
 }
 
 /**
