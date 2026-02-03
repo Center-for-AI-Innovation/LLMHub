@@ -7,7 +7,7 @@ import type {
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import type { Message as DBMessage, Document } from '@/lib/db/schema';
+import type { AuthorizedUsers, Message as DBMessage, Document } from '@/lib/db/schema';
 import type { ModelDeployment } from '@/hooks/use-models';
 
 export function cn(...inputs: ClassValue[]) {
@@ -264,6 +264,20 @@ export function validateDeployment(deployment: ModelDeployment): { isValid: bool
  */
 export function userOwnsDeployment(deployment: ModelDeployment, userId: string): boolean {
   return deployment.userId === userId;
+}
+
+/**
+ * Check if the current user is authorized to access the deployment
+ * 
+ * @param allowedUserIds - The allowed user IDs
+ * @param userId - The current user's ID
+ * @returns true if the user is authorized to access the deployment
+ */
+export function userIsAuthorized( allowedUserIds: string[] | null, userId: string): boolean {
+  if (!allowedUserIds) {
+    return false;
+  }
+  return allowedUserIds.includes(userId);
 }
 
 

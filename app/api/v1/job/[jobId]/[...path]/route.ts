@@ -21,12 +21,12 @@
  */
 
 import { auth } from '@/app/(auth)/auth';
-import { getUserById, getModelDeploymentByJobId } from '@/lib/db/queries';
+import { getUserById, getModelDeploymentByJobId, getAuthorizedUsersByModelId } from '@/lib/db/queries';
 import {
   isChatCompletionsEndpoint,
   handleChatCompletions,
 } from '@/lib/vllm-ai-sdk';
-import { createErrorResponse, validateDeployment, userOwnsDeployment } from '@/lib/utils';
+import { createErrorResponse, validateDeployment, userOwnsDeployment, userIsAuthorized } from '@/lib/utils';
 import type { ModelDeployment } from '@/hooks/use-models';
 
 export const maxDuration = 60;
@@ -63,9 +63,13 @@ async function handleRequest(
     if (!deployment) {
       return createErrorResponse(`Deployment not found for job ID: ${jobId}`, 404);
     }
-
-    // Step 4: Verify user owns the deployment
-    if (!userOwnsDeployment(deployment, userId)) {
+    const authorizedUsersData = await getAuthorizedUsersByModelId(deployment.modelId);
+    if (!authorizedUsersData) {
+      return createErrorResponse('Unauthorized - You do not have access to this deployment', 403);
+    }
+    const allowedUserIds = authorizedUsersData.allowedUserIds;
+    // Step 4: Verify user access to the deployment
+    if (!userOwnsDeployment(deployment, userId) && !userIsAuthorized(allowedUserIds, userId)) {
       return createErrorResponse('Unauthorized - You do not have access to this deployment', 403);
     }
 
@@ -74,6 +78,8 @@ async function handleRequest(
     if (!validation.isValid) {
       return createErrorResponse(validation.error || 'Deployment is not available', 503);
     }
+
+    console.log('User is authorized to access the deployment:', (userIsAuthorized(allowedUserIds, userId) || userOwnsDeployment(deployment, userId)));
 
     // Step 6: Handle chat completions 
     if (isChatCompletionsEndpoint(path) && request.method === 'POST') {
