@@ -18,6 +18,8 @@ import {
   availableModel,
   modelDeployment,
   type ModelDeployment,
+  authorizedUsers,
+  type AuthorizedUsers,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 
@@ -578,3 +580,13 @@ export async function getActiveModelDeploymentByUserId(userId: string): Promise<
   }
 }
 
+
+export async function getAuthorizedUsersByModelId(modelId: string): Promise<AuthorizedUsers | null> {
+  try {
+    const authorizedUsersData = await db.select().from(authorizedUsers).where(eq(authorizedUsers.modelId, modelId)).limit(1);
+    return authorizedUsersData[0] as AuthorizedUsers | null;
+  } catch (error) {
+    console.error('Failed to get authorized users by model id from database', error);
+    throw error;
+  }
+}
