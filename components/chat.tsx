@@ -100,8 +100,7 @@ function ChatInner({
     id: chatId,
     api: apiEndpoint,
     headers: {
-      // Request AI SDK data stream format for useChat hook compatibility
-      // Without this header, the API returns JSON OpenAI compatible response
+      // This header specifies that the API should return the response in the streaming format
       'x-response-format': 'ai-sdk',
     },
     body: { 
