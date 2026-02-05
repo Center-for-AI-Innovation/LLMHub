@@ -1,16 +1,24 @@
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
+from typing import Any, Dict, List, Optional, Union
 
 from app.config.logging import get_logger
 from app.config.config import settings
 
-# Python SDK for vec-inf
-from vec_inf.client.api import VecInfClient, ModelStatus
+# IMPORTANT: Set VEC_INF env vars BEFORE importing vec-inf.
+# vec-inf loads/caches config at import time.
+if getattr(settings, "VEC_INF_CONFIG_DIR", None):
+    os.environ["VEC_INF_CONFIG_DIR"] = str(settings.VEC_INF_CONFIG_DIR)
+if getattr(settings, "VEC_INF_ACCOUNT", None) or getattr(settings, "SLURM_ACCOUNT", None):
+    os.environ["VEC_INF_ACCOUNT"] = str(
+        getattr(settings, "VEC_INF_ACCOUNT", None) or settings.SLURM_ACCOUNT
+    )
+if getattr(settings, "VEC_INF_WORK_DIR", None):
+    os.environ["VEC_INF_WORK_DIR"] = str(settings.VEC_INF_WORK_DIR)
+
+# Python SDK for vec-inf (imported AFTER env vars are set)
+from vec_inf.client.api import VecInfClient
 from vec_inf.client.models import LaunchOptions
-from vec_inf.client._helper import ModelRegistry
-from vec_inf.client._slurm_vars import load_env_config
-from vec_inf.client._utils import load_config
 
 logger = get_logger("llm_inference")
 
@@ -19,35 +27,44 @@ class LLMInferenceClient:
     """Client for interacting with the llm-inference package via Python API."""
 
     def __init__(self):
-        # Set VEC_INF_CONFIG_DIR if configured in settings
-        # This tells vec-inf where to find environment.yaml and models.yaml
-        vec_inf_config_dir = getattr(settings, 'VEC_INF_CONFIG_DIR', None)
+        vec_inf_config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None)
         if vec_inf_config_dir:
-            os.environ['VEC_INF_CONFIG_DIR'] = vec_inf_config_dir
-            logger.info(f"Set VEC_INF_CONFIG_DIR to: {vec_inf_config_dir}")
-            # Verify config files exist
+            logger.info("Using VEC_INF_CONFIG_DIR: %s", vec_inf_config_dir)
             self._verify_config_files(vec_inf_config_dir)
         else:
             logger.info("VEC_INF_CONFIG_DIR not set, using vec-inf default config location")
         
         # MODEL_CONFIG_PATH can still be used for explicit models.yaml path override
-        config_path = getattr(settings, 'MODEL_CONFIG_PATH', None)
+        config_path = getattr(settings, "MODEL_CONFIG_PATH", None)
         if config_path:
-            logger.info(f"Using custom model config path: {config_path}")
+            logger.info("Using custom model config path: %s", config_path)
             # If VEC_INF_MODEL_CONFIG is not set, set it from MODEL_CONFIG_PATH
-            if not os.getenv('VEC_INF_MODEL_CONFIG'):
-                os.environ['VEC_INF_MODEL_CONFIG'] = config_path
-                logger.info(f"Set VEC_INF_MODEL_CONFIG to: {config_path}")
+            if not os.getenv("VEC_INF_MODEL_CONFIG"):
+                os.environ["VEC_INF_MODEL_CONFIG"] = str(config_path)
+                logger.info("Set VEC_INF_MODEL_CONFIG to: %s", config_path)
         
         # Initialize VecInfClient - it will use VEC_INF_CONFIG_DIR if set
         self.client = VecInfClient()
         self.slurm_log_dir = settings.SLURM_LOG_DIR
         self.slurm_account = settings.SLURM_ACCOUNT
-        
-        # Log which config files are being used
-        self._log_config_usage()
 
-    def _build_launch_options(self, enable_cloudflare_tunnel: bool, **params: Optional[Union[str, int, bool]]):
+    @staticmethod
+    def _ensure_cuda_visible_devices_env(env_value: Optional[str]) -> str:
+        """Ensure we pass Slurm-assigned GPUs into the container.
+
+        vec-inf expects a comma-separated KEY=VALUE list.
+        """
+        cuda_kv = "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+        if not env_value:
+            return cuda_kv
+
+        # Avoid double-injecting the key if the caller already provided it.
+        if "CUDA_VISIBLE_DEVICES=" in env_value:
+            return env_value
+
+        return f"{env_value},{cuda_kv}"
+
+    def _build_launch_options(self, **params: Optional[Union[str, int, bool]]):
         """Map API payload params to LaunchOptions.
 
         Supported incoming params:
@@ -88,11 +105,8 @@ class LLMInferenceClient:
             mapped["resource_type"] = params["resource_type"]
         if params.get("venv") is not None:
             mapped["venv"] = params["venv"]
-        elif settings.DEFAULT_VENV and settings.DEFAULT_VENV != "apptainer":
-            # Only set venv if it's an actual path, not a container runtime name
-            # "apptainer" is a runtime name, not a venv path
+        elif settings.DEFAULT_VENV:
             mapped["venv"] = settings.DEFAULT_VENV
-            logger.info(f"Using default venv from settings: {settings.DEFAULT_VENV}")
 
         # Optional working directory for vec-inf jobs
         # This allows API payloads to pass work_dir through to LaunchOptions
@@ -113,18 +127,34 @@ class LLMInferenceClient:
             vllm_parts.append(f"--max-model-len={params['max_model_len']}")
         if params.get("max_num_seqs") is not None:
             vllm_parts.append(f"--max-num-seqs={params['max_num_seqs']}")
+        # Append any additional vllm_args passed directly
+        if params.get("vllm_args") is not None:
+            vllm_parts.append(params["vllm_args"])
         if vllm_parts:
             mapped["vllm_args"] = ",".join(vllm_parts)
 
+        # HuggingFace model ID for downloading weights
+        if params.get("hf_model") is not None:
+            mapped["hf_model"] = params["hf_model"]
+
+        # Model weights parent directory
+        if params.get("model_weights_parent_dir") is not None:
+            mapped["model_weights_parent_dir"] = params["model_weights_parent_dir"]
+
         # Cloudflare tunnel currently controlled by CLI flags; SDK support may differ.
         # If SDK exposes it via env/config, wire it here in the future.
+
+        # Environment variables for container jobs (HF_HOME, HF_HUB_CACHE, etc.)
+        env_value = params.get("env") or getattr(settings, "VEC_INF_ENV", None)
+        mapped["env"] = self._ensure_cuda_visible_devices_env(env_value)
 
         return LaunchOptions(**mapped)
 
     def launch_model(self, model_name: str, enable_cloudflare_tunnel: bool = False, **params):
         """Launch a model using the llm-inference Python API."""
+        _ = enable_cloudflare_tunnel  # SDK tunnel support is handled externally for now.
         try:
-            options = self._build_launch_options(enable_cloudflare_tunnel, **params)
+            options = self._build_launch_options(**params)
             resp = self.client.launch_model(model_name, options=options)
             slurm_job_id = getattr(resp, "slurm_job_id", None)
             logger.info(f"Launched model {model_name} -> {slurm_job_id}")
@@ -136,9 +166,19 @@ class LLMInferenceClient:
     def get_model_status(self, slurm_job_id: str):
         try:
             status = self.client.get_status(slurm_job_id)
-            # status is likely an enum; normalize to string
-            status_str = status.name if hasattr(status, "name") else str(status)
-            return {"success": True, "status": status_str}
+            server_status = getattr(status, "server_status", None)
+            status_str = getattr(server_status, "value", None) or str(server_status)
+            base_url = getattr(status, "base_url", None)
+            return {
+                "success": True,
+                "status": status_str,
+                "endpoint_ready": bool(base_url),
+                "endpoint_url": base_url,
+                "model_name": getattr(status, "model_name", None),
+                "pending_reason": getattr(status, "pending_reason", None),
+                "failed_reason": getattr(status, "failed_reason", None),
+                "job_state": getattr(status, "job_state", None),
+            }
         except Exception as e:
             logger.error(f"Failed to get model status: {e}")
             return {"success": False, "error": str(e)}
@@ -187,86 +227,14 @@ class LLMInferenceClient:
         models_file = config_path / "models.yaml"
         
         if env_file.exists():
-            logger.info(f"✓ Found environment.yaml at: {env_file}")
+            logger.info("Found environment.yaml at: %s", env_file)
         else:
-            logger.warning(f"✗ environment.yaml not found at: {env_file}")
+            logger.warning("environment.yaml not found at: %s", env_file)
         
         if models_file.exists():
-            logger.info(f"✓ Found models.yaml at: {models_file}")
+            logger.info("Found models.yaml at: %s", models_file)
         else:
-            logger.warning(f"✗ models.yaml not found at: {models_file}")
-
-    def _log_config_usage(self):
-        """Log which configuration files are actually being used by vec-inf."""
-        try:
-            # Log environment variables that affect config loading
-            vec_inf_config_dir = os.getenv('VEC_INF_CONFIG_DIR')
-            vec_inf_model_config = os.getenv('VEC_INF_MODEL_CONFIG')
-            model_config_path = os.getenv('MODEL_CONFIG_PATH')
-            
-            logger.info("=" * 60)
-            logger.info("vec-inf Configuration Loading:")
-            if vec_inf_config_dir:
-                logger.info(f"  VEC_INF_CONFIG_DIR: {vec_inf_config_dir}")
-                models_file = Path(vec_inf_config_dir) / "models.yaml"
-                env_file = Path(vec_inf_config_dir) / "environment.yaml"
-                logger.info(f"  Expected models.yaml: {models_file} (exists: {models_file.exists()})")
-                logger.info(f"  Expected environment.yaml: {env_file} (exists: {env_file.exists()})")
-            else:
-                logger.info("  VEC_INF_CONFIG_DIR: Not set")
-            
-            if vec_inf_model_config:
-                logger.info(f"  VEC_INF_MODEL_CONFIG: {vec_inf_model_config} (exists: {Path(vec_inf_model_config).exists()})")
-            else:
-                logger.info("  VEC_INF_MODEL_CONFIG: Not set")
-            
-            if model_config_path:
-                logger.info(f"  MODEL_CONFIG_PATH: {model_config_path} (exists: {Path(model_config_path).exists()})")
-            else:
-                logger.info("  MODEL_CONFIG_PATH: Not set")
-            
-            # Check environment config
-            env_config = load_env_config()
-            logger.info(f"  Loaded environment config - image_path: {env_config.get('paths', {}).get('image_path', 'N/A')}")
-            logger.info(f"  Environment config limits - max_gpus_per_node: {env_config.get('limits', {}).get('max_gpus_per_node', 'N/A')}")
-            
-            # Check models config - this will show which file was actually loaded
-            models = load_config()
-            logger.info(f"  Loaded {len(models)} model configurations from models.yaml")
-            if models:
-                logger.info(f"  Sample models: {', '.join([m.model_name for m in models[:5]])}")
-                # Check if any model has integer time (which would indicate wrong config)
-                for model in models[:10]:  # Check first 10 models
-                    if hasattr(model, 'time') and isinstance(model.time, int):
-                        logger.warning(f"  ⚠️  Model '{model.model_name}' has integer time value: {model.time} (should be string HH:MM:SS)")
-                        break
-            
-            # Determine which config file vec-inf actually used
-            # vec-inf loads from: 1) VEC_INF_MODEL_CONFIG, 2) VEC_INF_CONFIG_DIR/models.yaml, 3) CACHED_CONFIG_DIR/models.yaml, 4) package default
-            if vec_inf_model_config and Path(vec_inf_model_config).exists():
-                actual_path = Path(vec_inf_model_config).resolve()
-                logger.info(f"  ✓ models.yaml loaded from: {actual_path}")
-            elif vec_inf_config_dir:
-                actual_path = Path(vec_inf_config_dir) / "models.yaml"
-                if actual_path.exists():
-                    logger.info(f"  ✓ models.yaml loaded from: {actual_path.resolve()}")
-                else:
-                    logger.warning(f"  ✗ Expected models.yaml not found at: {actual_path}")
-                    logger.info("  → Falling back to vec-inf default location")
-            else:
-                # Check cached location
-                cached_path = Path("/model-weights/vec-inf-shared/models.yaml")
-                if cached_path.exists():
-                    logger.info(f"  ✓ models.yaml loaded from cached location: {cached_path}")
-                else:
-                    logger.info("  ✓ models.yaml loaded from vec-inf package defaults")
-            
-            logger.info("=" * 60)
-                
-        except Exception as e:
-            logger.warning(f"Could not verify config loading: {e}")
-            import traceback
-            logger.warning(traceback.format_exc())
+            logger.warning("models.yaml not found at: %s", models_file)
 
     def get_tunnel_url(self, job_name: str, slurm_job_id: str):
         """Get the Cloudflare tunnel URL for a deployed model (if available)."""
