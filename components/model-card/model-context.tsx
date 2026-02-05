@@ -5,13 +5,15 @@ import type { ModelInfo } from '@/hooks/use-models';
 const ModelContext = React.createContext<{
   models: ModelInfo[];
   isLoadingModels: boolean;
-  launchModel: (modelId: string) => Promise<void>;
+  launchModel: (modelId: string, huggingfaceId?: string, family?: string) => Promise<void>;
   isLaunching: boolean;
+  openLogsPanel?: (deploymentId: string, modelName: string) => void;
 }>({
   models: [],
   isLoadingModels: false,
-  launchModel: async () => {},
-  isLaunching: false
+  launchModel: async () => { },
+  isLaunching: false,
+  openLogsPanel: undefined,
 });
 
 export { ModelContext }; 

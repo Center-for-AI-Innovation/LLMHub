@@ -18,26 +18,27 @@ const actionButtonClass = "w-1/2 group";
 const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
   const { models, isLoadingModels, launchModel, isLaunching } = React.useContext(ModelContext);
   const [isModelLaunching, setIsModelLaunching] = useState(false);
-  
+
   // Find model data in context
-  const model = useMemo(() => 
-    models.find(m => m.id === modelId), 
+  const model = useMemo(() =>
+    models.find(m => m.id === modelId),
     [models, modelId]
   );
-  
+
   const handleLaunch = useCallback(async () => {
     if (!model) return;
-    
+
     setIsModelLaunching(true);
     try {
-      await launchModel(model.id);
+      // Pass modelId, huggingfaceId, and family for proper HF model path construction
+      await launchModel(model.id, model.huggingfaceId, model.family);
     } catch (error) {
       console.error('Failed to launch model:', error);
     } finally {
       setIsModelLaunching(false);
     }
   }, [model, launchModel]);
-  
+
   if (!model || isLoadingModels) {
     return (
       <div className="relative p-6 rounded-3xl bg-gradient-to-br from-primary/10 to-primary/5 shadow-sm h-[340px] flex items-center justify-center">
@@ -45,13 +46,13 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
       </div>
     );
   }
-  
+
   // Get icon and gradient
   const Icon = modelUtilFunctions.getModelIcon(model);
   const gradient = modelUtilFunctions.getModelGradient(model);
-  
+
   return (
-    <div 
+    <div
       className={cn(
         "relative p-6 rounded-[1.5rem] bg-gradient-to-br",
         gradient,
@@ -66,17 +67,17 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
           {model.status}
         </span>
       </div>
-      
+
       <div className="mb-4 inline-flex size-12 items-center justify-center rounded-full bg-white/20 dark:bg-white/10">
         <Icon className="size-6 text-primary" />
       </div>
-      
+
       <div className="mb-2">
         <h3 className="text-xl font-semibold truncate">{model.name}</h3>
       </div>
-      
+
       <p className="text-muted-foreground line-clamp-2 mb-4">{model.description}</p>
-      
+
       <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground mb-6">
         <div>
           <span className="font-medium">Type:</span> {model.type}
@@ -88,16 +89,16 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
           <span className="font-medium">Context:</span> {model.specs.contextLength.toLocaleString()} tokens
         </div>
       </div>
-      
+
       <div className="mt-auto flex justify-between w-full gap-3">
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           className={scheduleButtonClass}
         >
           Schedule
           <Calendar className="ml-2 size-4" />
         </Button>
-        <Button 
+        <Button
           className={actionButtonClass}
           onClick={handleLaunch}
           disabled={isModelLaunching || isLaunching}

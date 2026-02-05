@@ -16,70 +16,76 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
-import { 
-  useModels, 
-  useModelDeployments, 
-  useRefreshModels, 
-  useLaunchModel, 
+import {
+  useModels,
+  useModelDeployments,
+  useRefreshModels,
+  useLaunchModel,
   useStopModel,
 } from '@/hooks/use-models';
 
 import { useDebounce } from '@/hooks/use-debounce';
 import { fullWidthButtonClass, refreshButtonClass, modelUtilFunctions } from '@/lib/models/utils';
-import { 
-  ActiveModelCard, 
-  VirtualizedModelGrid, 
-  ModelContext 
+import {
+  ActiveModelCard,
+  VirtualizedModelGrid,
+  ModelContext
 } from '@/components/model-card';
+import { DeploymentLogsPanel } from '@/components/deployment-logs-panel';
 
 export default function CatalogPage() {
   const [activeTab, setActiveTab] = useState<string>("available");
   const [searchQuery, setSearchQuery] = useState<string>("");
-  
+
   // Use debounce for search
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  
+
+  // State for deployment logs panel
+  const [logsPanelOpen, setLogsPanelOpen] = useState(false);
+  const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | null>(null);
+  const [selectedModelName, setSelectedModelName] = useState<string>('');
+
   // Fetch models and deployments using React Query
-  const { 
-    data: models = [], 
-    isLoading: isLoadingModels, 
+  const {
+    data: models = [],
+    isLoading: isLoadingModels,
     error: modelsError,
     refetch: refetchModels
   } = useModels(debouncedSearchQuery);
-  
-  const { 
-    data: deployments = [], 
+
+  const {
+    data: deployments = [],
     isLoading: isLoadingDeployments,
     error: deploymentsError
   } = useModelDeployments();
-  
-  const { 
-    mutate: refreshModels, 
-    isPending: isRefreshing 
+
+  const {
+    mutate: refreshModels,
+    isPending: isRefreshing
   } = useRefreshModels();
-  
-  const { 
-    mutate: launchModel, 
-    isPending: isLaunching 
+
+  const {
+    mutateAsync: launchModelAsync,
+    isPending: isLaunching
   } = useLaunchModel();
-  
-  const { 
-    mutate: stopModel, 
-    isPending: isStopping 
+
+  const {
+    mutate: stopModel,
+    isPending: isStopping
   } = useStopModel();
-  
+
   // Effect to change to active tab if we have deployments
   useEffect(() => {
     if (deployments.length > 0 && activeTab === "available") {
       setActiveTab("active");
     }
   }, [deployments, activeTab]);
-  
+
   // Get model deployment if exists - memoized
   const getModelDeployment = useCallback((modelId: string) => {
     return deployments.find(d => d.modelId === modelId);
   }, [deployments]);
-  
+
   // Get deployment status label and color - memoized
   const getStatusInfo = useCallback((status: string) => {
     switch (status) {
@@ -95,7 +101,7 @@ export default function CatalogPage() {
         return { label: status, color: 'bg-primary/10 text-primary', icon: Server };
     }
   }, []);
-  
+
   // Handle stopping a model - memoized with proper Promise<void> return type
   const handleStopModel = useCallback(async (deploymentId: string): Promise<void> => {
     try {
@@ -106,30 +112,43 @@ export default function CatalogPage() {
   }, [stopModel]);
 
   // Stabilized launch model function for context
-  const stableLaunchModel = useCallback(async (modelId: string) => {
+  const stableLaunchModel = useCallback(async (modelId: string, huggingfaceId?: string, family?: string) => {
     try {
-      await launchModel(modelId);
+      const deployment = await launchModelAsync({ modelId, huggingfaceId, family });
+      // If launch succeeds, open the logs panel with the new deployment
+      if (deployment && deployment.id) {
+        setSelectedDeploymentId(deployment.id);
+        setSelectedModelName(deployment.modelName || modelId);
+        setLogsPanelOpen(true);
+      }
     } catch (error) {
       console.error('Failed to launch model:', error);
     }
-  }, [launchModel]);
-  
+  }, [launchModelAsync]);
+
+  // Handler to open logs panel
+  const handleOpenLogsPanel = useCallback((deploymentId: string, modelName: string) => {
+    setSelectedDeploymentId(deploymentId);
+    setSelectedModelName(modelName);
+    setLogsPanelOpen(true);
+  }, []);
+
   // Combined loading and error states
   const isLoading = isLoadingModels || isLoadingDeployments;
   const error = modelsError || deploymentsError;
-  
+
   // Filter active models (those with deployments) - memoized
-  const activeModels = useMemo(() => models.filter(model => 
+  const activeModels = useMemo(() => models.filter(model =>
     deployments.some(d => d.modelId === model.id && (d.status === 'RUNNING' || d.status === 'STARTING'))
   ), [models, deployments]);
-  
+
   // Filter available models (those without deployments or with failed/stopped deployments) - memoized
-  const availableModels = useMemo(() => models.filter(model => 
+  const availableModels = useMemo(() => models.filter(model =>
     !deployments.some(d => d.modelId === model.id && (d.status === 'RUNNING' || d.status === 'STARTING'))
   ), [models, deployments]);
 
   // Extract just the IDs for the virtualized components
-  const availableModelIds = useMemo(() => 
+  const availableModelIds = useMemo(() =>
     availableModels.map(model => model.id),
     [availableModels]
   );
@@ -139,8 +158,9 @@ export default function CatalogPage() {
     models: availableModels,
     isLoadingModels,
     launchModel: stableLaunchModel,
-    isLaunching
-  }), [availableModels, isLoadingModels, stableLaunchModel, isLaunching]);
+    isLaunching,
+    openLogsPanel: handleOpenLogsPanel,
+  }), [availableModels, isLoadingModels, stableLaunchModel, isLaunching, handleOpenLogsPanel]);
 
   // Memoize the tab change handler
   const handleTabChange = useCallback((value: string) => {
@@ -217,8 +237,8 @@ export default function CatalogPage() {
                   )}
                 </TabsTrigger>
               </TabsList>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={handleRefresh}
                 disabled={isRefreshing || isLoading}
@@ -232,7 +252,7 @@ export default function CatalogPage() {
                 <span>Refresh</span>
               </Button>
             </div>
-            
+
             <TabsContent value="active" className="mt-0">
               {activeModels.length > 0 ? (
                 <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -258,8 +278,8 @@ export default function CatalogPage() {
                   <p className="text-muted-foreground max-w-md mb-8">
                     You don&apos;t have any active model deployments. Launch a model from the Available Models tab.
                   </p>
-                  <Button 
-                    onClick={() => setActiveTab("available")} 
+                  <Button
+                    onClick={() => setActiveTab("available")}
                     className={fullWidthButtonClass}
                   >
                     Browse Available Models
@@ -268,7 +288,7 @@ export default function CatalogPage() {
                 </div>
               )}
             </TabsContent>
-            
+
             <TabsContent value="available" className="mt-0">
               {availableModels.length > 0 ? (
                 <ModelContext.Provider value={modelContextValue}>
@@ -283,8 +303,8 @@ export default function CatalogPage() {
                   <p className="text-muted-foreground max-w-md mb-8">
                     There are currently no models available for deployment. Please check back later or contact support if this issue persists.
                   </p>
-                  <Button 
-                    onClick={handleRefresh} 
+                  <Button
+                    onClick={handleRefresh}
                     disabled={isRefreshing}
                     className={fullWidthButtonClass}
                   >
@@ -313,8 +333,8 @@ export default function CatalogPage() {
             <p className="text-muted-foreground max-w-md mb-8">
               {error instanceof Error ? error.message : "There are currently no models available. Please check back later or contact support if this issue persists."}
             </p>
-            <Button 
-              onClick={handleRefresh} 
+            <Button
+              onClick={handleRefresh}
               disabled={isRefreshing}
               className={fullWidthButtonClass}
             >
@@ -333,6 +353,14 @@ export default function CatalogPage() {
           </div>
         )}
       </div>
+
+      {/* Deployment Logs Panel */}
+      <DeploymentLogsPanel
+        open={logsPanelOpen}
+        onOpenChange={setLogsPanelOpen}
+        deploymentId={selectedDeploymentId}
+        modelName={selectedModelName}
+      />
     </>
   );
 } 
