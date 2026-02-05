@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
-import { type BackendModelResponse, type ModelInfo, getModelSize, generateModelDescription, formatModelName } from '@/lib/models/types';
+import {
+  type BackendModelResponse,
+  type ModelInfo,
+  getModelSize,
+  generateModelDescription,
+  formatModelName,
+} from '@/lib/models/types';
 import { getAvailableModels, searchAvailableModels } from '@/lib/db/queries';
 
 // Cache for model catalog
@@ -20,14 +26,22 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
   }
 
   // If we have models as a record (expected format)
-  if (backendResponse.models && typeof backendResponse.models === 'object' && !Array.isArray(backendResponse.models)) {
+  if (
+    backendResponse.models &&
+    typeof backendResponse.models === 'object' &&
+    !Array.isArray(backendResponse.models)
+  ) {
     return Object.entries(backendResponse.models).map(([id, config]) => {
       const modelSize = getModelSize(config.num_gpus);
 
       return {
         id,
         name: formatModelName(id),
-        description: generateModelDescription(id, config.model_family, config.max_model_len),
+        description: generateModelDescription(
+          id,
+          config.model_family,
+          config.max_model_len,
+        ),
         status: 'WARM', // Default status, would be updated from actual deployment status
         type: modelSize,
         family: config.model_family,
@@ -37,7 +51,7 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
           nodes: config.num_nodes,
           contextLength: config.max_model_len,
           parallelism: config.pipeline_parallelism,
-        }
+        },
       };
     });
   }
@@ -48,16 +62,25 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
       // Try to parse the output as JSON if it's a string
       const modelNames = JSON.parse(backendResponse.output);
       if (Array.isArray(modelNames)) {
-        return modelNames.map(modelName => {
+        return modelNames.map((modelName) => {
           // Extract family and variant from model name
           const nameParts = modelName.split('-');
           const family = nameParts[0].toLowerCase();
 
           // Determine model size based on name patterns
           let type: 'Small' | 'Medium' | 'Large' = 'Medium';
-          if (modelName.includes('70B') || modelName.includes('Large') || modelName.includes('405B')) {
+          if (
+            modelName.includes('70B') ||
+            modelName.includes('Large') ||
+            modelName.includes('405B')
+          ) {
             type = 'Large';
-          } else if (modelName.includes('7B') || modelName.includes('small') || modelName.includes('1.5B') || modelName.includes('3B')) {
+          } else if (
+            modelName.includes('7B') ||
+            modelName.includes('small') ||
+            modelName.includes('1.5B') ||
+            modelName.includes('3B')
+          ) {
             type = 'Small';
           }
 
@@ -74,7 +97,7 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
               nodes: type === 'Large' ? 1 : 1,
               contextLength: modelName.includes('128k') ? 131072 : 4096, // Estimate context length
               parallelism: type === 'Large',
-            }
+            },
           };
         });
       }
@@ -83,19 +106,28 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
       const modelNames = backendResponse.output
         .replace(/[\[\]']/g, '')
         .split(', ')
-        .filter(name => name.trim().length > 0);
+        .filter((name) => name.trim().length > 0);
 
       if (modelNames.length > 0) {
-        return modelNames.map(modelName => {
+        return modelNames.map((modelName) => {
           // Extract family and variant from model name
           const nameParts = modelName.split('-');
           const family = nameParts[0].toLowerCase();
 
           // Determine model size based on name patterns
           let type: 'Small' | 'Medium' | 'Large' = 'Medium';
-          if (modelName.includes('70B') || modelName.includes('Large') || modelName.includes('405B')) {
+          if (
+            modelName.includes('70B') ||
+            modelName.includes('Large') ||
+            modelName.includes('405B')
+          ) {
             type = 'Large';
-          } else if (modelName.includes('7B') || modelName.includes('small') || modelName.includes('1.5B') || modelName.includes('3B')) {
+          } else if (
+            modelName.includes('7B') ||
+            modelName.includes('small') ||
+            modelName.includes('1.5B') ||
+            modelName.includes('3B')
+          ) {
             type = 'Small';
           }
 
@@ -112,7 +144,7 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
               nodes: type === 'Large' ? 1 : 1,
               contextLength: modelName.includes('128k') ? 131072 : 4096, // Estimate context length
               parallelism: type === 'Large',
-            }
+            },
           };
         });
       }
@@ -139,7 +171,7 @@ export async function GET(request: Request) {
 
         if (dbModels && dbModels.length > 0) {
           // Map database models to frontend format
-          const models = dbModels.map(model => ({
+          const models = dbModels.map((model) => ({
             id: model.id,
             name: model.name,
             description: model.description || '',
@@ -174,7 +206,7 @@ export async function GET(request: Request) {
 
       if (dbModels && dbModels.length > 0) {
         // Map database models to frontend format
-        const models = dbModels.map(model => ({
+        const models = dbModels.map((model) => ({
           id: model.id,
           name: model.name,
           description: model.description || '',
@@ -197,7 +229,9 @@ export async function GET(request: Request) {
       const response = await fetch(`${BACKEND_API_URL}/api/models/`);
 
       if (!response.ok) {
-        throw new Error(`Backend API returned ${response.status}: ${response.statusText}`);
+        throw new Error(
+          `Backend API returned ${response.status}: ${response.statusText}`,
+        );
       }
 
       const backendData: BackendModelResponse = await response.json();
@@ -215,16 +249,16 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           models: [],
-          error: 'Failed to fetch models. Please try again later.'
+          error: 'Failed to fetch models. Please try again later.',
         },
-        { status: 503 } // Service Unavailable
+        { status: 503 }, // Service Unavailable
       );
     }
   } catch (error) {
     console.error('Error in GET handler:', error);
     return NextResponse.json(
       { error: 'Failed to fetch model catalog' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -245,7 +279,9 @@ export async function POST() {
       });
 
       if (!response.ok) {
-        throw new Error(`Backend API returned ${response.status}: ${response.statusText}`);
+        throw new Error(
+          `Backend API returned ${response.status}: ${response.statusText}`,
+        );
       }
 
       const result = await response.json();
@@ -255,7 +291,7 @@ export async function POST() {
         const dbModels = await getAvailableModels();
 
         // Map database models to frontend format
-        const models = dbModels.map(model => ({
+        const models = dbModels.map((model) => ({
           id: model.id,
           name: model.name,
           description: model.description || '',
@@ -274,7 +310,7 @@ export async function POST() {
         return NextResponse.json({
           success: true,
           message: 'Model catalog refreshed successfully',
-          models
+          models,
         });
       } else {
         throw new Error(result.error || 'Failed to sync models');
@@ -283,17 +319,20 @@ export async function POST() {
       console.error('Error refreshing model catalog:', error);
 
       // Return an error message
-      return NextResponse.json({
-        success: false,
-        message: 'Failed to refresh model catalog. Please try again later.',
-        models: []
-      }, { status: 503 }); // Service Unavailable
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Failed to refresh model catalog. Please try again later.',
+          models: [],
+        },
+        { status: 503 },
+      ); // Service Unavailable
     }
   } catch (error) {
     console.error('Error in POST handler:', error);
     return NextResponse.json(
       { error: 'Failed to refresh model catalog' },
-      { status: 500 }
+      { status: 500 },
     );
   }
-} 
+}

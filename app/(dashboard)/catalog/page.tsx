@@ -25,24 +25,30 @@ import {
 } from '@/hooks/use-models';
 
 import { useDebounce } from '@/hooks/use-debounce';
-import { fullWidthButtonClass, refreshButtonClass, modelUtilFunctions } from '@/lib/models/utils';
+import {
+  fullWidthButtonClass,
+  refreshButtonClass,
+  modelUtilFunctions,
+} from '@/lib/models/utils';
 import {
   ActiveModelCard,
   VirtualizedModelGrid,
-  ModelContext
+  ModelContext,
 } from '@/components/model-card';
 import { DeploymentLogsPanel } from '@/components/deployment-logs-panel';
 
 export default function CatalogPage() {
-  const [activeTab, setActiveTab] = useState<string>("available");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<string>('available');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Use debounce for search
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   // State for deployment logs panel
   const [logsPanelOpen, setLogsPanelOpen] = useState(false);
-  const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | null>(null);
+  const [selectedDeploymentId, setSelectedDeploymentId] = useState<
+    string | null
+  >(null);
   const [selectedModelName, setSelectedModelName] = useState<string>('');
 
   // Fetch models and deployments using React Query
@@ -50,117 +56,173 @@ export default function CatalogPage() {
     data: models = [],
     isLoading: isLoadingModels,
     error: modelsError,
-    refetch: refetchModels
+    refetch: refetchModels,
   } = useModels(debouncedSearchQuery);
 
   const {
     data: deployments = [],
     isLoading: isLoadingDeployments,
-    error: deploymentsError
+    error: deploymentsError,
   } = useModelDeployments();
 
-  const {
-    mutate: refreshModels,
-    isPending: isRefreshing
-  } = useRefreshModels();
+  const { mutate: refreshModels, isPending: isRefreshing } = useRefreshModels();
 
-  const {
-    mutateAsync: launchModelAsync,
-    isPending: isLaunching
-  } = useLaunchModel();
+  const { mutateAsync: launchModelAsync, isPending: isLaunching } =
+    useLaunchModel();
 
-  const {
-    mutate: stopModel,
-    isPending: isStopping
-  } = useStopModel();
+  const { mutate: stopModel, isPending: isStopping } = useStopModel();
 
   // Effect to change to active tab if we have deployments
   useEffect(() => {
-    if (deployments.length > 0 && activeTab === "available") {
-      setActiveTab("active");
+    if (deployments.length > 0 && activeTab === 'available') {
+      setActiveTab('active');
     }
   }, [deployments, activeTab]);
 
   // Get model deployment if exists - memoized
-  const getModelDeployment = useCallback((modelId: string) => {
-    return deployments.find(d => d.modelId === modelId);
-  }, [deployments]);
+  const getModelDeployment = useCallback(
+    (modelId: string) => {
+      return deployments.find((d) => d.modelId === modelId);
+    },
+    [deployments],
+  );
 
   // Get deployment status label and color - memoized
   const getStatusInfo = useCallback((status: string) => {
     switch (status) {
       case 'RUNNING':
-        return { label: 'Active', color: 'bg-emerald-500/10 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400', icon: CheckCircle2 };
+        return {
+          label: 'Active',
+          color:
+            'bg-emerald-500/10 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400',
+          icon: CheckCircle2,
+        };
       case 'STARTING':
-        return { label: 'Starting', color: 'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400', icon: Loader2 };
+        return {
+          label: 'Starting',
+          color:
+            'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400',
+          icon: Loader2,
+        };
       case 'FAILED':
-        return { label: 'Failed', color: 'bg-destructive/10 text-destructive', icon: AlertCircle };
+        return {
+          label: 'Failed',
+          color: 'bg-destructive/10 text-destructive',
+          icon: AlertCircle,
+        };
       case 'STOPPED':
-        return { label: 'Stopped', color: 'bg-muted text-muted-foreground', icon: Server };
+        return {
+          label: 'Stopped',
+          color: 'bg-muted text-muted-foreground',
+          icon: Server,
+        };
       default:
-        return { label: status, color: 'bg-primary/10 text-primary', icon: Server };
+        return {
+          label: status,
+          color: 'bg-primary/10 text-primary',
+          icon: Server,
+        };
     }
   }, []);
 
   // Handle stopping a model - memoized with proper Promise<void> return type
-  const handleStopModel = useCallback(async (deploymentId: string): Promise<void> => {
-    try {
-      await stopModel(deploymentId);
-    } catch (error) {
-      console.error('Failed to stop model:', error);
-    }
-  }, [stopModel]);
+  const handleStopModel = useCallback(
+    async (deploymentId: string): Promise<void> => {
+      try {
+        await stopModel(deploymentId);
+      } catch (error) {
+        console.error('Failed to stop model:', error);
+      }
+    },
+    [stopModel],
+  );
 
   // Stabilized launch model function for context
-  const stableLaunchModel = useCallback(async (modelId: string, huggingfaceId?: string, family?: string) => {
-    try {
-      const deployment = await launchModelAsync({ modelId, huggingfaceId, family });
-      // If launch succeeds, open the logs panel with the new deployment
-      if (deployment && deployment.id) {
-        setSelectedDeploymentId(deployment.id);
-        setSelectedModelName(deployment.modelName || modelId);
-        setLogsPanelOpen(true);
+  const stableLaunchModel = useCallback(
+    async (modelId: string, huggingfaceId?: string, family?: string) => {
+      try {
+        const deployment = await launchModelAsync({
+          modelId,
+          huggingfaceId,
+          family,
+        });
+        // If launch succeeds, open the logs panel with the new deployment
+        if (deployment?.id) {
+          setSelectedDeploymentId(deployment.id);
+          setSelectedModelName(deployment.modelName || modelId);
+          setLogsPanelOpen(true);
+        }
+      } catch (error) {
+        console.error('Failed to launch model:', error);
       }
-    } catch (error) {
-      console.error('Failed to launch model:', error);
-    }
-  }, [launchModelAsync]);
+    },
+    [launchModelAsync],
+  );
 
   // Handler to open logs panel
-  const handleOpenLogsPanel = useCallback((deploymentId: string, modelName: string) => {
-    setSelectedDeploymentId(deploymentId);
-    setSelectedModelName(modelName);
-    setLogsPanelOpen(true);
-  }, []);
+  const handleOpenLogsPanel = useCallback(
+    (deploymentId: string, modelName: string) => {
+      setSelectedDeploymentId(deploymentId);
+      setSelectedModelName(modelName);
+      setLogsPanelOpen(true);
+    },
+    [],
+  );
 
   // Combined loading and error states
   const isLoading = isLoadingModels || isLoadingDeployments;
   const error = modelsError || deploymentsError;
 
   // Filter active models (those with deployments) - memoized
-  const activeModels = useMemo(() => models.filter(model =>
-    deployments.some(d => d.modelId === model.id && (d.status === 'RUNNING' || d.status === 'STARTING'))
-  ), [models, deployments]);
+  const activeModels = useMemo(
+    () =>
+      models.filter((model) =>
+        deployments.some(
+          (d) =>
+            d.modelId === model.id &&
+            (d.status === 'RUNNING' || d.status === 'STARTING'),
+        ),
+      ),
+    [models, deployments],
+  );
 
   // Filter available models (those without deployments or with failed/stopped deployments) - memoized
-  const availableModels = useMemo(() => models.filter(model =>
-    !deployments.some(d => d.modelId === model.id && (d.status === 'RUNNING' || d.status === 'STARTING'))
-  ), [models, deployments]);
+  const availableModels = useMemo(
+    () =>
+      models.filter(
+        (model) =>
+          !deployments.some(
+            (d) =>
+              d.modelId === model.id &&
+              (d.status === 'RUNNING' || d.status === 'STARTING'),
+          ),
+      ),
+    [models, deployments],
+  );
 
   // Extract just the IDs for the virtualized components
-  const availableModelIds = useMemo(() =>
-    availableModels.map(model => model.id),
-    [availableModels]
+  const availableModelIds = useMemo(
+    () => availableModels.map((model) => model.id),
+    [availableModels],
   );
 
   // Create context value for available models
-  const modelContextValue = useMemo(() => ({
-    models: availableModels,
-    isLoadingModels,
-    launchModel: stableLaunchModel,
-    isLaunching,
-    openLogsPanel: handleOpenLogsPanel,
-  }), [availableModels, isLoadingModels, stableLaunchModel, isLaunching, handleOpenLogsPanel]);
+  const modelContextValue = useMemo(
+    () => ({
+      models: availableModels,
+      isLoadingModels,
+      launchModel: stableLaunchModel,
+      isLaunching,
+      openLogsPanel: handleOpenLogsPanel,
+    }),
+    [
+      availableModels,
+      isLoadingModels,
+      stableLaunchModel,
+      isLaunching,
+      handleOpenLogsPanel,
+    ],
+  );
 
   // Memoize the tab change handler
   const handleTabChange = useCallback((value: string) => {
@@ -168,9 +230,12 @@ export default function CatalogPage() {
   }, []);
 
   // Memoize the search handler
-  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
-  }, []);
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setSearchQuery(e.target.value);
+    },
+    [],
+  );
 
   // Memoize the refresh handler
   const handleRefresh = useCallback(() => {
@@ -208,7 +273,9 @@ export default function CatalogPage() {
 
         {error ? (
           <div className="mb-6 p-4 bg-destructive/10 text-destructive rounded-lg">
-            {error instanceof Error ? error.message : 'An error occurred while fetching models'}
+            {error instanceof Error
+              ? error.message
+              : 'An error occurred while fetching models'}
           </div>
         ) : null}
 
@@ -217,7 +284,11 @@ export default function CatalogPage() {
             <Loader2 className="size-8 animate-spin text-primary" />
           </div>
         ) : models.length > 0 ? (
-          <Tabs defaultValue={activeTab} onValueChange={handleTabChange} className="w-full">
+          <Tabs
+            defaultValue={activeTab}
+            onValueChange={handleTabChange}
+            className="w-full"
+          >
             <div className="flex items-center mb-6">
               <TabsList className="mr-2">
                 <TabsTrigger value="active" className="relative">
@@ -274,12 +345,15 @@ export default function CatalogPage() {
                   <div className="bg-gradient-to-br from-muted/30 to-muted/10 rounded-full p-8 mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
                     <Server className="size-12 text-muted-foreground" />
                   </div>
-                  <h3 className="text-2xl font-medium mb-3">No Active Models</h3>
+                  <h3 className="text-2xl font-medium mb-3">
+                    No Active Models
+                  </h3>
                   <p className="text-muted-foreground max-w-md mb-8">
-                    You don&apos;t have any active model deployments. Launch a model from the Available Models tab.
+                    You don&apos;t have any active model deployments. Launch a
+                    model from the Available Models tab.
                   </p>
                   <Button
-                    onClick={() => setActiveTab("available")}
+                    onClick={() => setActiveTab('available')}
                     className={fullWidthButtonClass}
                   >
                     Browse Available Models
@@ -299,9 +373,13 @@ export default function CatalogPage() {
                   <div className="bg-gradient-to-br from-muted/30 to-muted/10 rounded-full p-8 mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
                     <Server className="size-12 text-muted-foreground" />
                   </div>
-                  <h3 className="text-2xl font-medium mb-3">No Available Models</h3>
+                  <h3 className="text-2xl font-medium mb-3">
+                    No Available Models
+                  </h3>
                   <p className="text-muted-foreground max-w-md mb-8">
-                    There are currently no models available for deployment. Please check back later or contact support if this issue persists.
+                    There are currently no models available for deployment.
+                    Please check back later or contact support if this issue
+                    persists.
                   </p>
                   <Button
                     onClick={handleRefresh}
@@ -331,7 +409,9 @@ export default function CatalogPage() {
             </div>
             <h3 className="text-2xl font-medium mb-3">No Models Available</h3>
             <p className="text-muted-foreground max-w-md mb-8">
-              {error instanceof Error ? error.message : "There are currently no models available. Please check back later or contact support if this issue persists."}
+              {error instanceof Error
+                ? error.message
+                : 'There are currently no models available. Please check back later or contact support if this issue persists.'}
             </p>
             <Button
               onClick={handleRefresh}
@@ -363,4 +443,4 @@ export default function CatalogPage() {
       />
     </>
   );
-} 
+}

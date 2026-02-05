@@ -1,28 +1,25 @@
 import { useState, useMemo, useCallback, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import {
-  Loader2,
-  Calendar,
-  ArrowRight,
-} from 'lucide-react';
+import { Loader2, Calendar, ArrowRight } from 'lucide-react';
 import { ModelContext } from './model-context';
 import * as React from 'react';
 import { modelUtilFunctions } from '@/lib/models/utils';
 
 // Stable class names for buttons
-const scheduleButtonClass = "w-1/2 bg-white/50 dark:bg-white/5 border-0";
-const actionButtonClass = "w-1/2 group";
+const scheduleButtonClass = 'w-1/2 bg-white/50 dark:bg-white/5 border-0';
+const actionButtonClass = 'w-1/2 group';
 
 // Create an optimized card component that doesn't need props passed in
 const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
-  const { models, isLoadingModels, launchModel, isLaunching } = React.useContext(ModelContext);
+  const { models, isLoadingModels, launchModel, isLaunching } =
+    React.useContext(ModelContext);
   const [isModelLaunching, setIsModelLaunching] = useState(false);
 
   // Find model data in context
-  const model = useMemo(() =>
-    models.find(m => m.id === modelId),
-    [models, modelId]
+  const model = useMemo(
+    () => models.find((m) => m.id === modelId),
+    [models, modelId],
   );
 
   const handleLaunch = useCallback(async () => {
@@ -54,12 +51,12 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
   return (
     <div
       className={cn(
-        "relative p-6 rounded-[1.5rem] bg-gradient-to-br",
+        'relative p-6 rounded-[1.5rem] bg-gradient-to-br',
         gradient,
-        "shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]",
-        "hover:shadow-[0_4px_20px_rgba(0,0,0,0.12)] dark:hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]",
-        "backdrop-blur-sm hover:bg-white/[0.05] dark:hover:bg-white/[0.03] group flex flex-col h-full",
-        "will-change-transform"
+        'shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]',
+        'hover:shadow-[0_4px_20px_rgba(0,0,0,0.12)] dark:hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]',
+        'backdrop-blur-sm hover:bg-white/[0.05] dark:hover:bg-white/[0.03] group flex flex-col h-full',
+        'will-change-transform',
       )}
     >
       <div className="absolute top-4 right-4">
@@ -76,7 +73,9 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
         <h3 className="text-xl font-semibold truncate">{model.name}</h3>
       </div>
 
-      <p className="text-muted-foreground line-clamp-2 mb-4">{model.description}</p>
+      <p className="text-muted-foreground line-clamp-2 mb-4">
+        {model.description}
+      </p>
 
       <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground mb-6">
         <div>
@@ -86,15 +85,13 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
           <span className="font-medium">GPUs:</span> {model.specs.gpus}
         </div>
         <div className="col-span-2">
-          <span className="font-medium">Context:</span> {model.specs.contextLength.toLocaleString()} tokens
+          <span className="font-medium">Context:</span>{' '}
+          {model.specs.contextLength.toLocaleString()} tokens
         </div>
       </div>
 
       <div className="mt-auto flex justify-between w-full gap-3">
-        <Button
-          variant="outline"
-          className={scheduleButtonClass}
-        >
+        <Button variant="outline" className={scheduleButtonClass}>
           Schedule
           <Calendar className="ml-2 size-4" />
         </Button>
@@ -121,4 +118,4 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
 });
 VirtualizedModelCard.displayName = 'VirtualizedModelCard';
 
-export { VirtualizedModelCard }; 
+export { VirtualizedModelCard };
