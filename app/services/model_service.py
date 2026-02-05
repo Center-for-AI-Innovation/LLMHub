@@ -379,7 +379,7 @@ class ModelService:
             return None
         
         # Skip if the deployment is already in a terminal state
-        if db_deployment.status in ["failed", "shutdown"]:
+        if db_deployment.status in ["failed", "shutdown", "completed"]:
             return db_deployment
         
         # Shutdown the model
@@ -439,6 +439,107 @@ class ModelService:
         
         # Get the metrics from llm-inference
         return self.llm_client.get_model_metrics(db_deployment.slurmJobId)
+
+    def get_deployment_logs(
+        self, 
+        db: Session, 
+        deployment_id: UUID, 
+        tail: int = 100
+    ) -> Dict[str, Any]:
+        """Get logs for a model deployment from the Slurm log directory.
+        
+        Args:
+            db: Database session
+            deployment_id: ID of the deployment
+            tail: Number of lines to return from the end (0 for all lines)
+            
+        Returns:
+            Dictionary with success status, logs, and deployment info
+        """
+        import os
+        from pathlib import Path
+        
+        db_deployment = self.get_deployment(db, deployment_id)
+        if not db_deployment:
+            return {"success": False, "error": "Deployment not found"}
+        
+        # Get the log directory from the llm_client
+        log_dir = self.llm_client.slurm_log_dir
+        if not log_dir:
+            return {
+                "success": False, 
+                "error": "Slurm log directory not configured",
+                "deployment": {
+                    "id": str(db_deployment.id),
+                    "status": db_deployment.status,
+                    "modelName": db_deployment.modelName,
+                }
+            }
+        
+        # Parse model name to get family and job name
+        # Model name format: "Qwen/Qwen3-8B" -> family="Qwen3", job_name="Qwen3-8B"
+        model_name = db_deployment.modelName
+        slurm_job_id = db_deployment.slurmJobId
+        
+        # Extract model family (second-level directory uses the model variant/family)
+        # For "Qwen/Qwen3-8B" the family folder is "Qwen3" (not "Qwen")
+        if "/" in model_name:
+            parts = model_name.split("/")
+            # The job name is the last part (e.g., "Qwen3-8B")
+            job_name = parts[-1]
+            # The family folder seems to be derived from the job name prefix
+            # e.g., "Qwen3-8B" -> "Qwen3"
+            model_family = job_name.rsplit("-", 1)[0] if "-" in job_name else job_name
+        else:
+            job_name = model_name
+            model_family = job_name.rsplit("-", 1)[0] if "-" in job_name else job_name
+        
+        # Log file structure: {log_dir}/{family}/{job_name}.{job_id}/{job_name}.{job_id}.{ext}
+        job_dir = Path(log_dir) / model_family / f"{job_name}.{slurm_job_id}"
+        
+        log_files = {
+            "err": job_dir / f"{job_name}.{slurm_job_id}.err",
+            "out": job_dir / f"{job_name}.{slurm_job_id}.out",
+        }
+        
+        logs = {
+            "stderr": [],
+            "stdout": [],
+        }
+        
+        # Read log files
+        for log_type, file_path in log_files.items():
+            try:
+                if file_path.exists():
+                    with open(file_path, "r") as f:
+                        lines = f.readlines()
+                        # Apply tail if specified
+                        if tail > 0 and len(lines) > tail:
+                            lines = lines[-tail:]
+                        # Clean up lines
+                        log_key = "stderr" if log_type == "err" else "stdout"
+                        logs[log_key] = [line.rstrip("\n") for line in lines]
+                else:
+                    logger.debug(f"Log file not found: {file_path}")
+            except Exception as e:
+                logger.error(f"Error reading log file {file_path}: {e}")
+                logs["stderr" if log_type == "err" else "stdout"] = [f"Error reading log: {str(e)}"]
+        
+        return {
+            "success": True,
+            "logs": logs,
+            "deployment": {
+                "id": str(db_deployment.id),
+                "status": db_deployment.status,
+                "modelName": db_deployment.modelName,
+                "slurmJobId": db_deployment.slurmJobId,
+                "errorMessage": db_deployment.errorMessage,
+            },
+            "logFiles": {
+                "stderr": str(log_files["err"]),
+                "stdout": str(log_files["out"]),
+            }
+        }
 
     def extend_deployment_expiration(
         self,

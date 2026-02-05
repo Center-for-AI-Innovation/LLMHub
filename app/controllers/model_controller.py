@@ -159,6 +159,27 @@ def get_deployment_metrics(
     return result
 
 
+@router.get("/deployments/{deployment_id}/logs", response_model=Dict[str, Any])
+def get_deployment_logs(
+    deployment_id: UUID,
+    tail: int = 100,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Get logs for a specific model deployment.
+    
+    Args:
+        deployment_id: UUID of the deployment
+        tail: Number of lines to return from the end (default 100, 0 for all)
+    """
+    result = model_service.get_deployment_logs(db=db, deployment_id=deployment_id, tail=tail)
+    if not result.get("success", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Failed to get logs"),
+        )
+    return result
+
+
 @router.delete("/deployments/{deployment_id}", response_model=ModelDeploymentResponse)
 def shutdown_deployment(
     deployment_id: UUID,
