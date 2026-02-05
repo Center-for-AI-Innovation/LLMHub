@@ -1,8 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Union
 from uuid import UUID
-import json
-import logging
 import concurrent.futures
 
 from sqlalchemy.orm import Session
@@ -84,7 +82,7 @@ class ModelService:
         if not db_request:
             return None
         
-        update_data = request_update.dict(exclude_unset=True)
+        update_data = request_update.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(db_request, key, value)
         
@@ -101,10 +99,12 @@ class ModelService:
     ) -> ModelDeployment:
         """Launch a model and create a deployment record."""
         # Extract parameters for the launch command
-        params = deployment.dict(exclude={"modelName", "userId"})
-        
+        params = deployment.model_dump(exclude={"modelName", "modelId", "userId"})
+        model_id = deployment.modelId or deployment.modelName
+
         # Get the enable_cloudflare_tunnel parameter
         enable_cloudflare_tunnel = params.pop("enable_cloudflare_tunnel", False)
+        resource_allocation = {**params, "enable_cloudflare_tunnel": enable_cloudflare_tunnel}
         
         # Check and allocate resources if needed
         resource_service = ResourceService()
@@ -131,12 +131,13 @@ class ModelService:
             if not allocation_result.get("success", False):
                 # Failed to allocate resources
                 db_deployment = ModelDeployment(
+                    modelId=model_id,
                     modelName=deployment.modelName,
                     userId=deployment.userId,
                     slurmJobId="failed",
                     status="failed",
                     errorMessage=allocation_result.get("error", "Failed to allocate GPU resources"),
-                    resourceAllocation=params
+                    resourceAllocation=resource_allocation,
                 )
                 db.add(db_deployment)
                 db.commit()
@@ -146,6 +147,16 @@ class ModelService:
             logger.info(f"Allocated {total_gpus} GPU resources for model {deployment.modelName}")
         
         # Launch the model
+        logger.info(
+            "Launching model=%s user_id=%s partition=%s resource_type=%s num_nodes=%s num_gpus=%s time=%s",
+            deployment.modelName,
+            deployment.userId,
+            params.get("partition"),
+            params.get("resource_type"),
+            params.get("num_nodes"),
+            params.get("num_gpus"),
+            params.get("time"),
+        )
         result = self.llm_client.launch_model(
             deployment.modelName, 
             enable_cloudflare_tunnel=enable_cloudflare_tunnel,
@@ -164,12 +175,13 @@ class ModelService:
                 
             # Create a failed deployment record
             db_deployment = ModelDeployment(
+                modelId=model_id,
                 modelName=deployment.modelName,
                 userId=deployment.userId,
                 slurmJobId="failed",
                 status="failed",
                 errorMessage=result.get("error", "Unknown error"),
-                resourceAllocation=params
+                resourceAllocation=resource_allocation,
             )
             db.add(db_deployment)
             db.commit()
@@ -196,12 +208,13 @@ class ModelService:
                 
             # Create a failed deployment record
             db_deployment = ModelDeployment(
+                modelId=model_id,
                 modelName=deployment.modelName,
                 userId=deployment.userId,
                 slurmJobId="failed",
                 status="failed",
                 errorMessage="Failed to get Slurm job ID",
-                resourceAllocation=params
+                resourceAllocation=resource_allocation,
             )
             db.add(db_deployment)
             db.commit()
@@ -240,12 +253,13 @@ class ModelService:
         
         # Create a deployment record
         db_deployment = ModelDeployment(
+            modelId=model_id,
             modelName=deployment.modelName,
             userId=deployment.userId,
             slurmJobId=slurm_job_id,
             status="launching",
-            resourceAllocation=params,
-            expirationTime=expiration_time
+            resourceAllocation=resource_allocation,
+            expiresAt=expiration_time
         )
         db.add(db_deployment)
         db.commit()
@@ -291,7 +305,7 @@ class ModelService:
         if not db_deployment:
             return None
         
-        update_data = deployment_update.dict(exclude_unset=True)
+        update_data = deployment_update.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(db_deployment, key, value)
         
@@ -307,7 +321,7 @@ class ModelService:
             return None
         
         # Skip if the deployment is already in a terminal state
-        if db_deployment.status in ["failed", "shutdown"]:
+        if db_deployment.status in ["failed", "shutdown", "completed"]:
             return db_deployment
             
         # Get the current status from llm-inference
@@ -323,31 +337,35 @@ class ModelService:
             return db_deployment
             
         # Extract the status from the result
-        status = result.get("status", "unknown")
-        
-        # Map the status to our deployment status
-        if status == "RUNNING":
-            # Check if the endpoint is ready
-            if result.get("endpoint_ready", False):
-                db_deployment.status = "ready"
-                db_deployment.endpointUrl = result.get("endpoint_url")
-                
-                # Try to get the tunnel URL if Cloudflare tunnel was enabled
-                if db_deployment.resourceAllocation and db_deployment.resourceAllocation.get("enable_cloudflare_tunnel"):
-                    # Construct the job name from the model name
-                    job_name = db_deployment.modelName.replace("/", "-")
-                    tunnel_url = self.llm_client.get_tunnel_url(job_name, db_deployment.slurmJobId)
-                    if tunnel_url:
-                        db_deployment.tunnelUrl = tunnel_url
-            else:
-                db_deployment.status = "launching"
-        elif status == "PENDING" or status == "CONFIGURING":
+        status = (result.get("status") or "unknown").upper()
+        job_state = result.get("job_state")
+
+        # Map vec-inf server status -> our deployment status.
+        if status == "READY":
+            db_deployment.status = "ready"
+            db_deployment.endpointUrl = result.get("endpoint_url")
+        elif status in {"PENDING", "LAUNCHING"}:
             db_deployment.status = "launching"
-        elif status == "FAILED" or status == "CANCELLED" or status == "TIMEOUT":
+        elif status == "FAILED":
             db_deployment.status = "failed"
-            db_deployment.errorMessage = f"Job {status.lower()}"
-        elif status == "COMPLETED":
+            db_deployment.errorMessage = result.get("failed_reason") or "Job failed"
+        elif status == "SHUTDOWN":
             db_deployment.status = "shutdown"
+
+        # If Slurm reports completion, prefer a terminal state.
+        if isinstance(job_state, str) and job_state.upper() == "COMPLETED":
+            db_deployment.status = "completed"
+
+        # Try to get the tunnel URL if Cloudflare tunnel was enabled
+        if (
+            db_deployment.status == "ready"
+            and db_deployment.resourceAllocation
+            and db_deployment.resourceAllocation.get("enable_cloudflare_tunnel")
+        ):
+            job_name = db_deployment.modelName.replace("/", "-")
+            tunnel_url = self.llm_client.get_tunnel_url(job_name, db_deployment.slurmJobId)
+            if tunnel_url:
+                db_deployment.tunnelUrl = tunnel_url
         
         db_deployment.updatedAt = datetime.utcnow()
         db.commit()
@@ -434,21 +452,19 @@ class ModelService:
             return None
         
         # Only allow extending active deployments
-        if db_deployment.status not in ["launching", "ready"]:
+        if db_deployment.status not in ["launching", "running", "ready"]:
             logger.warning(f"Cannot extend deployment {deployment_id} with status {db_deployment.status}")
             return db_deployment
         
         # Calculate new expiration time
-        from datetime import datetime, timedelta
-        
         # If there's no existing expiration time, set it from now
-        if not db_deployment.expirationTime:
-            db_deployment.expirationTime = datetime.utcnow()
+        if not db_deployment.expiresAt:
+            db_deployment.expiresAt = datetime.utcnow()
         
         # Add the extension hours
-        db_deployment.expirationTime += timedelta(hours=extension_hours)
+        db_deployment.expiresAt += timedelta(hours=extension_hours)
         
-        logger.info(f"Extended expiration time for deployment {deployment_id} to {db_deployment.expirationTime}")
+        logger.info(f"Extended expiration time for deployment {deployment_id} to {db_deployment.expiresAt}")
         
         # Update the deployment
         db_deployment.updatedAt = datetime.utcnow()

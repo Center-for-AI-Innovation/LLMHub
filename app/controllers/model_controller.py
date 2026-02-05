@@ -99,7 +99,13 @@ def launch_model(
     db: Session = Depends(get_db),
 ) -> Any:
     """Launch a model."""
-    return model_service.launch_model(db=db, deployment=deployment)
+    db_deployment = model_service.launch_model(db=db, deployment=deployment)
+    if getattr(db_deployment, "status", None) == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=getattr(db_deployment, "errorMessage", None) or "Failed to launch model",
+        )
+    return db_deployment
 
 
 @router.get("/deployments", response_model=List[ModelDeploymentResponse])

@@ -12,10 +12,11 @@ class ModelDeployment(Base):
     __tablename__ = "ModelDeployment"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    modelId = Column(String, nullable=False)  # References AvailableModel.id (model name)
     modelName = Column(String, nullable=False)
     slurmJobId = Column(String, nullable=False)
     status = Column(
-        Enum("pending", "launching", "ready", "failed", "shutdown", name="deployment_status"),
+        Enum("pending", "launching", "ready", "running", "failed", "shutdown", "completed", name="deployment_status"),
         nullable=False,
         default="pending"
     )
@@ -26,4 +27,4 @@ class ModelDeployment(Base):
     tunnelUrl = Column(String, nullable=True)
     errorMessage = Column(String, nullable=True)
     resourceAllocation = Column(JSON, nullable=True)
-    expirationTime = Column(DateTime, nullable=True) 
+    expiresAt = Column("expiresAt", DateTime, nullable=True)
