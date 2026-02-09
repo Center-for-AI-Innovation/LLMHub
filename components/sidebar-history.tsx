@@ -157,8 +157,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
   const {
     data: history,
     isLoading,
-  } = 
-  istory(!!user);
+  } = useChatHistory(!!user);
   
   // Prevent refetching history when just navigating between chats
   useEffect(() => {
