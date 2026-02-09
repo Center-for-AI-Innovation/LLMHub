@@ -77,7 +77,7 @@ export default function CatalogPage() {
   
   // Get model deployment if exists - memoized
   const getModelDeployment = useCallback((modelId: string) => {
-    return deployments.find(d => d.modelId === modelId);
+    return deployments.find(d => d.modelId === modelId && (d.status === 'running' || d.status === 'launching'));
   }, [deployments]);
   
   // Get deployment status label and color - memoized
@@ -120,12 +120,12 @@ export default function CatalogPage() {
   
   // Filter active models (those with deployments) - memoized
   const activeModels = useMemo(() => models.filter(model => 
-    deployments.some(d => d.modelId === model.id && (d.status === 'running' || d.status === 'starting'))
+    deployments.some(d => d.modelId === model.id && (d.status === 'running' || d.status === 'launching'))
   ), [models, deployments]);
   
   // Filter available models (those without deployments or with failed/stopped deployments) - memoized
   const availableModels = useMemo(() => models.filter(model => 
-    !deployments.some(d => d.modelId === model.id && (d.status === 'running' || d.status === 'starting'))
+    !deployments.some(d => d.modelId === model.id && (d.status === 'running' || d.status === 'launching'))
   ), [models, deployments]);
 
   // Extract just the IDs for the virtualized components

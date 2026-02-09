@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { mutate as mutateSWR } from 'swr';
 
 // Types for models
 export interface ModelSpecs {
@@ -188,6 +189,7 @@ export function useLaunchModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      mutateSWR('/api/v1/vllm/job');
     },
   });
 }
@@ -208,6 +210,7 @@ export function useStopModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      mutateSWR('/api/v1/vllm/job');
     },
   });
 } 

@@ -13,6 +13,9 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
 import { getActiveModelDeploymentByUserId } from '@/lib/db/queries';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 /**
  * GET - Get user's active vLLM job from ModelDeployment table
  */

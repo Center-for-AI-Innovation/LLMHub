@@ -120,7 +120,7 @@ const ActiveModelCard = memo(({
         <Button 
           asChild 
           className={actionButtonClass}
-          disabled={deployment?.status === 'STARTING'}
+          disabled={deployment?.status === 'launching'}
         >
           <Link href={`/chat?model=${model.id}`}>
             Chat

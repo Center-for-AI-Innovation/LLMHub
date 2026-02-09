@@ -536,7 +536,8 @@ export async function getActiveModelDeploymentByUserId(userId: string): Promise<
           )
         )
       )
-      .orderBy(desc(modelDeployment.updatedAt))
+      // Prefer the newest active deployment deterministically.
+      .orderBy(desc(modelDeployment.updatedAt), desc(modelDeployment.createdAt))
       .limit(1);
     return deployment || null;
   } catch (error) {
@@ -545,3 +546,14 @@ export async function getActiveModelDeploymentByUserId(userId: string): Promise<
   }
 }
 
+/**
+ * Set the status of a model deployment by ID to 'shutdown'
+ */
+export async function shutdownModelDeploymentById(id: string): Promise<void> {
+  try {
+    await db.update(modelDeployment).set({ status: 'shutdown' }).where(eq(modelDeployment.id, id));
+  } catch (error) {
+    console.error('Failed to shutdown model deployment by id from database', error);
+    throw error;
+  }
+}

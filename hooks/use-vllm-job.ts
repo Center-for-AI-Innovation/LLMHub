@@ -8,7 +8,8 @@
 import { useCallback } from 'react';
 import useSWR from 'swr';
 
-const fetcher = (url: string) => fetch(url).then(res => res.json());
+const fetcher = (url: string) =>
+  fetch(url, { cache: 'no-store' }).then((res) => res.json());
 
 interface VllmJobResponse {
   jobId: string | null;
@@ -36,10 +37,13 @@ export function useVllmJob() {
     '/api/v1/vllm/job',
     fetcher,
     {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      // Cache for 5 minutes
-      dedupingInterval: 300000,
+      // Always revalidate on mount so chat never reuses an old job id.
+      revalidateOnMount: true,
+      revalidateIfStale: true,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      dedupingInterval: 1000,
+      focusThrottleInterval: 1000,
     }
   );
 
