@@ -83,13 +83,13 @@ export default function CatalogPage() {
   // Get deployment status label and color - memoized
   const getStatusInfo = useCallback((status: string) => {
     switch (status) {
-      case 'RUNNING':
+      case 'running':
         return { label: 'Active', color: 'bg-emerald-500/10 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400', icon: CheckCircle2 };
-      case 'STARTING':
+      case 'launching':
         return { label: 'Starting', color: 'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400', icon: Loader2 };
-      case 'FAILED':
+      case 'failed':
         return { label: 'Failed', color: 'bg-destructive/10 text-destructive', icon: AlertCircle };
-      case 'STOPPED':
+      case 'shutdown':
         return { label: 'Stopped', color: 'bg-muted text-muted-foreground', icon: Server };
       default:
         return { label: status, color: 'bg-primary/10 text-primary', icon: Server };
@@ -120,12 +120,12 @@ export default function CatalogPage() {
   
   // Filter active models (those with deployments) - memoized
   const activeModels = useMemo(() => models.filter(model => 
-    deployments.some(d => d.modelId === model.id && (d.status === 'RUNNING' || d.status === 'STARTING'))
+    deployments.some(d => d.modelId === model.id && (d.status === 'running' || d.status === 'starting'))
   ), [models, deployments]);
   
   // Filter available models (those without deployments or with failed/stopped deployments) - memoized
   const availableModels = useMemo(() => models.filter(model => 
-    !deployments.some(d => d.modelId === model.id && (d.status === 'RUNNING' || d.status === 'STARTING'))
+    !deployments.some(d => d.modelId === model.id && (d.status === 'running' || d.status === 'starting'))
   ), [models, deployments]);
 
   // Extract just the IDs for the virtualized components

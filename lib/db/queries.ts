@@ -374,6 +374,14 @@ export async function getAvailableModelById({ id }: { id: string }) {
     .limit(1);
 }
 
+export async function getAvailableModelByName({ name }: { name: string }) {
+  return await db
+    .select()
+    .from(availableModel)
+    .where(eq(availableModel.name, name))
+    .limit(1);
+}
+
 export async function searchAvailableModels({ query }: { query: string }) {
   return await db
     .select()

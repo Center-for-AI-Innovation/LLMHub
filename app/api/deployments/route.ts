@@ -4,12 +4,13 @@ import { auth } from '@/app/(auth)/auth';
 import {
   createModelDeployment,
   getAvailableModelById,
+  getAvailableModelByName,
   getModelDeploymentsByUserId,
   getUser,
 } from '@/lib/db/queries';
 
 const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
-const DEV_MODEL_ID = process.env.DEV_VLLM_MODEL_ID || 'qwen2.5-1.5b-instruct';
+const DEV_MODEL_NAME = process.env.DEV_VLLM_MODEL_NAME || 'Qwen/Qwen2.5-1.5B-Instruct';
 const SLURM_JOB_ID_LENGTH = 6;
 
 const createSlurmJobId = () =>
@@ -68,21 +69,21 @@ export async function POST() {
       );
     }
 
-    const [model] = await getAvailableModelById({ id: DEV_MODEL_ID });
+    const [model] = await getAvailableModelByName({ name: DEV_MODEL_NAME });
 
     if (!model) {
       return NextResponse.json(
-        { error: `Model ${DEV_MODEL_ID} is not available.` },
+        { error: `Model ${DEV_MODEL_NAME} is not available.` },
         { status: 404 }
       );
     }
 
     const deployment = await createModelDeployment({
-      modelId: DEV_MODEL_ID,
+      modelId: model.id,
       modelName: model.name,
       userId: devUser.id,
       slurmJobId: `test-${createSlurmJobId()}`,
-      status: 'RUNNING',
+      status: 'running',
       endpointUrl: DEV_ENDPOINT_URL,
     });
 
