@@ -451,7 +451,6 @@ export async function createModelDeployment({
   slurmJobId,
   status = 'pending',
   endpointUrl,
-  tunnelUrl,
   errorMessage,
   resourceAllocation,
   expiresAt,
@@ -462,7 +461,6 @@ export async function createModelDeployment({
   slurmJobId: string;
   status?: ModelDeployment['status'];
   endpointUrl?: string | null;
-  tunnelUrl?: string | null;
   errorMessage?: string | null;
   resourceAllocation?: Record<string, unknown> | null;
   expiresAt?: Date | null;
@@ -477,7 +475,6 @@ export async function createModelDeployment({
         slurmJobId,
         status,
         endpointUrl,
-        tunnelUrl,
         errorMessage,
         resourceAllocation,
         expiresAt,

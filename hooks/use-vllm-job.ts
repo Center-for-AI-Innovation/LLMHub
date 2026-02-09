@@ -16,7 +16,6 @@ interface VllmJobResponse {
   modelId?: string;
   proxyUrl?: string;
   endpointUrl?: string;
-  tunnelUrl?: string;
   modelName?: string;
   status?: string;
   expiresAt?: string;
@@ -49,7 +48,6 @@ export function useVllmJob() {
   const modelId = data?.modelId || null;
   const proxyUrl = data?.proxyUrl || null;
   const endpointUrl = data?.endpointUrl || null;
-  const tunnelUrl = data?.tunnelUrl || null;
   const modelName = data?.modelName || null;
   const status = data?.status || null;
   const expiresAt = data?.expiresAt || null;
@@ -73,7 +71,6 @@ export function useVllmJob() {
     modelId,
     proxyUrl,
     endpointUrl,
-    tunnelUrl,
     modelName,
     status,
     isLoading,

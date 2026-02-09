@@ -9,9 +9,9 @@ export interface ModelSpecs {
 }
 
 export interface ModelInfo {
-  modelId: string;
+  id: string;
   modelName: string;
-  description: string;
+  description: string;  
   status: 'WARM' | 'COLD' | 'OFFLINE';
   type: 'Small' | 'Medium' | 'Large';
   family: string;
@@ -28,7 +28,6 @@ export interface ModelDeployment {
   slurmJobId: string;
   status: 'pending' | 'launching' | 'ready' | 'running' | 'failed' | 'shutdown' | 'completed';
   endpointUrl: string | null;
-  tunnelUrl: string | null;
   errorMessage: string | null;
   resourceAllocation: Record<string, unknown> | null;
   createdAt: string;

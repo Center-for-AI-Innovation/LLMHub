@@ -37,7 +37,7 @@ export function isChatCompletionsEndpoint(path: string[]): boolean {
  * @returns An OpenAI-compatible provider configured for the deployment
  */
 export function createVllmProvider(deployment: ModelDeployment) {
-  const baseUrl = deployment.tunnelUrl || deployment.endpointUrl;
+  const baseUrl = deployment.endpointUrl;
   if (!baseUrl) {
     throw new Error('No endpoint URL available for deployment');
   }

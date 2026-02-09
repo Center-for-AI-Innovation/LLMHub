@@ -64,6 +64,13 @@
       "when": 1769010516567,
       "tag": "0009_blushing_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1770668098580,
+      "tag": "0010_busy_vulcan",
+      "breakpoints": true
     }
   ]
 }
