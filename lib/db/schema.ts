@@ -170,6 +170,7 @@ export const modelDeployment = pgTable('ModelDeployment', {
     .notNull()
     .default('pending'),
   endpointUrl: varchar('endpointUrl', { length: 255 }),
+  proxyUrl: varchar('proxyUrl', { length: 255 }),
   errorMessage: text('errorMessage'),
   resourceAllocation: json('resourceAllocation'),
   createdAt: timestamp('createdAt').notNull().defaultNow(),
