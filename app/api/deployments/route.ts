@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Call the backend API to launch the model
-    const response = await fetch(`${BACKEND_API_URL}/api/models/launch`, {
+    const response = await fetch(`${BACKEND_API_URL}/api/models/deployments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
