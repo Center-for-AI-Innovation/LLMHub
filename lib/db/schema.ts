@@ -157,6 +157,24 @@ export const resourceAllocation = pgTable('ResourceAllocation', {
 
 export type ResourceAllocation = InferSelectModel<typeof resourceAllocation>;
 
+export const availableModel = pgTable('AvailableModel', {
+  id: varchar('id', { length: 255 }).primaryKey().notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  status: varchar('status', { enum: ['WARM', 'COLD', 'OFFLINE'] }).notNull().default('WARM'),
+  type: varchar('type', { enum: ['Small', 'Medium', 'Large'] }).notNull(),
+  family: varchar('family', { length: 100 }).notNull(),
+  variant: varchar('variant', { length: 100 }).notNull(),
+  modelType: varchar('modelType', { length: 50 }),
+  specs: json('specs').notNull(),
+  vocabSize: integer('vocabSize'),
+  huggingfaceId: varchar('huggingfaceId', { length: 255 }),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+});
+
+export type AvailableModel = InferSelectModel<typeof availableModel>;
+
 export const modelDeployment = pgTable('ModelDeployment',
   {
     id: uuid('id').primaryKey().notNull().defaultRandom(),
@@ -185,24 +203,6 @@ export const modelDeployment = pgTable('ModelDeployment',
 );
 
 export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
-
-export const availableModel = pgTable('AvailableModel', {
-  id: varchar('id', { length: 255 }).primaryKey().notNull(),
-  name: varchar('name', { length: 255 }).notNull(),
-  description: text('description'),
-  status: varchar('status', { enum: ['WARM', 'COLD', 'OFFLINE'] }).notNull().default('WARM'),
-  type: varchar('type', { enum: ['Small', 'Medium', 'Large'] }).notNull(),
-  family: varchar('family', { length: 100 }).notNull(),
-  variant: varchar('variant', { length: 100 }).notNull(),
-  modelType: varchar('modelType', { length: 50 }),
-  specs: json('specs').notNull(),
-  vocabSize: integer('vocabSize'),
-  huggingfaceId: varchar('huggingfaceId', { length: 255 }),
-  createdAt: timestamp('createdAt').notNull().defaultNow(),
-  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
-});
-
-export type AvailableModel = InferSelectModel<typeof availableModel>;
 
 
 export const authorizedUsers = pgTable('AuthorizedUsers',
