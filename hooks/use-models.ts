@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { mutate as mutateSWR } from 'swr';
 
 // Types for models
 export interface ModelSpecs {
@@ -9,10 +10,10 @@ export interface ModelSpecs {
 }
 
 export interface ModelInfo {
-  id: string; // Model identifier (e.g., "Qwen3-8B")
-  name: string; // Display name
-  description: string;
-  status: 'WARM' | 'COLD' | 'OFFLINE';
+  id: string;
+  modelName: string;
+  description: string;  
+  status: 'warm' | 'cold' ;
   type: 'Small' | 'Medium' | 'Large';
   family: string;
   variant: string;
@@ -36,7 +37,6 @@ export interface ModelDeployment {
     | 'shutdown'
     | 'completed';
   endpointUrl: string | null;
-  tunnelUrl: string | null;
   errorMessage: string | null;
   resourceAllocation: Record<string, unknown> | null;
   createdAt: string;
@@ -254,6 +254,7 @@ export function useLaunchModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      mutateSWR('/api/v1/vllm/job');
     },
   });
 }
@@ -274,6 +275,7 @@ export function useStopModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      mutateSWR('/api/v1/vllm/job');
     },
   });
 }

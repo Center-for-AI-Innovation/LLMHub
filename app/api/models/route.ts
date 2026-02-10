@@ -42,7 +42,7 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
           config.model_family,
           config.max_model_len,
         ),
-        status: 'WARM', // Default status, would be updated from actual deployment status
+        status: 'warm', // Default status, would be updated from actual deployment status
         type: modelSize,
         family: config.model_family,
         variant: config.model_variant,
@@ -88,7 +88,7 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
             id: modelName,
             name: formatModelName(modelName),
             description: generateModelDescription(modelName, family, 4096), // Default context length
-            status: 'WARM',
+            status: 'warm',
             type,
             family,
             variant: nameParts.slice(1).join('-'),
@@ -135,7 +135,7 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
             id: modelName,
             name: formatModelName(modelName),
             description: generateModelDescription(modelName, family, 4096), // Default context length
-            status: 'WARM',
+            status: 'warm',
             type,
             family,
             variant: nameParts.slice(1).join('-'),
@@ -175,7 +175,7 @@ export async function GET(request: Request) {
             id: model.id,
             name: model.name,
             description: model.description || '',
-            status: model.status as 'WARM' | 'COLD' | 'OFFLINE',
+            status: model.status as 'warm' | 'cold' ,
             type: model.type as 'Small' | 'Medium' | 'Large',
             family: model.family,
             variant: model.variant,
@@ -210,7 +210,7 @@ export async function GET(request: Request) {
           id: model.id,
           name: model.name,
           description: model.description || '',
-          status: model.status as 'WARM' | 'COLD' | 'OFFLINE',
+          status: model.status as 'warm' | 'cold' ,
           type: model.type as 'Small' | 'Medium' | 'Large',
           family: model.family,
           variant: model.variant,
@@ -295,7 +295,7 @@ export async function POST() {
           id: model.id,
           name: model.name,
           description: model.description || '',
-          status: model.status as 'WARM' | 'COLD' | 'OFFLINE',
+          status: model.status as 'warm' | 'cold' ,
           type: model.type as 'Small' | 'Medium' | 'Large',
           family: model.family,
           variant: model.variant,

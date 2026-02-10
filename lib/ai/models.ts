@@ -17,6 +17,7 @@ export const DEFAULT_CHAT_MODEL: string = 'vllm-model';
 // });
 
 // Create vLLM provider for local vLLM server (OpenAI-compatible)
+// TODO: We should use the deployment endpoint URL instead of the base URL
 const vllmBaseURL = process.env.VLLM_BASE_URL || 'http://localhost:8000/v1';
 const vllmApiKey = process.env.VLLM_API_KEY || 'dummy-key'; // vLLM doesn't require API key by default
 

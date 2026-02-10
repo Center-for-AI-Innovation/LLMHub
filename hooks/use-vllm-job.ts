@@ -8,7 +8,8 @@
 import { useCallback } from 'react';
 import useSWR from 'swr';
 
-const fetcher = (url: string) => fetch(url).then(res => res.json());
+const fetcher = (url: string) =>
+  fetch(url, { cache: 'no-store' }).then((res) => res.json());
 
 interface VllmJobResponse {
   jobId: string | null;
@@ -16,7 +17,6 @@ interface VllmJobResponse {
   modelId?: string;
   proxyUrl?: string;
   endpointUrl?: string;
-  tunnelUrl?: string;
   modelName?: string;
   status?: string;
   expiresAt?: string;
@@ -37,10 +37,13 @@ export function useVllmJob() {
     '/api/v1/vllm/job',
     fetcher,
     {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      // Cache for 5 minutes
-      dedupingInterval: 300000,
+      // Always revalidate on mount so chat never reuses an old job id.
+      revalidateOnMount: true,
+      revalidateIfStale: true,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      dedupingInterval: 1000,
+      focusThrottleInterval: 1000,
     }
   );
 
@@ -49,7 +52,6 @@ export function useVllmJob() {
   const modelId = data?.modelId || null;
   const proxyUrl = data?.proxyUrl || null;
   const endpointUrl = data?.endpointUrl || null;
-  const tunnelUrl = data?.tunnelUrl || null;
   const modelName = data?.modelName || null;
   const status = data?.status || null;
   const expiresAt = data?.expiresAt || null;
@@ -73,7 +75,6 @@ export function useVllmJob() {
     modelId,
     proxyUrl,
     endpointUrl,
-    tunnelUrl,
     modelName,
     status,
     isLoading,

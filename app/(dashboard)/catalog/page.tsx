@@ -105,7 +105,7 @@ export default function CatalogPage() {
         [d.modelId, d.modelName].some(
           (value) => value?.toLowerCase() === targetId,
         ),
-      );
+       && (d.status === 'running' || d.status === 'launching'));
     },
     [deployments],
   );

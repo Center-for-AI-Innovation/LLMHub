@@ -25,6 +25,7 @@ export async function createChat() {
     id,
     userId: session.user.id,
     title: 'New Chat',
+    isBrowserChat: true,
   });
 
   return { id };
