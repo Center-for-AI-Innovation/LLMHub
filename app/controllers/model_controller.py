@@ -116,20 +116,6 @@ def create_deployment(
     return _launch_model(deployment=deployment, db=db)
 
 
-@router.post(
-    "/launch",
-    response_model=ModelDeploymentResponse,
-    status_code=status.HTTP_201_CREATED,
-    include_in_schema=False,
-)
-def launch_model_legacy(
-    deployment: ModelDeploymentCreate,
-    db: Session = Depends(get_db),
-) -> Any:
-    """Backward-compatible alias for deployment launch."""
-    return _launch_model(deployment=deployment, db=db)
-
-
 @router.get("/deployments", response_model=List[ModelDeploymentResponse])
 def list_deployments(
     userId: Optional[UUID] = None,
