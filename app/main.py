@@ -1,8 +1,33 @@
+"""
+App entry point. Infrastructure is resolved first so VEC_INF_CONFIG_DIR is set
+before any code (e.g. llm_inference) reads it at import time.
+"""
+import logging
+import os
+
+from app.config.config import settings
+from app.utils.infrastructure import InfrastructureManager
+
+# Resolve infrastructure and set VEC_INF_CONFIG_DIR before router/service imports
+_infra_manager = InfrastructureManager()
+_infra_id = _infra_manager.detect_infrastructure()
+_infra_config_path = _infra_manager.get_config_path(_infra_id)
+_infra_config_path_abs = _infra_config_path.resolve()
+_infra_config_str = str(_infra_config_path_abs)
+os.environ["VEC_INF_CONFIG_DIR"] = _infra_config_str
+setattr(settings, "VEC_INF_CONFIG_DIR", _infra_config_str)
+
+_logger = logging.getLogger(__name__)
+_logger.info(
+    "Infrastructure: %s -> VEC_INF_CONFIG_DIR=%s",
+    _infra_id,
+    _infra_config_path_abs,
+)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.router import api_router
-from app.config.config import settings
 from app.services.background_service import background_service
 
 app = FastAPI(
