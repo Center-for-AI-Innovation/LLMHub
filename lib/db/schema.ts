@@ -198,7 +198,7 @@ export const modelDeployment = pgTable('ModelDeployment',
     expiresAt: timestamp('expiresAt'),
   },
   (table) => ({
-    modelIdUserIdUnique: unique().on(table.modelId, table.userId),
+    modelIdUserIdUnique: unique().on(table.modelId, table.userId), // Ensure each model is deployed only once per user
   }),
 );
 
@@ -208,6 +208,7 @@ export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
 export const authorizedUsers = pgTable('AuthorizedUsers',
   {
     id: uuid('id').primaryKey().notNull().defaultRandom(),
+    deploymentId: uuid('deploymentId').notNull().unique().references(() => modelDeployment.id),
     modelId: varchar('modelId', { length: 255 }).notNull(),
     modelName: varchar('modelName', { length: 255 }).notNull(),
     ownerId: uuid('ownerId').notNull(),
@@ -218,8 +219,8 @@ export const authorizedUsers = pgTable('AuthorizedUsers',
   },
   (table) => ({
     modelDeploymentRef: foreignKey({
-      columns: [table.modelId, table.ownerId],
-      foreignColumns: [modelDeployment.modelId, modelDeployment.userId],
+      columns: [table.deploymentId, table.ownerId],
+      foreignColumns: [modelDeployment.id, modelDeployment.userId],
     }),
   }),
 );
