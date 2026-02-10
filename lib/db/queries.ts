@@ -581,12 +581,12 @@ export async function getActiveModelDeploymentByUserId(userId: string): Promise<
 }
 
 
-export async function getAuthorizedUsersByModelId(modelId: string): Promise<AuthorizedUsers | null> {
+export async function getAuthorizedUsersByModelDeploymentId(deploymentId: string): Promise<AuthorizedUsers[]> {
   try {
-    const authorizedUsersData = await db.select().from(authorizedUsers).where(eq(authorizedUsers.modelId, modelId)).limit(1);
-    return authorizedUsersData[0] as AuthorizedUsers | null;
+    const authorizedUsersData = await db.select().from(authorizedUsers).where(eq(authorizedUsers.deploymentId, deploymentId));
+    return authorizedUsersData;
   } catch (error) {
-    console.error('Failed to get authorized users by model id from database', error);
+    console.error('Failed to get authorized users by model deployment id from database', error);
     throw error;
   }
 }
