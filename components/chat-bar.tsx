@@ -30,7 +30,7 @@ export function ChatBar() {
         <div className="absolute inset-0 w-full h-4 bg-gradient-to-r from-transparent via-primary to-transparent blur-xl" />
       </div>
       {/* Chat should be enabled only when user is logged in and from Model Deployment Page */}
-      {/* <form 
+      <form 
         onSubmit={handleSubmit}
         className="relative flex items-center gap-2 p-2 rounded-full bg-background/80 backdrop-blur-xl border border-primary/10 shadow-xl"
       >
@@ -46,7 +46,7 @@ export function ChatBar() {
         <Button type="submit" size="lg" className="rounded-full h-12 px-6 bg-secondary hover:bg-secondary/90">
           Start Chatting
         </Button>
-      </form> */}
+      </form>
       <p className="mt-4 text-sm text-center text-muted-foreground">
         Powered by NCSA&apos;s supercomputers for lightning-fast responses
       </p>
