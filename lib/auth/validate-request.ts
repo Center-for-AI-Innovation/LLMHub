@@ -8,7 +8,7 @@ import { getAuthorizedUsersByModelDeploymentId } from '@/lib/db/queries';
  * @param userId - The current user's ID
  * @returns true if the user has access to the deployment
  */
-export async function isUserAuthorizedToAccessDeployment(deployment: ModelDeployment, userId: string): Promise<boolean> {
+export async function canUserAccessDeployment(deployment: ModelDeployment, userId: string): Promise<boolean> {
     try {
       const authorizedUsersData = await getAuthorizedUsersByModelDeploymentId(deployment.id);
       if (!authorizedUsersData.length) {

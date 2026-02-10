@@ -21,12 +21,13 @@
  */
 
 import { auth } from '@/app/(auth)/auth';
-import { getUserById, getModelDeploymentByJobId, getAuthorizedUsersByModelId } from '@/lib/db/queries';
+import { getUserById, getModelDeploymentByJobId } from '@/lib/db/queries';
 import {
   isChatCompletionsEndpoint,
   handleChatCompletions,
 } from '@/lib/vllm-ai-sdk';
-import { createErrorResponse, validateDeployment, isUserAuthorizedToAccessDeployment } from '@/lib/utils';
+import { createErrorResponse, validateDeployment } from '@/lib/utils';
+import { canUserAccessDeployment } from '@/lib/auth/validate-request';
 import type { ModelDeployment } from '@/hooks/use-models';
 
 export const maxDuration = 60;
@@ -65,7 +66,7 @@ async function handleRequest(
     }
 
     // Step 4: Verify user access to the deployment
-    if (!await isUserAuthorizedToAccessDeployment(deployment, userId)) {
+    if (!await canUserAccessDeployment(deployment, userId)) {
       return createErrorResponse('Unauthorized - You do not have access to this deployment', 403);
     }
 
