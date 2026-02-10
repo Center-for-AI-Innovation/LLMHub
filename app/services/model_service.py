@@ -291,8 +291,15 @@ class ModelService:
         
         if status:
             query = query.filter(ModelDeployment.status == status)
-        
-        return query.order_by(ModelDeployment.createdAt.desc()).offset(skip).limit(limit).all()
+
+        deployments = query.order_by(ModelDeployment.createdAt.desc()).offset(skip).limit(limit).all()
+
+        # Keep statuses fresh for UI lists. This avoids stale "failed" rows
+        # when Slurm status calls had transient errors immediately after launch.
+        for deployment in deployments:
+            self.update_deployment_status(db=db, deployment_id=deployment.id)
+
+        return deployments
 
     def update_deployment(
         self,
@@ -320,17 +327,51 @@ class ModelService:
         if not db_deployment:
             return None
         
-        # Skip if the deployment is already in a terminal state
-        if db_deployment.status in ["failed", "shutdown", "completed"]:
+        # Skip if the deployment is already in a terminal state, except for
+        # transient Slurm lookup failures that can recover shortly after launch.
+        if db_deployment.status in ["shutdown", "completed"]:
             return db_deployment
+        if db_deployment.status == "failed":
+            err = (db_deployment.errorMessage or "").lower()
+            transient_failure = "invalid job id specified" in err or "slurm_load_jobs" in err
+            if not transient_failure:
+                return db_deployment
+
+            # Allow recovery for transient status lookup failures in a short window.
+            age = datetime.utcnow() - db_deployment.createdAt
+            if age > timedelta(minutes=20):
+                return db_deployment
+
+            logger.info(
+                "Retrying status refresh for transient failed deployment id=%s slurm_job_id=%s",
+                deployment_id,
+                db_deployment.slurmJobId,
+            )
+
+            # Move back to launching before retrying status checks.
+            db_deployment.status = "launching"
+            db_deployment.errorMessage = None
+            db_deployment.updatedAt = datetime.utcnow()
+            db.commit()
+            db.refresh(db_deployment)
             
         # Get the current status from llm-inference
         result = self.llm_client.get_model_status(db_deployment.slurmJobId)
         
         if not result.get("success", False):
-            # Update the deployment status to failed
-            db_deployment.status = "failed"
-            db_deployment.errorMessage = result.get("error", "Failed to get status")
+            err_msg = result.get("error", "Failed to get status")
+            err_lower = str(err_msg).lower()
+            age = datetime.utcnow() - db_deployment.createdAt
+            transient_lookup = "invalid job id specified" in err_lower or "slurm_load_jobs" in err_lower
+
+            # Newly launched jobs can transiently fail status lookup while Slurm state
+            # propagates. Keep them launching and retry on later polls.
+            if transient_lookup and age <= timedelta(minutes=20):
+                db_deployment.status = "launching"
+                db_deployment.errorMessage = None
+            else:
+                db_deployment.status = "failed"
+                db_deployment.errorMessage = err_msg
             db_deployment.updatedAt = datetime.utcnow()
             db.commit()
             db.refresh(db_deployment)
