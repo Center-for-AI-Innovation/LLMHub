@@ -22,6 +22,8 @@ import {
   useRefreshModels,
   useLaunchModel,
   useStopModel,
+  type ModelInfo,
+  type ModelDeployment,
 } from '@/hooks/use-models';
 
 import { useDebounce } from '@/hooks/use-debounce';
@@ -38,6 +40,22 @@ import {
 import { DeploymentLogsPanel } from '@/components/deployment-logs-panel';
 
 export default function CatalogPage() {
+  const isActiveDeploymentStatus = useCallback((status: string) => {
+    return ['pending', 'launching', 'ready', 'running'].includes(
+      status.toLowerCase(),
+    );
+  }, []);
+
+  const deploymentMatchesModel = useCallback(
+    (deployment: ModelDeployment, model: ModelInfo) => {
+      const modelId = model.id.toLowerCase();
+      return [deployment.modelId, deployment.modelName].some(
+        (value) => value?.toLowerCase() === modelId,
+      );
+    },
+    [],
+  );
+
   const [activeTab, setActiveTab] = useState<string>('available');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -82,35 +100,45 @@ export default function CatalogPage() {
   // Get model deployment if exists - memoized
   const getModelDeployment = useCallback(
     (modelId: string) => {
-      return deployments.find((d) => d.modelId === modelId);
+      const targetId = modelId.toLowerCase();
+      return deployments.find((d) =>
+        [d.modelId, d.modelName].some(
+          (value) => value?.toLowerCase() === targetId,
+        ),
+      );
     },
     [deployments],
   );
 
   // Get deployment status label and color - memoized
   const getStatusInfo = useCallback((status: string) => {
-    switch (status) {
-      case 'RUNNING':
+    switch (status.toLowerCase()) {
+      case 'running':
+      case 'ready':
         return {
           label: 'Active',
           color:
             'bg-emerald-500/10 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400',
           icon: CheckCircle2,
         };
-      case 'STARTING':
+      case 'starting':
+      case 'launching':
+      case 'pending':
         return {
           label: 'Starting',
           color:
             'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400',
           icon: Loader2,
         };
-      case 'FAILED':
+      case 'failed':
         return {
           label: 'Failed',
           color: 'bg-destructive/10 text-destructive',
           icon: AlertCircle,
         };
-      case 'STOPPED':
+      case 'stopped':
+      case 'shutdown':
+      case 'completed':
         return {
           label: 'Stopped',
           color: 'bg-muted text-muted-foreground',
@@ -174,17 +202,41 @@ export default function CatalogPage() {
   const error = modelsError || deploymentsError;
 
   // Filter active models (those with deployments) - memoized
-  const activeModels = useMemo(
-    () =>
-      models.filter((model) =>
-        deployments.some(
-          (d) =>
-            d.modelId === model.id &&
-            (d.status === 'RUNNING' || d.status === 'STARTING'),
-        ),
-      ),
-    [models, deployments],
-  );
+  const activeModels = useMemo(() => {
+    const items = deployments
+      .filter((deployment) => isActiveDeploymentStatus(deployment.status))
+      .map((deployment) => {
+        const matched = models.find((model) =>
+          deploymentMatchesModel(deployment, model),
+        );
+        if (matched) return matched;
+
+        const fallbackId = deployment.modelId || deployment.modelName;
+        return {
+          id: fallbackId,
+          name: deployment.modelName || fallbackId,
+          description: 'Active deployment',
+          status: 'WARM',
+          type: 'Medium',
+          family: fallbackId.split('-')[0] || 'custom',
+          variant: fallbackId,
+          specs: {
+            gpus: 1,
+            nodes: 1,
+            contextLength: 4096,
+            parallelism: false,
+          },
+        } as ModelInfo;
+      });
+
+    const deduped = new Map(items.map((model) => [model.id, model]));
+    return [...deduped.values()];
+  }, [
+    deployments,
+    models,
+    isActiveDeploymentStatus,
+    deploymentMatchesModel,
+  ]);
 
   // Filter available models (those without deployments or with failed/stopped deployments) - memoized
   const availableModels = useMemo(
@@ -193,11 +245,11 @@ export default function CatalogPage() {
         (model) =>
           !deployments.some(
             (d) =>
-              d.modelId === model.id &&
-              (d.status === 'RUNNING' || d.status === 'STARTING'),
+              deploymentMatchesModel(d, model) &&
+              isActiveDeploymentStatus(d.status),
           ),
       ),
-    [models, deployments],
+    [models, deployments, deploymentMatchesModel, isActiveDeploymentStatus],
   );
 
   // Extract just the IDs for the virtualized components
@@ -336,6 +388,7 @@ export default function CatalogPage() {
                       getModelDeployment={getModelDeployment}
                       getStatusInfo={getStatusInfo}
                       handleStopModel={handleStopModel}
+                      openLogsPanel={handleOpenLogsPanel}
                       isStopping={isStopping}
                     />
                   ))}

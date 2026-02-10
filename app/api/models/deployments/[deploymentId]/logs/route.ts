@@ -6,7 +6,7 @@ const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { deploymentId: string } },
+  { params }: { params: Promise<{ deploymentId: string }> },
 ) {
   try {
     const session = await auth();
@@ -20,7 +20,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { deploymentId } = params;
+    const { deploymentId } = await params;
 
     if (!deploymentId) {
       return NextResponse.json(

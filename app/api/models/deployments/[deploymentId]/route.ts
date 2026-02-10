@@ -5,7 +5,7 @@ const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
 export async function GET(
   _request: Request,
-  { params }: { params: { deploymentId: string } },
+  { params }: { params: Promise<{ deploymentId: string }> },
 ) {
   try {
     const session = await auth();
@@ -19,7 +19,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { deploymentId } = params;
+    const { deploymentId } = await params;
 
     const headers = new Headers();
     headers.set('X-User-Id', userId);
@@ -61,7 +61,7 @@ export async function GET(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { deploymentId: string } },
+  { params }: { params: Promise<{ deploymentId: string }> },
 ) {
   try {
     const session = await auth();
@@ -75,7 +75,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { deploymentId } = params;
+    const { deploymentId } = await params;
 
     const headers = new Headers();
     headers.set('X-User-Id', userId);

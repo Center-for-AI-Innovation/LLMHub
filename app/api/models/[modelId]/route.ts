@@ -71,10 +71,10 @@ function transformModel(modelId: string, backendResponse: BackendModelResponse):
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { modelId: string } }
+  { params }: { params: Promise<{ modelId: string }> }
 ) {
   try {
-    const { modelId } = params;
+    const { modelId } = await params;
     
     try {
       // Fetch from backend
@@ -147,10 +147,10 @@ export async function GET(
       );
     }
   } catch (error) {
-    console.error(`Error in GET handler for model ${params.modelId}:`, error);
+    console.error(`Error in GET handler for model detail route:`, error);
     return NextResponse.json(
       { error: 'Failed to fetch model details' },
       { status: 500 }
     );
   }
-} 
+}
