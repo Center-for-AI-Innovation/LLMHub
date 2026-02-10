@@ -1,0 +1,35 @@
+paths:
+  image_path: "/u/rohan13/githubs/llm-inference/containers/vllm.sif"
+
+containerization:
+  module_load_cmd: ""
+  module_name: ""
+
+limits:
+  max_gpus_per_node: 8
+  max_num_nodes: 178
+  max_cpus_per_task: 64
+
+allowed_values:
+  qos: ["normal", "high", "ta", "gpu2", "low", "gpu4", "ic-chelle+", "scav_high"]
+  partition: ["IllinoisComputes-GPU", "secondary"]
+  resource_type: ["A40", "A100", "H100", "V100", "TeslaT4", "RTXA6000", "l40s", "h100"]
+
+required_args:
+  account: "VEC_INF_ACCOUNT"
+  work_dir: "VEC_INF_WORK_DIR"
+
+default_args:
+  cpus_per_task: "16"
+  mem_per_node: "64G"
+  time: "00:10:00"
+  qos: "normal"
+  partition: "secondary"
+  resource_type: ""
+  exclude: ""
+  nodelist: ""
+  bind: ""
+  venv: "apptainer"
+  data_type: "auto"
+  log_dir: "~/.vec-inf-logs"
+  model_weights_parent_dir: "/model-weights"

@@ -1,0 +1,35 @@
+paths:
+  image_path: "/projects/illinois/ovcri/ncsa/rohan13/containers/vllm.sif"
+
+containerization:
+  module_load_cmd: ""
+  module_name: ""
+
+limits:
+  max_gpus_per_node: 8
+  max_num_nodes: 50
+  max_cpus_per_task: 64
+
+allowed_values:
+  qos: ["normal", "high", "low"]
+  partition: ["delta-ai", "delta-ai-gpu"]
+  resource_type: ["A100", "H100", "A40", "l40s", "H200"]
+
+required_args:
+  account: "VEC_INF_ACCOUNT"
+  work_dir: "VEC_INF_WORK_DIR"
+
+default_args:
+  cpus_per_task: "16"
+  mem_per_node: "64G"
+  time: "00:10:00"
+  qos: "normal"
+  partition: "delta-ai-gpu"
+  resource_type: ""
+  exclude: ""
+  nodelist: ""
+  bind: ""
+  venv: "apptainer"
+  data_type: "auto"
+  log_dir: "~/.vec-inf-logs"
+  model_weights_parent_dir: "/model-weights"
