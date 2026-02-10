@@ -581,7 +581,7 @@ export async function getActiveModelDeploymentByUserId(userId: string): Promise<
 }
 
 
-export async function getAuthorizedUsersByModelDeploymentId(deploymentId: string): Promise<AuthorizedUsers[]> {
+export async function getAuthorizedUsersByDeploymentId(deploymentId: string): Promise<AuthorizedUsers[]> {
   try {
     const authorizedUsersData = await db.select().from(authorizedUsers).where(eq(authorizedUsers.deploymentId, deploymentId));
     return authorizedUsersData;

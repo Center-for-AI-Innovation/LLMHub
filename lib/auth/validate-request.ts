@@ -1,5 +1,5 @@
 import type { ModelDeployment } from '@/hooks/use-models';
-import { getAuthorizedUsersByModelDeploymentId } from '@/lib/db/queries';
+import { getAuthorizedUsersByDeploymentId } from '@/lib/db/queries';
 
 /**
  * Check if the current user owns/has access to the deployment
@@ -10,7 +10,7 @@ import { getAuthorizedUsersByModelDeploymentId } from '@/lib/db/queries';
  */
 export async function canUserAccessDeployment(deployment: ModelDeployment, userId: string): Promise<boolean> {
     try {
-      const authorizedUsersData = await getAuthorizedUsersByModelDeploymentId(deployment.id);
+      const authorizedUsersData = await getAuthorizedUsersByDeploymentId(deployment.id);
       if (!authorizedUsersData.length) {
         return false;
       }
