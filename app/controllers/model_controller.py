@@ -93,8 +93,7 @@ def update_model_request(
 
 
 # Model Deployment Endpoints
-@router.post("/launch", response_model=ModelDeploymentResponse, status_code=status.HTTP_201_CREATED)
-def launch_model(
+def _launch_model(
     deployment: ModelDeploymentCreate,
     db: Session = Depends(get_db),
 ) -> Any:
@@ -106,6 +105,29 @@ def launch_model(
             detail=getattr(db_deployment, "errorMessage", None) or "Failed to launch model",
         )
     return db_deployment
+
+
+@router.post("/deployments", response_model=ModelDeploymentResponse, status_code=status.HTTP_201_CREATED)
+def create_deployment(
+    deployment: ModelDeploymentCreate,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Create (launch) a model deployment."""
+    return _launch_model(deployment=deployment, db=db)
+
+
+@router.post(
+    "/launch",
+    response_model=ModelDeploymentResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+)
+def launch_model_legacy(
+    deployment: ModelDeploymentCreate,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Backward-compatible alias for deployment launch."""
+    return _launch_model(deployment=deployment, db=db)
 
 
 @router.get("/deployments", response_model=List[ModelDeploymentResponse])
