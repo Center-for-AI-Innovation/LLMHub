@@ -7,9 +7,8 @@ import type {
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import type { AuthorizedUsers, Message as DBMessage, Document } from '@/lib/db/schema';
+import type { Message as DBMessage, Document } from '@/lib/db/schema';
 import type { ModelDeployment } from '@/hooks/use-models';
-import { getAuthorizedUsersByModelId } from './db/queries';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -254,42 +253,6 @@ export function validateDeployment(deployment: ModelDeployment): { isValid: bool
   }
   
   return { isValid: true };
-}
-
-/**
- * Check if the current user owns/has access to the deployment
- * 
- * @param deployment - The deployment
- * @param userId - The current user's ID
- * @returns true if the user has access to the deployment
- */
-export async function isUserAuthorizedToAccessDeployment(deployment: ModelDeployment, userId: string): Promise<boolean> {
-  try {
-    const authorizedUsersData = await getAuthorizedUsersByModelId(deployment.modelId) as AuthorizedUsers | null;
-    if (!authorizedUsersData) {
-      return false;
-    }
-    const allowedUserIds = authorizedUsersData.allowedUserIds;
-    const ownerId = authorizedUsersData.ownerId;
-    return allowedUserIds?.includes(userId) || ownerId === userId;
-  } catch (error) {
-    console.error('Failed to check if the user is authorized to access the deployment', error);
-    return false;
-  }
-}
-
-/**
- * Check if the current user is authorized to access the deployment
- * 
- * @param allowedUserIds - The allowed user IDs
- * @param userId - The current user's ID
- * @returns true if the user is authorized to access the deployment
- */
-export function userIsAuthorized( allowedUserIds: string[] | null, userId: string): boolean {
-  if (!allowedUserIds) {
-    return false;
-  }
-  return allowedUserIds.includes(userId);
 }
 
 
