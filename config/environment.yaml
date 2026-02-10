@@ -1,5 +1,5 @@
 paths:
-  image_path: "/u/rohan13/githubs/llm-inference/containers/vllm.sif"
+  image_path: "/projects/bfmz/rohan13/containers/vllm.sif"
 
 containerization:
   module_load_cmd: ""
@@ -12,27 +12,32 @@ limits:
 
 allowed_values:
   qos: []
-  partition: ["IllinoisComputes-GPU", "secondary"]
-  resource_type: ["A100", "H100", "H200", "TeslaT4"]
+  # partition: ["IllinoisComputes-GPU", "secondary"]
+  partition: ["gpuA40x4", "gpuA100x4", "gpuA100x8", "gpuH200x8", "gpuA40x4-interactive", "gpuA100x4-interactive", "gpuA100x8-interactive", "gpuH200x8-interactive", "gpuA40x4-preempt", "gpuA100x4-preempt"]
+  # resource_type: ["A100", "H100", "H200", "TeslaT4", "A40"]
+  resource_type: ["A40", "A100", "H200"]
 
 required_args:
   account: "VEC_INF_ACCOUNT"
   work_dir: "VEC_INF_WORK_DIR"
 
 default_args:
-  account: "rohan13-ic"
+  account: "bfmz-delta-gpu"
   gpus_per_node: "1"
   num_nodes: "1"
   cpus_per_task: "16"
   mem_per_node: "64G"
   time: "00:10:00"
   qos: ""
-  partition: "secondary"
-  resource_type: "TeslaT4"
+  # partition: "secondary"
+  partition: "gpuA40x4"
+  resource_type: "A40"
   exclude: ""
   nodelist: ""
-  bind: "/projects/illinois/ovcri/ncsa/rohan13/huggingface:/root/.cache/huggingface,/projects/illinois/ovcri/ncsa/rohan13/torch_cache:/root/.cache/torch_inductor"
+  # bind: "/projects/illinois/ovcri/ncsa/rohan13/huggingface:/root/.cache/huggingface,/projects/illinois/ovcri/ncsa/rohan13/torch_cache:/root/.cache/torch_inductor"
+  bind: "/projects/bfmz/rohan13/huggingface:/root/.cache/huggingface,/projects/bfmz/rohan13/torch_cache:/root/.cache/torch_inductor"
   venv: "apptainer"
   data_type: "auto"
   log_dir: "/u/rohan13/.vec-inf-logs"
-  model_weights_parent_dir: "/projects/illinois/ovcri/ncsa/rohan13/models"
+  # model_weights_parent_dir: "/projects/illinois/ovcri/ncsa/rohan13/models"
+  model_weights_parent_dir: "/projects/bfmz/rohan13/models"
