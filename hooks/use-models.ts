@@ -13,7 +13,7 @@ export interface ModelInfo {
   id: string;
   modelName: string;
   description: string;  
-  status: 'WARM' | 'COLD' | 'OFFLINE';
+  status: 'warm' | 'cold' ;
   type: 'Small' | 'Medium' | 'Large';
   family: string;
   variant: string;
