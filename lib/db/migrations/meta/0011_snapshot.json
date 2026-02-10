@@ -1,6 +1,6 @@
 {
-  "id": "aa200d36-c7a6-45ab-a2b7-bd36062943b3",
-  "prevId": "9085ea18-d9fe-4438-adc4-efb006d8416f",
+  "id": "77e08188-af12-4a67-a0fc-3d96f6a91837",
+  "prevId": "aa200d36-c7a6-45ab-a2b7-bd36062943b3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -31,7 +31,7 @@
           "type": "varchar",
           "primaryKey": false,
           "notNull": true,
-          "default": "'warm'"
+          "default": "'WARM'"
         },
         "type": {
           "name": "type",
@@ -130,6 +130,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'private'"
+        },
+        "isBrowserChat": {
+          "name": "isBrowserChat",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         }
       },
       "indexes": {},

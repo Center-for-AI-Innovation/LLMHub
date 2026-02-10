@@ -31,6 +31,15 @@ export function isChatCompletionsEndpoint(path: string[]): boolean {
 }
 
 /**
+ * Check if the request wants AI SDK data stream format
+ * Requests with 'x-response-format: ai-sdk' header get Vercel AI SDK format
+ * All other requests get standard OpenAI-compatible responses
+ */
+export function isAiSdkRequest(request: Request): boolean {
+  return request.headers.get('x-response-format') === 'ai-sdk';
+}
+
+/**
  * Create a dynamic vLLM provider for a specific deployment
  * 
  * @param deployment - The deployment info containing endpoint URLs
@@ -90,7 +99,7 @@ export async function handleChatCompletions(
       const title = typeof userMessage.content === 'string'
         ? userMessage.content.slice(0, 80)
         : 'New Chat';
-      await saveChat({ id: chatId, userId, title });
+      await saveChat({ id: chatId, userId, title, isBrowserChat: true });
     } else {
       // Verify the chat belongs to the current user
       if (existingChat.userId !== userId) {

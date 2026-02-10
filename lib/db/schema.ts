@@ -17,6 +17,8 @@ export const user = pgTable('User', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
   email: varchar('email', { length: 64 }).notNull(),
   password: varchar('password', { length: 64 }),
+  apiKeyHash: text('apiKeyHash'),
+  apiKeyExpiresAt: timestamp('apiKeyExpiresAt'),
 });
 
 export type User = InferSelectModel<typeof user>;
@@ -31,6 +33,7 @@ export const chat = pgTable('Chat', {
   visibility: varchar('visibility', { enum: ['public', 'private'] })
     .notNull()
     .default('private'),
+  isBrowserChat: boolean('isBrowserChat').notNull().default(false),
 });
 
 export type Chat = InferSelectModel<typeof chat>;
