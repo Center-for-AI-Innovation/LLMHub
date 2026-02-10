@@ -235,7 +235,7 @@ export function useLaunchModel() {
         hfModel = `${org}/${params.modelId}`;
       }
 
-      const res = await fetch('/api/models/launch', {
+      const res = await fetch('/api/deployments', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

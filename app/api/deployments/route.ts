@@ -4,11 +4,17 @@ import { type NextRequest, NextResponse } from 'next/server';
 // Backend API URL
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
-// Temporary defaults for launch options while the UI only passes `modelId`.
 // TODO: Replace these with user-provided inputs in the UI.
+
+// Temporary defaults for CC
+// const DEFAULT_LAUNCH_TIME = '00:10:00';
+// const DEFAULT_LAUNCH_PARTITION = 'secondary';
+// const DEFAULT_LAUNCH_RESOURCE_TYPE = 'A100';
+
+// Temporary defaults for Delta
+const DEFAULT_LAUNCH_RESOURCE_TYPE = 'nvidia_a40';
+const DEFAULT_LAUNCH_PARTITION = 'gpuA40x4';
 const DEFAULT_LAUNCH_TIME = '00:10:00';
-const DEFAULT_LAUNCH_PARTITION = 'secondary';
-const DEFAULT_LAUNCH_RESOURCE_TYPE = 'A100';
 
 export async function POST(request: NextRequest) {
   try {
