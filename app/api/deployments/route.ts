@@ -14,7 +14,6 @@ const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
 const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
 const DEV_MODEL_NAME = process.env.DEV_VLLM_MODEL_NAME || 'Qwen/Qwen2.5-1.5B-Instruct';
-const DEPLOYMENT_LAUNCH_MODE = process.env.DEPLOYMENT_LAUNCH_MODE || 'backend';
 
 const DEFAULT_LAUNCH_RESOURCE_TYPE = 'nvidia_a40';
 const DEFAULT_LAUNCH_PARTITION = 'gpuA40x4';
@@ -25,12 +24,8 @@ const SLURM_JOB_ID_LENGTH = 6;
 const createSlurmJobId = () =>
   randomInt(0, 10 ** SLURM_JOB_ID_LENGTH).toString().padStart(SLURM_JOB_ID_LENGTH, '0');
 
-function isLocalLaunchMode(requestedMode?: unknown) {
-  if (requestedMode === 'local') return true;
-  if (requestedMode === 'backend' || requestedMode === 'slurm') return false;
-
-  const envMode = DEPLOYMENT_LAUNCH_MODE.toLowerCase();
-  return envMode === 'local' || envMode === 'dev';
+function isLocalLaunchMode() {
+  return process.env.NODE_ENV === 'development';
 }
 
 export async function GET(request: NextRequest) {
@@ -48,9 +43,7 @@ export async function GET(request: NextRequest) {
     }
 
     const url = new URL(request.url);
-    const mode = url.searchParams.get('mode');
-
-    if (isLocalLaunchMode(mode)) {
+    if (isLocalLaunchMode()) {
       const deployments = await getModelDeploymentsByUserId(userId);
       return NextResponse.json(deployments);
     }
@@ -114,7 +107,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (isLocalLaunchMode(body?.mode)) {
+    if (isLocalLaunchMode()) {
       const devUserEmail = process.env.DEV_USER_EMAIL;
       let targetUserId = userId;
 
