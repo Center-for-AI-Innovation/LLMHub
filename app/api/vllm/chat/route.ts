@@ -9,7 +9,6 @@ It is used when the user selects the "vLLM Local" model in the model selector.
 import {
   type Message,
   createDataStreamResponse,
-  generateText,
   smoothStream,
   streamText,
 } from 'ai';
@@ -23,7 +22,10 @@ import {
   saveChat,
   saveMessages,
 } from '@/lib/db/queries';
-import { extractBearerApiKey, getUserFromApiKey } from '@/lib/security/api-keys';
+import {
+  extractBearerApiKey,
+  getUserFromApiKey,
+} from '@/lib/security/api-keys';
 import {
   createErrorResponse,
   generateUUID,
@@ -33,42 +35,53 @@ import {
 import { isAiSdkRequest } from '@/lib/vllm-ai-sdk';
 
 export const maxDuration = 60;
+const VLLM_BASE_URL = process.env.VLLM_BASE_URL || 'http://localhost:8000/v1';
 
 /**
- * Generate a simple title from the user's message
- * Uses vLLM instead of OpenAI to generate the title
+ * Generate a simple title from the user's message without external model calls.
  */
-async function generateTitleWithVllm(message: Message): Promise<string> {
+function generateTitleFromMessage(message: Message): string {
+  const content =
+    typeof message.content === 'string'
+      ? message.content
+      : JSON.stringify(message.content);
+
+  const words = content.trim().split(/\s+/).slice(0, 8).join(' ');
+  if (!words) return 'New Chat';
+  return words.length > 80 ? `${words.slice(0, 77)}...` : words;
+}
+
+async function verifyVllmEndpoint(): Promise<{ ok: boolean; error?: string }> {
   try {
-    const { text: title } = await generateText({
-      model: vllmProvider(VLLM_MODEL),
-      system: `You will generate a short title based on the first message a user begins a conversation with.
-- Ensure it is not more than 80 characters long
-- The title should be a summary of the user's message
-- Do not use quotes or colons
-- Respond with ONLY the title, nothing else`,
-      prompt: typeof message.content === 'string' 
-        ? message.content 
-        : JSON.stringify(message.content),
-      maxTokens: 50,
+    const url = `${VLLM_BASE_URL.replace(/\/$/, '')}/models`;
+    const response = await fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
     });
-    return title.trim() || 'New Chat';
-  } catch (error) {
-    console.error('Failed to generate title with vLLM, using fallback:', error);
-    // Fallback: extract first few words from the message
-    const content = typeof message.content === 'string' 
-      ? message.content 
-      : 'New Chat';
-    const words = content.split(/\s+/).slice(0, 6).join(' ');
-    return words.length > 80 ? words.substring(0, 77) + '...' : words || 'New Chat';
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error:
+          'Selected model endpoint is unavailable. Check VLLM_BASE_URL and model deployment status.',
+      };
+    }
+
+    return { ok: true };
+  } catch {
+    return {
+      ok: false,
+      error:
+        'Unable to reach vLLM endpoint. Check VLLM_BASE_URL and backend availability.',
+    };
   }
 }
 
 /**
  * vLLM Proxy API Route
- * 
+ *
  * This route handles chat requests and proxies them to a local vLLM server.
- * 
+ *
  * Security features:
  * 1. Verifies user is logged in via session
  * 2. Verifies user exists in the database
@@ -81,11 +94,19 @@ export async function POST(request: Request) {
       id,
       messages,
       selectedChatModel,
-    }: { 
-      id?: string; 
-      messages: Array<Message>; 
+    }: {
+      id?: string;
+      messages: Array<Message>;
       selectedChatModel?: string;
     } = await request.json();
+
+    const endpointHealth = await verifyVllmEndpoint();
+    if (!endpointHealth.ok) {
+      return createErrorResponse(
+        endpointHealth.error || 'vLLM endpoint unavailable',
+        503,
+      );
+    }
 
     const isBrowserRequest = isAiSdkRequest(request);
 
@@ -132,8 +153,8 @@ export async function POST(request: Request) {
           );
         }
       } else {
-        // Create new chat for this user - use vLLM to generate title
-        const title = await generateTitleWithVllm(userMessage);
+        // Create new chat for this user
+        const title = generateTitleFromMessage(userMessage);
         await saveChat({ id, userId, title, isBrowserChat: true });
       }
 
@@ -161,7 +182,10 @@ export async function POST(request: Request) {
                   // Verify ownership before saving response messages
                   const chat = await getChatById({ id });
                   if (!chat || chat.userId !== userId) {
-                    console.error('[vLLM Chat] Unauthorized attempt to save response to chat:', id);
+                    console.error(
+                      '[vLLM Chat] Unauthorized attempt to save response to chat:',
+                      id,
+                    );
                     return;
                   }
 
@@ -229,19 +253,24 @@ export async function POST(request: Request) {
     const existingChat = await getChatById({ id: chatId });
 
     if (existingChat) {
-
       // Verify chat is not a browser chat
       if (existingChat.isBrowserChat) {
-        return createErrorResponse('Unauthorized - Browser chats can not be used for API requests', 403);
+        return createErrorResponse(
+          'Unauthorized - Browser chats can not be used for API requests',
+          403,
+        );
       }
 
       // Verify the chat belongs to the current user
       if (existingChat.userId !== userId) {
-        return createErrorResponse('Unauthorized - You do not have access to this chat', 403);
+        return createErrorResponse(
+          'Unauthorized - You do not have access to this chat',
+          403,
+        );
       }
     } else {
-      // Create new chat for this user - use vLLM to generate title
-      const title = await generateTitleWithVllm(userMessage);
+      // Create new chat for this user
+      const title = generateTitleFromMessage(userMessage);
       await saveChat({ id: chatId, userId, title, isBrowserChat: false });
     }
 
@@ -250,16 +279,20 @@ export async function POST(request: Request) {
       messages: [{ ...userMessage, createdAt: new Date(), chatId }],
     });
 
-    const { text, finishReason, usage, response, reasoning } = await generateText({
-      model: vllmProvider(VLLM_MODEL),
-      system: systemPrompt({ selectedChatModel: selectedChatModel ?? 'vllm-model' }),
-      messages,
-      maxSteps: 5,
-      experimental_generateMessageId: generateUUID,
-    });
+    const { text, finishReason, usage, response, reasoning } =
+      await generateText({
+        model: vllmProvider(VLLM_MODEL),
+        system: systemPrompt({
+          selectedChatModel: selectedChatModel ?? 'vllm-model',
+        }),
+        messages,
+        maxSteps: 5,
+        experimental_generateMessageId: generateUUID,
+      });
 
-    const responseMessages =
-      response.messages as Array<(typeof response.messages)[number] & { id: string }>;
+    const responseMessages = response.messages as Array<
+      (typeof response.messages)[number] & { id: string }
+    >;
 
     const sanitizedResponseMessages = sanitizeResponseMessages({
       messages: responseMessages,
@@ -303,7 +336,7 @@ export async function POST(request: Request) {
           total_tokens: usage.totalTokens,
         },
       }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   } catch (error) {
     console.error('vLLM Proxy error:', error);
@@ -339,12 +372,14 @@ export async function GET(request: Request) {
 
   // Only the owner can access the chat
   if (chat.userId !== session.user.id) {
-    return createErrorResponse('Unauthorized - You do not have access to this chat', 403);
+    return createErrorResponse(
+      'Unauthorized - You do not have access to this chat',
+      403,
+    );
   }
 
-  return new Response(
-    JSON.stringify({ chat }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } }
-  );
+  return new Response(JSON.stringify({ chat }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
-
