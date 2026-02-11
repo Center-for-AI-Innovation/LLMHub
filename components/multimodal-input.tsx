@@ -42,6 +42,7 @@ function PureMultimodalInput({
   messages,
   setMessages,
   append,
+  beforeAppend,
   className,
   isGuestMode = false,
 }: {
@@ -57,6 +58,7 @@ function PureMultimodalInput({
     message: Message | CreateMessage,
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
+  beforeAppend?: () => Promise<boolean> | boolean;
   className?: string;
   isGuestMode?: boolean;
 }) {
@@ -112,9 +114,14 @@ function PureMultimodalInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
 
-  const submitForm = useCallback(() => {
+  const submitForm = useCallback(async () => {
     const trimmedInput = input.trim();
     if (!trimmedInput && attachments.length === 0) {
+      return;
+    }
+
+    const canAppend = await Promise.resolve(beforeAppend?.() ?? true);
+    if (!canAppend) {
       return;
     }
 
@@ -139,7 +146,15 @@ function PureMultimodalInput({
     if (width && width > 768) {
       textareaRef.current?.focus();
     }
-  }, [attachments, append, input, setAttachments, setLocalStorageInput, width]);
+  }, [
+    attachments,
+    append,
+    beforeAppend,
+    input,
+    setAttachments,
+    setLocalStorageInput,
+    width,
+  ]);
 
   const uploadFile = async (file: File) => {
     const formData = new FormData();
@@ -199,7 +214,9 @@ function PureMultimodalInput({
       {messages.length === 0 &&
         attachments.length === 0 &&
         uploadQueue.length === 0 &&
-        !isGuestMode && <SuggestedActions append={append} />}
+        !isGuestMode && (
+          <SuggestedActions beforeAppend={beforeAppend} append={append} />
+        )}
 
       <input
         type="file"
@@ -248,7 +265,7 @@ function PureMultimodalInput({
             if (isLoading) {
               toast.error('Please wait for the model to finish its response!');
             } else {
-              submitForm();
+              void submitForm();
             }
           }
         }}
@@ -339,7 +356,7 @@ function PureSendButton({
   input,
   uploadQueue,
 }: {
-  submitForm: () => void;
+  submitForm: () => Promise<void> | void;
   input: string;
   uploadQueue: Array<string>;
 }) {
@@ -348,7 +365,7 @@ function PureSendButton({
       className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
       onClick={(event) => {
         event.preventDefault();
-        submitForm();
+        void submitForm();
       }}
       disabled={input.length === 0 || uploadQueue.length > 0}
     >

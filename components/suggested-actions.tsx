@@ -9,6 +9,7 @@ import { toast } from '@/components/ui/use-toast';
 import { extractErrorMessage } from '@/lib/chat-client-errors';
 
 interface SuggestedActionsProps {
+  beforeAppend?: () => Promise<boolean> | boolean;
   append: (
     message: Message | CreateMessage,
     chatRequestOptions?: ChatRequestOptions,
@@ -23,7 +24,7 @@ const showErrorToast = (message: string) => {
   });
 };
 
-function PureSuggestedActions({ append }: SuggestedActionsProps) {
+function PureSuggestedActions({ beforeAppend, append }: SuggestedActionsProps) {
   const suggestedActions = [
     {
       title: 'What are the advantages',
@@ -61,16 +62,24 @@ function PureSuggestedActions({ append }: SuggestedActionsProps) {
           <Button
             variant="outline"
             onClick={() => {
-              void append({
-                id: generateUUID(),
-                role: 'user',
-                content: suggestedAction.action,
-                createdAt: new Date(),
-              }).catch((error) => {
-                showErrorToast(
-                  extractErrorMessage(error, 'Failed to send message'),
-                );
-              });
+              void Promise.resolve(beforeAppend?.() ?? true)
+                .then((canAppend) => {
+                  if (!canAppend) {
+                    return;
+                  }
+
+                  return append({
+                    id: generateUUID(),
+                    role: 'user',
+                    content: suggestedAction.action,
+                    createdAt: new Date(),
+                  });
+                })
+                .catch((error) => {
+                  showErrorToast(
+                    extractErrorMessage(error, 'Failed to send message'),
+                  );
+                });
             }}
             className="text-left bg-background dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] dark:hover:bg-muted rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
           >

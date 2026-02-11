@@ -94,6 +94,25 @@ function ChatInner({
     return getGuestMessageCount(document.cookie);
   }, []);
 
+  const ensureModelReadyForAppend = useCallback((): boolean => {
+    if (isGuestMode) {
+      return true;
+    }
+
+    if (selectedModel !== 'vllm-model') {
+      return true;
+    }
+
+    if (vllmJobId) {
+      return true;
+    }
+
+    showErrorToast(
+      'Model deployment is still initializing. Please wait a few seconds and try again.',
+    );
+    return false;
+  }, [isGuestMode, selectedModel, vllmJobId]);
+
   const handleChatRequestError = useCallback(
     (error: unknown) => {
       const errorMessage = normalizeChatRequestError(error);
@@ -213,6 +232,10 @@ function ChatInner({
       return;
     }
 
+    if (!ensureModelReadyForAppend()) {
+      return;
+    }
+
     if (
       isGuestMode &&
       getGuestMessageCountFromCookie() >= GUEST_CHAT_MAX_MESSAGES
@@ -227,6 +250,7 @@ function ChatInner({
     );
   }, [
     append,
+    ensureModelReadyForAppend,
     getGuestMessageCountFromCookie,
     handleChatRequestError,
     initialPrompt,
@@ -240,6 +264,10 @@ function ChatInner({
     chatRequestOptions?: ChatRequestOptions,
   ) => {
     event?.preventDefault?.();
+
+    if (!ensureModelReadyForAppend()) {
+      return;
+    }
 
     if (isGuestMode) {
       const trimmedInput = input.trim();
@@ -304,6 +332,7 @@ function ChatInner({
                       setAttachments={setAttachments}
                       messages={messages}
                       setMessages={setMessages}
+                      beforeAppend={ensureModelReadyForAppend}
                       append={append}
                       isGuestMode={isGuestMode}
                     />
