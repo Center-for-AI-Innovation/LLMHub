@@ -1,6 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { mutate as mutateSWR } from 'swr';
 
+const USE_LOCAL_TEST_DEPLOYMENTS = process.env.NODE_ENV === 'development';
+const DEPLOYMENTS_COLLECTION_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
+  ? '/api/test/local/deployments'
+  : '/api/models/deployments';
+const DEPLOYMENTS_LAUNCH_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
+  ? '/api/test/local/deployments'
+  : '/api/deployments';
+const deploymentItemEndpoint = (deploymentId: string) =>
+  USE_LOCAL_TEST_DEPLOYMENTS
+    ? `/api/test/local/deployments/${deploymentId}`
+    : `/api/models/deployments/${deploymentId}`;
+const deploymentLogsEndpoint = (deploymentId: string, tail = 200) =>
+  USE_LOCAL_TEST_DEPLOYMENTS
+    ? `/api/test/local/deployments/${deploymentId}/logs?tail=${tail}`
+    : `/api/models/deployments/${deploymentId}/logs?tail=${tail}`;
+
 // Types for models
 export interface ModelSpecs {
   gpus: number;
@@ -128,7 +144,7 @@ export function useModelDeployments() {
   return useQuery({
     queryKey: ['deployments'],
     queryFn: async (): Promise<ModelDeployment[]> => {
-      const res = await fetch('/api/models/deployments');
+      const res = await fetch(DEPLOYMENTS_COLLECTION_ENDPOINT);
 
       if (!res.ok) {
         throw new Error('Failed to fetch deployments');
@@ -235,7 +251,7 @@ export function useLaunchModel() {
         hfModel = `${org}/${params.modelId}`;
       }
 
-      const res = await fetch('/api/deployments', {
+      const res = await fetch(DEPLOYMENTS_LAUNCH_ENDPOINT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -265,7 +281,7 @@ export function useStopModel() {
 
   return useMutation({
     mutationFn: async (deploymentId: string): Promise<void> => {
-      const res = await fetch(`/api/models/deployments/${deploymentId}`, {
+      const res = await fetch(deploymentItemEndpoint(deploymentId), {
         method: 'DELETE',
       });
 
@@ -309,9 +325,7 @@ export function useDeploymentLogs(deploymentId: string | null, enabled = true) {
       if (!deploymentId) {
         throw new Error('Deployment ID is required');
       }
-      const res = await fetch(
-        `/api/models/deployments/${deploymentId}/logs?tail=200`,
-      );
+      const res = await fetch(deploymentLogsEndpoint(deploymentId, 200));
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -335,7 +349,7 @@ export function useDeployment(deploymentId: string | null) {
       if (!deploymentId) {
         throw new Error('Deployment ID is required');
       }
-      const res = await fetch(`/api/models/deployments/${deploymentId}`);
+      const res = await fetch(deploymentItemEndpoint(deploymentId));
 
       if (!res.ok) {
         throw new Error('Failed to fetch deployment');
