@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Navbar } from '@/components/navbar';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ import {
 import {
   useModels,
   useModelDeployments,
+  useChatModels,
   useRefreshModels,
   useLaunchModel,
   useStopModel,
@@ -38,8 +40,11 @@ import {
   ModelContext,
 } from '@/components/model-card';
 import { DeploymentLogsPanel } from '@/components/deployment-logs-panel';
+import { setPreferredChatModel } from '@/lib/chat-navigation';
+import { toast } from '@/components/ui/use-toast';
 
 export default function CatalogPage() {
+  const router = useRouter();
   const isActiveDeploymentStatus = useCallback((status: string) => {
     return ['pending', 'launching', 'ready', 'running'].includes(
       status.toLowerCase(),
@@ -68,6 +73,7 @@ export default function CatalogPage() {
     string | null
   >(null);
   const [selectedModelName, setSelectedModelName] = useState<string>('');
+  const [launchError, setLaunchError] = useState<string | null>(null);
 
   // Fetch models and deployments using React Query
   const {
@@ -82,6 +88,7 @@ export default function CatalogPage() {
     isLoading: isLoadingDeployments,
     error: deploymentsError,
   } = useModelDeployments();
+  const { data: chatModelOptions = [] } = useChatModels();
 
   const { mutate: refreshModels, isPending: isRefreshing } = useRefreshModels();
 
@@ -101,11 +108,12 @@ export default function CatalogPage() {
   const getModelDeployment = useCallback(
     (modelId: string) => {
       const targetId = modelId.toLowerCase();
-      return deployments.find((d) =>
-        [d.modelId, d.modelName].some(
-          (value) => value?.toLowerCase() === targetId,
-        ),
-       && (d.status === 'running' || d.status === 'launching'));
+      return deployments.find(
+        (d) =>
+          [d.modelId, d.modelName].some(
+            (value) => value?.toLowerCase() === targetId,
+          ) && (d.status === 'running' || d.status === 'launching'),
+      );
     },
     [deployments],
   );
@@ -166,6 +174,16 @@ export default function CatalogPage() {
   );
 
   // Stabilized launch model function for context
+  const parseLaunchError = useCallback((error: unknown): string => {
+    if (typeof error === 'string' && error.trim().length > 0) {
+      return error.trim();
+    }
+    if (error instanceof Error && error.message.trim().length > 0) {
+      return error.message.trim();
+    }
+    return 'Failed to launch model. Please try again.';
+  }, []);
+
   const stableLaunchModel = useCallback(
     async (modelId: string, huggingfaceId?: string, family?: string) => {
       try {
@@ -174,6 +192,7 @@ export default function CatalogPage() {
           huggingfaceId,
           family,
         });
+        setLaunchError(null);
         // If launch succeeds, open the logs panel with the new deployment
         if (deployment?.id) {
           setSelectedDeploymentId(deployment.id);
@@ -181,10 +200,17 @@ export default function CatalogPage() {
           setLogsPanelOpen(true);
         }
       } catch (error) {
+        const message = parseLaunchError(error);
+        setLaunchError(message);
+        toast({
+          title: 'Model launch failed',
+          description: message,
+          variant: 'destructive',
+        });
         console.error('Failed to launch model:', error);
       }
     },
-    [launchModelAsync],
+    [launchModelAsync, parseLaunchError],
   );
 
   // Handler to open logs panel
@@ -291,13 +317,39 @@ export default function CatalogPage() {
 
   // Memoize the refresh handler
   const handleRefresh = useCallback(() => {
+    setLaunchError(null);
     refreshModels();
   }, [refreshModels]);
+
+  const hasAlwaysOnModel = useMemo(
+    () => chatModelOptions.some((model) => model.id === 'always-on-model'),
+    [chatModelOptions],
+  );
+
+  const openChatWithModel = useCallback(
+    (modelId: string) => {
+      setPreferredChatModel(modelId);
+      router.push('/chat');
+    },
+    [router],
+  );
 
   return (
     <>
       <Navbar />
       <div className="container mx-auto p-6">
+        <div className="mb-4">
+          <Button
+            variant="default"
+            size="sm"
+            className="relative ml-3 h-9 overflow-visible rounded-l-none bg-[#ff5f05] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#e65404] before:absolute before:right-full before:top-0 before:size-0 before:border-y-[18px] before:border-r-[12px] before:border-y-transparent before:border-r-[#ff5f05] before:transition-colors before:content-[''] hover:before:border-r-[#e65404]"
+            onClick={() =>
+              openChatWithModel(hasAlwaysOnModel ? 'always-on-model' : 'vllm-model')
+            }
+          >
+            Back to chat
+          </Button>
+        </div>
         <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Model Catalog</h1>
@@ -305,8 +357,8 @@ export default function CatalogPage() {
               Access pre-configured models or request custom deployments
             </p>
           </div>
-          <div className="flex gap-2 items-center">
-            <div className="relative w-full max-w-xs">
+          <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+            <div className="relative w-56 sm:w-64">
               <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
               <Input
                 type="text"
@@ -328,6 +380,12 @@ export default function CatalogPage() {
             {error instanceof Error
               ? error.message
               : 'An error occurred while fetching models'}
+          </div>
+        ) : null}
+
+        {launchError ? (
+          <div className="mb-6 p-4 bg-destructive/10 text-destructive rounded-lg">
+            {launchError}
           </div>
         ) : null}
 
