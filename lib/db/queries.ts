@@ -606,6 +606,20 @@ export async function getModelDeploymentsByUserId(userId: string): Promise<Model
   }
 }
 
+export async function getModelDeploymentById(id: string): Promise<ModelDeployment | null> {
+  try {
+    const [deployment] = await db
+      .select()
+      .from(modelDeployment)
+      .where(eq(modelDeployment.id, id))
+      .limit(1);
+    return deployment || null;
+  } catch (error) {
+    console.error('Failed to get model deployment by id from database', error);
+    throw error;
+  }
+}
+
 /**
  * Get the active/running model deployment for a user
  * Returns the most recent deployment where the user has access and status is 'ready' or 'running'
