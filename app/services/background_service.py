@@ -162,7 +162,7 @@ class BackgroundService:
                 expired_deployments = (
                     db.query(ModelDeployment)
                     .filter(
-                        ModelDeployment.status.in_(["launching", "running", "ready"]),
+                        ModelDeployment.status.in_(["running", "ready"]),
                         ModelDeployment.expiresAt.isnot(None),
                         ModelDeployment.expiresAt <= now
                     )
