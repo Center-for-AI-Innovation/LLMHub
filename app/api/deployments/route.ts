@@ -3,10 +3,8 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
 import {
   createModelDeployment,
-  getAvailableModelById,
   getAvailableModelByName,
   getModelDeploymentsByUserId,
-  getUser,
 } from '@/lib/db/queries';
 
 const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
@@ -41,6 +39,15 @@ export async function GET() {
 
 export async function POST() {
   try {
+    const session = await auth();
+
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const isDevelopment = process.env.NODE_ENV === 'development';
 
     // TODO: When we have the backend ready, we will modify this to use the backend API.
@@ -51,23 +58,7 @@ export async function POST() {
       );
     }
 
-    const devUserEmail = process.env.DEV_USER_EMAIL;
-
-    if (!devUserEmail) {
-      return NextResponse.json(
-        { error: 'DEV_USER_EMAIL is not configured.' },
-        { status: 500 }
-      );
-    }
-
-    const [devUser] = await getUser(devUserEmail);
-
-    if (!devUser) {
-      return NextResponse.json(
-        { error: 'Dev user not found.' },
-        { status: 404 }
-      );
-    }
+    const userId = session.user.id;
 
     const [model] = await getAvailableModelByName({ name: DEV_MODEL_NAME });
 
@@ -81,7 +72,7 @@ export async function POST() {
     const deployment = await createModelDeployment({
       modelId: model.id,
       modelName: model.name,
-      userId: devUser.id,
+      userId,
       slurmJobId: `test-${createSlurmJobId()}`,
       status: 'running',
       endpointUrl: DEV_ENDPOINT_URL,
