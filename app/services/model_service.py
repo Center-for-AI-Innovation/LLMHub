@@ -406,7 +406,7 @@ class ModelService:
             job_name = db_deployment.modelName.replace("/", "-")
             tunnel_url = self.llm_client.get_tunnel_url(job_name, db_deployment.slurmJobId)
             if tunnel_url:
-                db_deployment.tunnelUrl = tunnel_url
+                db_deployment.proxyUrl = tunnel_url
         
         db_deployment.updatedAt = datetime.utcnow()
         db.commit()

@@ -45,7 +45,7 @@ class ModelDeploymentUpdate(BaseModel):
     
     status: Optional[str] = None
     endpointUrl: Optional[str] = None
-    tunnelUrl: Optional[str] = None  # Added field for Cloudflare tunnel URL
+    proxyUrl: Optional[str] = None
     errorMessage: Optional[str] = None
     expiresAt: Optional[datetime] = None
 
@@ -62,7 +62,7 @@ class ModelDeploymentInDB(ORMBaseModel):
     createdAt: datetime
     updatedAt: datetime
     endpointUrl: Optional[str] = None
-    tunnelUrl: Optional[str] = None  # Added field for Cloudflare tunnel URL
+    proxyUrl: Optional[str] = None
     errorMessage: Optional[str] = None
     resourceAllocation: Optional[Dict[str, Any]] = None
     expiresAt: Optional[datetime] = None

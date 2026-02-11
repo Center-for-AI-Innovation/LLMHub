@@ -24,7 +24,7 @@ class ModelDeployment(Base):
     createdAt = Column(DateTime, nullable=False, default=datetime.utcnow)
     updatedAt = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     endpointUrl = Column(String, nullable=True)
-    tunnelUrl = Column(String, nullable=True)
+    proxyUrl = Column(String, nullable=True)
     errorMessage = Column(String, nullable=True)
     resourceAllocation = Column(JSON, nullable=True)
     expiresAt = Column("expiresAt", DateTime, nullable=True)
