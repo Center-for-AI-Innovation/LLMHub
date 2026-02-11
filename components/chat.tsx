@@ -15,6 +15,14 @@ import { Messages } from './messages';
 import type { VisibilityType } from './visibility-selector';
 import { useArtifactSelector } from '@/hooks/use-artifact';
 import { toast } from '@/components/ui/use-toast';
+import {
+  isGuestLimitErrorMessage,
+  normalizeChatRequestError,
+} from '@/lib/chat-client-errors';
+import {
+  GUEST_CHAT_MAX_MESSAGES,
+  getGuestMessageCount,
+} from '@/lib/guest-chat';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useDocumentCache } from '@/hooks/use-document-cache';
 import { useVllmJob, getVllmChatEndpoint } from '@/hooks/use-vllm-job';
@@ -31,45 +39,6 @@ const getApiEndpoint = (model: string, vllmJobId: string | null) => {
     return vllmJobId ? getVllmChatEndpoint(vllmJobId) : '/api/vllm/chat';
   }
   return '/api/chat';
-};
-
-const parseChatErrorMessage = (error: unknown): string => {
-  if (!error) return 'An error occurred, please try again.';
-
-  const message =
-    typeof error === 'string'
-      ? error
-      : error instanceof Error
-        ? error.message
-        : JSON.stringify(error);
-
-  try {
-    const parsed = JSON.parse(message);
-    if (parsed?.error?.message) return parsed.error.message;
-    if (parsed?.message) return parsed.message;
-  } catch {
-    const jsonStart = message.indexOf('{');
-    const jsonEnd = message.lastIndexOf('}');
-    if (jsonStart >= 0 && jsonEnd > jsonStart) {
-      try {
-        const parsed = JSON.parse(message.slice(jsonStart, jsonEnd + 1));
-        if (parsed?.error?.message) return parsed.error.message;
-        if (parsed?.message) return parsed.message;
-      } catch {
-        // Not a parseable JSON substring
-      }
-    }
-  }
-
-  if (/guest message limit reached|rate limit|429/i.test(message)) {
-    return 'Guest message limit reached. Please sign in to continue.';
-  }
-
-  if (/not found|404|unavailable model|model is not available/i.test(message)) {
-    return 'Selected model is unavailable. Please choose another model or refresh deployments.';
-  }
-
-  return message;
 };
 
 const showErrorToast = (message: string) => {
@@ -122,22 +91,20 @@ function ChatInner({
     if (typeof document === 'undefined') {
       return 0;
     }
-
-    const cookiePair = document.cookie
-      .split(';')
-      .map((entry) => entry.trim())
-      .find((entry) => entry.startsWith('guest_chat_message_count='));
-
-    if (!cookiePair) {
-      return 0;
-    }
-
-    const rawValue = decodeURIComponent(
-      cookiePair.split('=').slice(1).join('='),
-    );
-    const parsedValue = Number.parseInt(rawValue, 10);
-    return Number.isNaN(parsedValue) ? 0 : parsedValue;
+    return getGuestMessageCount(document.cookie);
   }, []);
+
+  const handleChatRequestError = useCallback(
+    (error: unknown) => {
+      const errorMessage = normalizeChatRequestError(error);
+      if (isGuestMode && isGuestLimitErrorMessage(errorMessage)) {
+        onGuestLimitReached?.();
+        return;
+      }
+      showErrorToast(errorMessage);
+    },
+    [isGuestMode, onGuestLimitReached],
+  );
 
   useEffect(() => {
     if (initialDocuments?.length) {
@@ -188,17 +155,7 @@ function ChatInner({
     onFinish: () => {
       queryClient.invalidateQueries({ queryKey: ['chatHistory'] });
     },
-    onError: (error) => {
-      const errorMessage = parseChatErrorMessage(error);
-      if (
-        isGuestMode &&
-        /guest message limit reached|rate limit|429/i.test(errorMessage)
-      ) {
-        onGuestLimitReached?.();
-        return;
-      }
-      showErrorToast(errorMessage);
-    },
+    onError: handleChatRequestError,
   });
 
   const lastNonEmptyMessagesRef = useRef<Array<Message>>(initialMessages);
@@ -256,26 +213,22 @@ function ChatInner({
       return;
     }
 
-    if (isGuestMode && getGuestMessageCountFromCookie() >= 5) {
+    if (
+      isGuestMode &&
+      getGuestMessageCountFromCookie() >= GUEST_CHAT_MAX_MESSAGES
+    ) {
       onGuestLimitReached?.();
       return;
     }
 
     hasAutoSentInitialPrompt.current = true;
-    void append({ role: 'user', content: initialPrompt }).catch((error) => {
-      const errorMessage = parseChatErrorMessage(error);
-      if (
-        isGuestMode &&
-        /guest message limit reached|rate limit|429/i.test(errorMessage)
-      ) {
-        onGuestLimitReached?.();
-        return;
-      }
-      showErrorToast(errorMessage);
-    });
+    void append({ role: 'user', content: initialPrompt }).catch(
+      handleChatRequestError,
+    );
   }, [
     append,
     getGuestMessageCountFromCookie,
+    handleChatRequestError,
     initialPrompt,
     isGuestMode,
     messages.length,
@@ -294,42 +247,17 @@ function ChatInner({
         return;
       }
 
-      if (getGuestMessageCountFromCookie() >= 5) {
+      if (getGuestMessageCountFromCookie() >= GUEST_CHAT_MAX_MESSAGES) {
         onGuestLimitReached?.();
         return;
       }
     }
 
     try {
-      const result = handleSubmit(event, chatRequestOptions) as unknown;
-      if (
-        typeof result === 'object' &&
-        result !== null &&
-        'catch' in result &&
-        typeof result.catch === 'function'
-      ) {
-        void (result as Promise<unknown>).catch((error) => {
-          const errorMessage = parseChatErrorMessage(error);
-          if (
-            isGuestMode &&
-            /guest message limit reached|rate limit|429/i.test(errorMessage)
-          ) {
-            onGuestLimitReached?.();
-            return;
-          }
-          showErrorToast(errorMessage);
-        });
-      }
+      const result = handleSubmit(event, chatRequestOptions);
+      void Promise.resolve(result).catch(handleChatRequestError);
     } catch (error) {
-      const errorMessage = parseChatErrorMessage(error);
-      if (
-        isGuestMode &&
-        /guest message limit reached|rate limit|429/i.test(errorMessage)
-      ) {
-        onGuestLimitReached?.();
-        return;
-      }
-      showErrorToast(errorMessage);
+      handleChatRequestError(error);
     }
   };
 

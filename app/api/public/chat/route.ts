@@ -10,6 +10,12 @@ import { getChatById, saveChat, saveMessages } from '@/lib/db/queries';
 
 import { systemPrompt } from '@/lib/ai/prompts';
 import {
+  GUEST_CHAT_COUNT_COOKIE,
+  GUEST_CHAT_MAX_MESSAGES,
+  getCookieValue,
+  getGuestMessageCount,
+} from '@/lib/guest-chat';
+import {
   createErrorResponse,
   generateUUID,
   getMostRecentUserMessage,
@@ -17,22 +23,9 @@ import {
 } from '@/lib/utils';
 
 export const maxDuration = 60;
-const MAX_GUEST_MESSAGES = 5;
-const GUEST_COUNT_COOKIE = 'guest_chat_message_count';
 const ALWAYS_ON_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
 const ALWAYS_ON_BASE_URL = process.env.ALWAYS_ON_VLLM_BASE_URL;
 const ALWAYS_ON_API_KEY = process.env.ALWAYS_ON_VLLM_API_KEY;
-
-function getCookieValue(cookieHeader: string | null, cookieName: string): string | null {
-  if (!cookieHeader) return null;
-  const cookieParts = cookieHeader.split(';').map((part) => part.trim());
-  for (const part of cookieParts) {
-    if (part.startsWith(`${cookieName}=`)) {
-      return decodeURIComponent(part.slice(cookieName.length + 1));
-    }
-  }
-  return null;
-}
 
 function isLikelyAuthenticatedRequest(cookieHeader: string | null): boolean {
   if (!cookieHeader) return false;
@@ -95,16 +88,9 @@ export async function POST(request: Request) {
     const cookieHeader = request.headers.get('cookie');
     const isLoggedIn = Boolean(userId) || isLikelyAuthenticatedRequest(cookieHeader);
 
-    const rawGuestCount = getCookieValue(
-      cookieHeader,
-      GUEST_COUNT_COOKIE,
-    );
-    const guestMessageCount = Number.parseInt(rawGuestCount ?? '0', 10);
-    const safeGuestMessageCount = Number.isNaN(guestMessageCount)
-      ? 0
-      : guestMessageCount;
+    const safeGuestMessageCount = getGuestMessageCount(cookieHeader);
 
-    if (!isLoggedIn && safeGuestMessageCount >= MAX_GUEST_MESSAGES) {
+    if (!isLoggedIn && safeGuestMessageCount >= GUEST_CHAT_MAX_MESSAGES) {
       return createErrorResponse(
         'Guest message limit reached. Please sign in to continue.',
         429,
@@ -192,7 +178,7 @@ export async function POST(request: Request) {
       const nextGuestMessageCount = safeGuestMessageCount + 1;
       response.headers.append(
         'Set-Cookie',
-        `${GUEST_COUNT_COOKIE}=${nextGuestMessageCount}; Path=/; Max-Age=2592000; SameSite=Lax`,
+        `${GUEST_CHAT_COUNT_COOKIE}=${nextGuestMessageCount}; Path=/; Max-Age=2592000; SameSite=Lax`,
       );
     }
 

@@ -6,6 +6,7 @@ import type { ChatRequestOptions, CreateMessage, Message } from 'ai';
 import { memo } from 'react';
 import { generateUUID } from '@/lib/utils';
 import { toast } from '@/components/ui/use-toast';
+import { extractErrorMessage } from '@/lib/chat-client-errors';
 
 interface SuggestedActionsProps {
   append: (
@@ -13,35 +14,6 @@ interface SuggestedActionsProps {
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
 }
-
-const parseSuggestedActionError = (error: unknown): string => {
-  const message =
-    typeof error === 'string'
-      ? error
-      : error instanceof Error
-        ? error.message
-        : JSON.stringify(error);
-
-  try {
-    const parsed = JSON.parse(message);
-    if (parsed?.error?.message) return parsed.error.message;
-    if (parsed?.message) return parsed.message;
-  } catch {
-    const jsonStart = message.indexOf('{');
-    const jsonEnd = message.lastIndexOf('}');
-    if (jsonStart >= 0 && jsonEnd > jsonStart) {
-      try {
-        const parsed = JSON.parse(message.slice(jsonStart, jsonEnd + 1));
-        if (parsed?.error?.message) return parsed.error.message;
-        if (parsed?.message) return parsed.message;
-      } catch {
-        // ignore parse errors
-      }
-    }
-  }
-
-  return message || 'Failed to send message';
-};
 
 const showErrorToast = (message: string) => {
   toast({
@@ -95,7 +67,9 @@ function PureSuggestedActions({ append }: SuggestedActionsProps) {
                 content: suggestedAction.action,
                 createdAt: new Date(),
               }).catch((error) => {
-                showErrorToast(parseSuggestedActionError(error));
+                showErrorToast(
+                  extractErrorMessage(error, 'Failed to send message'),
+                );
               });
             }}
             className="text-left bg-background dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] dark:hover:bg-muted rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"

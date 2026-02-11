@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
+import { extractErrorMessage } from '@/lib/chat-client-errors';
 import { generateUUID, sanitizeUIMessages } from '@/lib/utils';
 
 import { ArrowUpIcon, PaperclipIcon, StopIcon } from './icons';
@@ -127,10 +128,7 @@ function PureMultimodalInput({
         experimental_attachments: attachments,
       },
     ).catch((error) => {
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : 'Failed to send message';
+      const message = extractErrorMessage(error, 'Failed to send message');
       toast.error(message);
     });
 
