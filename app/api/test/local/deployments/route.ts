@@ -1,4 +1,4 @@
-import { randomInt } from 'crypto';
+import { randomInt } from 'node:crypto';
 
 import { auth } from '@/app/(auth)/auth';
 import {
@@ -6,16 +6,19 @@ import {
   getAvailableModelById,
   getAvailableModelByName,
   getModelDeploymentsByUserId,
-  getUser,
 } from '@/lib/db/queries';
 import { type NextRequest, NextResponse } from 'next/server';
 
-const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
-const DEV_MODEL_NAME = process.env.DEV_VLLM_MODEL_NAME || 'Qwen/Qwen2.5-1.5B-Instruct';
+const DEV_ENDPOINT_URL =
+  process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
+const DEV_MODEL_NAME =
+  process.env.DEV_VLLM_MODEL_NAME || 'Qwen/Qwen2.5-1.5B-Instruct';
 const SLURM_JOB_ID_LENGTH = 6;
 
 const createSlurmJobId = () =>
-  randomInt(0, 10 ** SLURM_JOB_ID_LENGTH).toString().padStart(SLURM_JOB_ID_LENGTH, '0');
+  randomInt(0, 10 ** SLURM_JOB_ID_LENGTH)
+    .toString()
+    .padStart(SLURM_JOB_ID_LENGTH, '0');
 
 function isDevelopment() {
   return process.env.NODE_ENV === 'development';
@@ -25,7 +28,10 @@ export async function GET() {
   try {
     if (!isDevelopment()) {
       return NextResponse.json(
-        { error: 'Local test deployments are only available in development mode.' },
+        {
+          error:
+            'Local test deployments are only available in development mode.',
+        },
         { status: 501 },
       );
     }
@@ -52,7 +58,10 @@ export async function POST(request: NextRequest) {
   try {
     if (!isDevelopment()) {
       return NextResponse.json(
-        { error: 'Local test deployments are only available in development mode.' },
+        {
+          error:
+            'Local test deployments are only available in development mode.',
+        },
         { status: 501 },
       );
     }
@@ -77,16 +86,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const devUserEmail = process.env.DEV_USER_EMAIL;
-    let targetUserId = userId;
-
-    if (devUserEmail) {
-      const [devUser] = await getUser(devUserEmail);
-      if (devUser?.id) {
-        targetUserId = devUser.id;
-      }
-    }
-
     const [modelById] = await getAvailableModelById({ id: modelId });
     const [modelByName] = modelById
       ? [null]
@@ -103,7 +102,7 @@ export async function POST(request: NextRequest) {
     const deployment = await createModelDeployment({
       modelId: model.id,
       modelName: model.name,
-      userId: targetUserId,
+      userId,
       slurmJobId: `test-${createSlurmJobId()}`,
       status: 'running',
       endpointUrl: DEV_ENDPOINT_URL,
