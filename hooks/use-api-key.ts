@@ -17,9 +17,15 @@ export function useGenerateApiKey() {
         let errorMessage = 'Failed to generate API key';
 
         try {
-          const errorBody = (await response.json()) as { error?: string };
-          errorMessage = errorBody.error ?? errorMessage;
-        } catch {
+          const errorBody = (await response.json()) as
+            | { error?: string }
+            | { error?: { message?: string } };
+          if (typeof errorBody.error === 'string') {
+            errorMessage = errorBody.error;
+          } else if (errorBody.error?.message) {
+            errorMessage = errorBody.error.message;
+          }
+        } catch (error) {
           const fallbackText = await response.text();
           errorMessage = fallbackText || errorMessage;
         }

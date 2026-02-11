@@ -1,5 +1,4 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { mutate as mutateSWR } from 'swr';
 
 const USE_LOCAL_TEST_DEPLOYMENTS = process.env.NODE_ENV === 'development';
 const DEPLOYMENTS_COLLECTION_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
@@ -270,7 +269,7 @@ export function useLaunchModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
-      mutateSWR('/api/v1/vllm/job');
+      queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
     },
   });
 }
@@ -291,7 +290,7 @@ export function useStopModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
-      mutateSWR('/api/v1/vllm/job');
+      queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
     },
   });
 }
