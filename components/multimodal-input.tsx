@@ -21,7 +21,7 @@ import {
 import { toast } from 'sonner';
 import { useLocalStorage, useWindowSize } from 'usehooks-ts';
 
-import { sanitizeUIMessages } from '@/lib/utils';
+import { generateUUID, sanitizeUIMessages } from '@/lib/utils';
 
 import { ArrowUpIcon, PaperclipIcon, StopIcon } from './icons';
 import { PreviewAttachment } from './preview-attachment';
@@ -32,7 +32,6 @@ import equal from 'fast-deep-equal';
 import { ModelSelector } from './model-selector';
 
 function PureMultimodalInput({
-  chatId,
   input,
   setInput,
   isLoading,
@@ -42,10 +41,9 @@ function PureMultimodalInput({
   messages,
   setMessages,
   append,
-  handleSubmit,
   className,
+  isGuestMode = false,
 }: {
-  chatId: string;
   input: string;
   setInput: (value: string) => void;
   isLoading: boolean;
@@ -58,13 +56,8 @@ function PureMultimodalInput({
     message: Message | CreateMessage,
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
-  handleSubmit: (
-    event?: {
-      preventDefault?: () => void;
-    },
-    chatRequestOptions?: ChatRequestOptions,
-  ) => void;
   className?: string;
+  isGuestMode?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -119,10 +112,26 @@ function PureMultimodalInput({
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
 
   const submitForm = useCallback(() => {
-    window.history.replaceState({}, '', `/chat/${chatId}`);
+    const trimmedInput = input.trim();
+    if (!trimmedInput && attachments.length === 0) {
+      return;
+    }
 
-    handleSubmit(undefined, {
-      experimental_attachments: attachments,
+    void append(
+      {
+        id: generateUUID(),
+        role: 'user',
+        content: input,
+      },
+      {
+        experimental_attachments: attachments,
+      },
+    ).catch((error) => {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Failed to send message';
+      toast.error(message);
     });
 
     setAttachments([]);
@@ -132,14 +141,7 @@ function PureMultimodalInput({
     if (width && width > 768) {
       textareaRef.current?.focus();
     }
-  }, [
-    attachments,
-    handleSubmit,
-    setAttachments,
-    setLocalStorageInput,
-    width,
-    chatId,
-  ]);
+  }, [attachments, append, input, setAttachments, setLocalStorageInput, width]);
 
   const uploadFile = async (file: File) => {
     const formData = new FormData();
@@ -198,9 +200,8 @@ function PureMultimodalInput({
     <div className="relative w-full flex flex-col gap-4">
       {messages.length === 0 &&
         attachments.length === 0 &&
-        uploadQueue.length === 0 && (
-          <SuggestedActions append={append} chatId={chatId} />
-        )}
+        uploadQueue.length === 0 &&
+        !isGuestMode && <SuggestedActions append={append} />}
 
       <input
         type="file"

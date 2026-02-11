@@ -5,16 +5,53 @@ import { Button } from './ui/button';
 import type { ChatRequestOptions, CreateMessage, Message } from 'ai';
 import { memo } from 'react';
 import { generateUUID } from '@/lib/utils';
+import { toast } from '@/components/ui/use-toast';
 
 interface SuggestedActionsProps {
-  chatId: string;
   append: (
     message: Message | CreateMessage,
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
 }
 
-function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
+const parseSuggestedActionError = (error: unknown): string => {
+  const message =
+    typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : JSON.stringify(error);
+
+  try {
+    const parsed = JSON.parse(message);
+    if (parsed?.error?.message) return parsed.error.message;
+    if (parsed?.message) return parsed.message;
+  } catch {
+    const jsonStart = message.indexOf('{');
+    const jsonEnd = message.lastIndexOf('}');
+    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+      try {
+        const parsed = JSON.parse(message.slice(jsonStart, jsonEnd + 1));
+        if (parsed?.error?.message) return parsed.error.message;
+        if (parsed?.message) return parsed.message;
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }
+
+  return message || 'Failed to send message';
+};
+
+const showErrorToast = (message: string) => {
+  toast({
+    title: 'Request failed',
+    description: message,
+    variant: 'destructive',
+  });
+};
+
+function PureSuggestedActions({ append }: SuggestedActionsProps) {
   const suggestedActions = [
     {
       title: 'What are the advantages',
@@ -51,14 +88,14 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
         >
           <Button
             variant="outline"
-            onClick={async () => {
-              window.history.replaceState({}, '', `/chat/${chatId}`);
-
-              append({
+            onClick={() => {
+              void append({
                 id: generateUUID(),
                 role: 'user',
                 content: suggestedAction.action,
                 createdAt: new Date(),
+              }).catch((error) => {
+                showErrorToast(parseSuggestedActionError(error));
               });
             }}
             className="text-left bg-background dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] dark:hover:bg-muted rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
@@ -74,4 +111,4 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
   );
 }
 
-export const SuggestedActions = memo(PureSuggestedActions, () => true);
+export const SuggestedActions = memo(PureSuggestedActions);
