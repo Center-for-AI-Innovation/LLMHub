@@ -6,10 +6,20 @@
  */
 
 import { useCallback } from 'react';
-import useSWR from 'swr';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-const fetcher = (url: string) =>
-  fetch(url, { cache: 'no-store' }).then((res) => res.json());
+const VLLM_JOB_QUERY_KEY = ['vllm-job'] as const;
+
+const fetchVllmJob = async (): Promise<VllmJobResponse> => {
+  const response = await fetch('/api/v1/vllm/job', { cache: 'no-store' });
+
+  if (!response.ok) {
+    const errorMessage = `Failed to fetch vLLM job: ${response.status}`;
+    throw new Error(errorMessage);
+  }
+
+  return response.json();
+};
 
 interface VllmJobResponse {
   jobId: string | null;
@@ -33,19 +43,36 @@ interface VllmJobResponse {
  * @returns Object with jobId, deployment info, refresh function, and loading state
  */
 export function useVllmJob() {
-  const { data, error, isLoading, mutate } = useSWR<VllmJobResponse>(
-    '/api/v1/vllm/job',
-    fetcher,
-    {
-      // Always revalidate on mount so chat never reuses an old job id.
-      revalidateOnMount: true,
-      revalidateIfStale: true,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 1000,
-      focusThrottleInterval: 1000,
-    }
-  );
+  const queryClient = useQueryClient();
+  const { data, error, isLoading } = useQuery({
+    queryKey: VLLM_JOB_QUERY_KEY,
+    queryFn: fetchVllmJob,
+    // Always refetch quickly so chat does not reuse stale job IDs.
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    retry: 1,
+  });
+
+  const refreshJobMutation = useMutation({
+    mutationFn: async (): Promise<VllmJobResponse> => {
+      const response = await fetch('/api/v1/vllm/job', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const errorMessage = `Failed to refresh vLLM job: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      return response.json();
+    },
+    onSuccess: (newData) => {
+      queryClient.setQueryData(VLLM_JOB_QUERY_KEY, newData);
+    },
+  });
 
   const jobId = data?.jobId || null;
   const deploymentId = data?.deploymentId || null;
@@ -58,13 +85,8 @@ export function useVllmJob() {
 
   // Function to refresh/revalidate the deployment info
   const refreshJobId = useCallback(async () => {
-    const response = await fetch('/api/v1/vllm/job', {
-      method: 'POST',
-    });
-    const newData = await response.json();
-    mutate(newData, false);
-    return newData;
-  }, [mutate]);
+    return refreshJobMutation.mutateAsync();
+  }, [refreshJobMutation]);
 
   // Check if there's an active deployment
   const hasActiveDeployment = jobId !== null && (status === 'ready' || status === 'running');
