@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-const USE_LOCAL_TEST_DEPLOYMENTS = process.env.NODE_ENV === 'development';
+const USE_LOCAL_TEST_DEPLOYMENTS =
+  process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true';
 const DEPLOYMENTS_COLLECTION_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
   ? '/api/test/local/deployments'
   : '/api/models/deployments';
@@ -27,8 +28,8 @@ export interface ModelSpecs {
 export interface ModelInfo {
   id: string;
   modelName: string;
-  description: string;  
-  status: 'warm' | 'cold' ;
+  description: string;
+  status: 'warm' | 'cold';
   type: 'Small' | 'Medium' | 'Large';
   family: string;
   variant: string;
