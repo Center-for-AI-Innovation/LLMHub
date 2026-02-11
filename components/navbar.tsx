@@ -10,12 +10,12 @@ import { BrandMark } from '@/components/brand-mark';
 export function Navbar() {
   return (
     <header className="relative z-50 border-b border-primary/10 bg-background/50 backdrop-blur-xl">
-      <div className="container mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-6">
+      <div className="container mx-auto flex h-16 items-center px-6">
         <div className="flex items-center gap-2">
           <BrandMark />
         </div>
 
-        <nav className="flex items-center gap-4 sm:gap-6">
+        <nav className="ml-auto flex items-center gap-4 sm:gap-6">
           <TooltipProvider>
             <Link
               href="/docs"
