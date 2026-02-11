@@ -185,7 +185,7 @@ export const availableModel = pgTable('AvailableModel', {
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
   
-  status: varchar('status', { enum: ['warm', 'cold'] }).notNull().default('warm'),
+  status: varchar('status', { enum: ['warm', 'cold'] }).notNull().default('cold'),
   type: varchar('type', { enum: ['Small', 'Medium', 'Large'] }).notNull(),
   family: varchar('family', { length: 100 }).notNull(),
   variant: varchar('variant', { length: 100 }).notNull(),
