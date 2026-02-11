@@ -1,21 +1,18 @@
 import { auth } from '@/app/(auth)/auth';
+import { getActiveModelDeploymentByUserId } from '@/lib/db/queries';
 import { NextResponse } from 'next/server';
 
 const VLLM_MODEL = process.env.VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct';
 const ALWAYS_ON_VLLM_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
-const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
 interface SessionUser {
   id?: string;
-  email?: string | null;
 }
 
 interface ModelDeployment {
   modelId?: string;
   modelName?: string;
-  status?: string;
-  updatedAt?: string;
-  createdAt?: string;
+  status?: string | null;
 }
 
 interface ChatModelOption {
@@ -25,8 +22,6 @@ interface ChatModelOption {
 }
 
 export const dynamic = 'force-dynamic';
-
-const ACTIVE_DEPLOYMENT_STATUSES = new Set(['ready', 'running']);
 
 function getDefaultVllmOption(): ChatModelOption {
   return {
@@ -48,69 +43,22 @@ function deploymentToChatOption(deployment: ModelDeployment): ChatModelOption {
   };
 }
 
-function sortDeploymentsByFreshness(
-  a: ModelDeployment,
-  b: ModelDeployment,
-): number {
-  const aUpdatedAt = Date.parse(a.updatedAt || '') || 0;
-  const bUpdatedAt = Date.parse(b.updatedAt || '') || 0;
-
-  if (bUpdatedAt !== aUpdatedAt) {
-    return bUpdatedAt - aUpdatedAt;
-  }
-
-  const aCreatedAt = Date.parse(a.createdAt || '') || 0;
-  const bCreatedAt = Date.parse(b.createdAt || '') || 0;
-  return bCreatedAt - aCreatedAt;
-}
-
 async function getActiveDeploymentOptionForUser(
   sessionUser?: SessionUser,
 ): Promise<ChatModelOption | null> {
   const userId = sessionUser?.id;
-  const userEmail = sessionUser?.email ?? undefined;
 
   if (!userId) {
     return null;
   }
 
   try {
-    const backendUrl = new URL(`${BACKEND_API_URL}/api/models/deployments`);
-    backendUrl.searchParams.set('userId', userId);
-
-    const headers = new Headers();
-    headers.set('X-User-Id', userId);
-    if (userEmail) {
-      headers.set('X-User-Email', userEmail);
-    }
-
-    const response = await fetch(backendUrl.toString(), {
-      method: 'GET',
-      headers,
-      cache: 'no-store',
-    });
-
-    if (!response.ok) {
+    const deployment = await getActiveModelDeploymentByUserId(userId);
+    if (!deployment) {
       return null;
     }
 
-    const deployments = (await response.json()) as ModelDeployment[];
-    if (!Array.isArray(deployments)) {
-      return null;
-    }
-
-    const activeDeployments = deployments
-      .filter((deployment) =>
-        ACTIVE_DEPLOYMENT_STATUSES.has((deployment.status || '').toLowerCase()),
-      )
-      .sort(sortDeploymentsByFreshness);
-
-    const latestActiveDeployment = activeDeployments[0];
-    if (!latestActiveDeployment) {
-      return null;
-    }
-
-    return deploymentToChatOption(latestActiveDeployment);
+    return deploymentToChatOption(deployment);
   } catch {
     return null;
   }
