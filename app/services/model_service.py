@@ -32,6 +32,35 @@ SLURM_FAILED_JOB_STATES = {
     "REVOKED",
 }
 
+def _parse_slurm_time_to_timedelta(time_value: Any) -> Optional[timedelta]:
+    """Parse Slurm time strings (e.g. HH:MM:SS, MM:SS, D-HH:MM:SS)."""
+    if not isinstance(time_value, str):
+        return None
+
+    raw = time_value.strip()
+    if not raw:
+        return None
+
+    try:
+        days = 0
+        clock = raw
+        if "-" in raw:
+            day_part, clock = raw.split("-", 1)
+            days = int(day_part)
+
+        parts = clock.split(":")
+        if len(parts) == 3:
+            hours, minutes, seconds = map(int, parts)
+        elif len(parts) == 2:
+            hours = 0
+            minutes, seconds = map(int, parts)
+        else:
+            return None
+
+        return timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds)
+    except (TypeError, ValueError):
+        return None
+
 
 class ModelService:
     """Service for model management."""
@@ -235,36 +264,6 @@ class ModelService:
             db.refresh(db_deployment)
             return db_deployment
         
-        # Calculate expiration time based on the time parameter if provided
-        expiration_time = None
-        if "time" in params and params["time"]:
-            try:
-                # Parse Slurm time format (e.g., "2:00:00" for 2 hours)
-                time_parts = params["time"].split(":")
-                hours = 0
-                minutes = 0
-                seconds = 0
-                
-                if len(time_parts) == 3:
-                    hours, minutes, seconds = map(int, time_parts)
-                elif len(time_parts) == 2:
-                    minutes, seconds = map(int, time_parts)
-                elif len(time_parts) == 1:
-                    # If only one part, assume it's minutes
-                    minutes = int(time_parts[0])
-                
-                # Calculate expiration time
-                expiration_time = datetime.utcnow() + timedelta(
-                    hours=hours, minutes=minutes, seconds=seconds
-                )
-                
-                # Add a small buffer (5 minutes) to account for startup time
-                expiration_time -= timedelta(minutes=5)
-                
-                logger.info(f"Setting expiration time to {expiration_time} for job {slurm_job_id}")
-            except Exception as e:
-                logger.error(f"Error calculating expiration time: {e}")
-        
         # Create a deployment record
         db_deployment = ModelDeployment(
             modelId=model_id,
@@ -273,7 +272,9 @@ class ModelService:
             slurmJobId=slurm_job_id,
             status="launching",
             resourceAllocation=resource_allocation,
-            expiresAt=expiration_time
+            # Expiration is set when deployment becomes ready, so queued time
+            # does not consume model lifetime.
+            expiresAt=None
         )
         db.add(db_deployment)
         db.commit()
@@ -416,6 +417,22 @@ class ModelService:
         if status == "READY":
             db_deployment.status = "ready"
             db_deployment.endpointUrl = result.get("endpoint_url")
+            requested_time = None
+            if isinstance(db_deployment.resourceAllocation, dict):
+                requested_time = db_deployment.resourceAllocation.get("time")
+            requested_duration = _parse_slurm_time_to_timedelta(requested_time)
+
+            if requested_duration:
+                now = datetime.utcnow()
+                # Set TTL from ready time. Also repair stale pre-ready expirations.
+                if db_deployment.expiresAt is None or db_deployment.expiresAt <= now:
+                    db_deployment.expiresAt = now + requested_duration
+                    logger.info(
+                        "Set expiresAt=%s from ready time for deployment id=%s job=%s",
+                        db_deployment.expiresAt,
+                        db_deployment.id,
+                        db_deployment.slurmJobId,
+                    )
         elif status in {"PENDING", "LAUNCHING"}:
             db_deployment.status = "launching"
         elif status == "FAILED":
