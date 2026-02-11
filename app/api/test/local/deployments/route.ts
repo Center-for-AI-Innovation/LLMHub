@@ -20,13 +20,16 @@ const createSlurmJobId = () =>
     .toString()
     .padStart(SLURM_JOB_ID_LENGTH, '0');
 
-function isDevelopment() {
-  return process.env.NODE_ENV === 'development';
+function isLocalTestEnabled() {
+  return (
+    process.env.NODE_ENV === 'development' &&
+    process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true'
+  );
 }
 
 export async function GET() {
   try {
-    if (!isDevelopment()) {
+    if (!isLocalTestEnabled()) {
       return NextResponse.json(
         {
           error:
@@ -56,7 +59,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!isDevelopment()) {
+    if (!isLocalTestEnabled()) {
       return NextResponse.json(
         {
           error:

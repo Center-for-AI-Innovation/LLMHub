@@ -47,4 +47,4 @@ For local model deployments in development, ensure your vLLM server is running w
 vllm serve Qwen/Qwen2.5-1.5B-Instruct --max-model-len=2048
 ```
 
-The app expects the local endpoint at `http://localhost:8000/v1` and uses `DEV_USER_EMAIL` to resolve the user for dev-only deployment rows. You can control the model used for dev deployments with `DEV_VLLM_MODEL_NAME` (defaults to `Qwen/Qwen2.5-1.5B-Instruct`).
+If you want to use local mock deployments, set `NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS=true`. The app then uses `DEV_VLLM_ENDPOINT`/`DEV_VLLM_MODEL_NAME` for local endpoint/model defaults.
