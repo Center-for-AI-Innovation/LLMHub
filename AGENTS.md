@@ -23,6 +23,15 @@
 - File names should be in kebab-case.
 - Prefer concise, typed interfaces for API payloads and hook returns.
 
+## UI Components Conventions
+- Components are styled with Shadcn UI.
+- Components are styled with Tailwind CSS.
+- Components are responsive and accessible.
+- Components are reusable and composable.
+- Components are documented with JSDoc.
+- Design for both light/dark mode.
+- Use existing brand colors and typography.
+
 ## Testing Guidelines
 - No dedicated test runner is currently wired; use quality gates:
   - `pnpm lint`
