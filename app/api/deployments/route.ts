@@ -1,32 +1,11 @@
-import { randomInt } from 'crypto';
-
 import { auth } from '@/app/(auth)/auth';
-import {
-  createModelDeployment,
-  getAvailableModelById,
-  getAvailableModelByName,
-  getModelDeploymentsByUserId,
-  getUser,
-} from '@/lib/db/queries';
 import { type NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
-const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
-const DEV_MODEL_NAME = process.env.DEV_VLLM_MODEL_NAME || 'Qwen/Qwen2.5-1.5B-Instruct';
-
 const DEFAULT_LAUNCH_RESOURCE_TYPE = 'nvidia_a40';
 const DEFAULT_LAUNCH_PARTITION = 'gpuA40x4';
 const DEFAULT_LAUNCH_TIME = '00:10:00';
-
-const SLURM_JOB_ID_LENGTH = 6;
-
-const createSlurmJobId = () =>
-  randomInt(0, 10 ** SLURM_JOB_ID_LENGTH).toString().padStart(SLURM_JOB_ID_LENGTH, '0');
-
-function isLocalLaunchMode() {
-  return process.env.NODE_ENV === 'development';
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,11 +22,6 @@ export async function GET(request: NextRequest) {
     }
 
     const url = new URL(request.url);
-    if (isLocalLaunchMode()) {
-      const deployments = await getModelDeploymentsByUserId(userId);
-      return NextResponse.json(deployments);
-    }
-
     const backendUrl = new URL(`${BACKEND_API_URL}/api/models/deployments`);
     backendUrl.searchParams.set('userId', userId);
 
@@ -105,43 +79,6 @@ export async function POST(request: NextRequest) {
         { error: 'Model ID is required' },
         { status: 400 },
       );
-    }
-
-    if (isLocalLaunchMode()) {
-      const devUserEmail = process.env.DEV_USER_EMAIL;
-      let targetUserId = userId;
-
-      if (devUserEmail) {
-        const [devUser] = await getUser(devUserEmail);
-        if (devUser?.id) {
-          targetUserId = devUser.id;
-        }
-      }
-
-      const [modelById] = await getAvailableModelById({ id: modelId });
-      const [modelByName] = modelById
-        ? [null]
-        : await getAvailableModelByName({ name: DEV_MODEL_NAME });
-      const model = modelById || modelByName;
-
-      if (!model) {
-        return NextResponse.json(
-          { error: `Model ${modelId} is not available.` },
-          { status: 404 },
-        );
-      }
-
-      const deployment = await createModelDeployment({
-        modelId: model.id,
-        modelName: model.name,
-        userId: targetUserId,
-        slurmJobId: `test-${createSlurmJobId()}`,
-        status: 'running',
-        endpointUrl: DEV_ENDPOINT_URL,
-        resourceAllocation: { mode: 'local' },
-      });
-
-      return NextResponse.json(deployment);
     }
 
     const response = await fetch(`${BACKEND_API_URL}/api/models/deployments`, {
