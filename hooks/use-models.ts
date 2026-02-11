@@ -59,6 +59,12 @@ export interface ModelDeployment {
   expiresAt: string | null;
 }
 
+export interface ChatModelOption {
+  id: string;
+  name: string;
+  description: string;
+}
+
 // Fetch all models
 export function useModels(query?: string) {
   return useQuery({
@@ -207,6 +213,22 @@ export function useModelDeployments() {
       // Return the old reference if nothing has changed to prevent re-renders
       return hasChanged ? newData : oldData;
     },
+  });
+}
+
+export function useChatModels() {
+  return useQuery({
+    queryKey: ['chat-models'],
+    queryFn: async (): Promise<ChatModelOption[]> => {
+      const res = await fetch('/api/chat/models');
+      if (!res.ok) {
+        throw new Error('Failed to fetch chat models');
+      }
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    staleTime: 60_000,
+    gcTime: 300_000,
   });
 }
 
