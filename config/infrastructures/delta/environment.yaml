@@ -1,9 +1,9 @@
 paths:
-  image_path: "/projects/nsf/delta/bfmz/containers/vllm.sif"
+  image_path: "/projects/bfmz/rohan13/containers/vllm.sif"
 
 containerization:
   module_load_cmd: ""
-  module_name: ""
+  module_name: "apptainer"
 
 limits:
   max_gpus_per_node: 8
@@ -12,7 +12,7 @@ limits:
 
 allowed_values:
   qos: ["normal", "high", "low"]
-  partition: ["delta", "delta-gpu"]
+  partition: ["gpuA40x4", "gpuA100x4", "gpuA100x8", "gpuH200x8", "gpuA40x4-interactive", "gpuA100x4-interactive", "gpuA100x8-interactive", "gpuH200x8-interactive", "gpuA40x4-preempt", "gpuA100x4-preempt"]
   resource_type: ["A100", "H100", "V100", "A40", "l40s"]
 
 required_args:
@@ -20,15 +20,16 @@ required_args:
   work_dir: "VEC_INF_WORK_DIR"
 
 default_args:
+  account: "bfmz-delta-gpu"
   cpus_per_task: "16"
   mem_per_node: "64G"
   time: "00:10:00"
-  qos: "normal"
-  partition: "delta-gpu"
-  resource_type: ""
+  qos: ""
+  partition: "gpuA40x4"
+  resource_type: "A40"
   exclude: ""
   nodelist: ""
-  bind: ""
+  bind: "/projects/bfmz/rohan13/huggingface:/root/.cache/huggingface,/projects/bfmz/rohan13/torch_cache:/root/.cache/torch_inductor"
   venv: "apptainer"
   data_type: "auto"
   log_dir: "~/.vec-inf-logs"
