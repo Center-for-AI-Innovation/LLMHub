@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Union
 from uuid import UUID
 import concurrent.futures
+import subprocess
 
 from sqlalchemy.orm import Session
 from sqlalchemy import delete
@@ -17,6 +18,19 @@ from app.config.logging import get_logger
 from app.services.resource_service import ResourceService
 
 logger = get_logger("model_service")
+
+TRANSIENT_STATUS_LOOKUP_WINDOW = timedelta(seconds=20)
+SLURM_FAILED_JOB_STATES = {
+    "FAILED",
+    "CANCELLED",
+    "TIMEOUT",
+    "NODE_FAIL",
+    "PREEMPTED",
+    "BOOT_FAIL",
+    "DEADLINE",
+    "OUT_OF_MEMORY",
+    "REVOKED",
+}
 
 
 class ModelService:
@@ -339,7 +353,7 @@ class ModelService:
 
             # Allow recovery for transient status lookup failures in a short window.
             age = datetime.utcnow() - db_deployment.createdAt
-            if age > timedelta(minutes=20):
+            if age > TRANSIENT_STATUS_LOOKUP_WINDOW:
                 return db_deployment
 
             logger.info(
@@ -364,9 +378,26 @@ class ModelService:
             age = datetime.utcnow() - db_deployment.createdAt
             transient_lookup = "invalid job id specified" in err_lower or "slurm_load_jobs" in err_lower
 
+            if transient_lookup:
+                slurm_state = self._get_slurm_state_from_sacct(db_deployment.slurmJobId)
+                if slurm_state:
+                    normalized_state = self._normalize_slurm_state(slurm_state)
+                    if normalized_state == "COMPLETED":
+                        db_deployment.status = "completed"
+                        db_deployment.errorMessage = None
+                    elif normalized_state in SLURM_FAILED_JOB_STATES:
+                        db_deployment.status = "failed"
+                        db_deployment.errorMessage = f"Slurm job {slurm_state.lower()}"
+                    else:
+                        db_deployment.status = "launching"
+                    db_deployment.updatedAt = datetime.utcnow()
+                    db.commit()
+                    db.refresh(db_deployment)
+                    return db_deployment
+
             # Newly launched jobs can transiently fail status lookup while Slurm state
             # propagates. Keep them launching and retry on later polls.
-            if transient_lookup and age <= timedelta(minutes=20):
+            if transient_lookup and age <= TRANSIENT_STATUS_LOOKUP_WINDOW:
                 db_deployment.status = "launching"
                 db_deployment.errorMessage = None
             else:
@@ -393,9 +424,14 @@ class ModelService:
         elif status == "SHUTDOWN":
             db_deployment.status = "shutdown"
 
-        # If Slurm reports completion, prefer a terminal state.
-        if isinstance(job_state, str) and job_state.upper() == "COMPLETED":
+        # If Slurm reports a terminal job state, prefer that terminal state.
+        normalized_job_state = self._normalize_slurm_state(job_state)
+        if normalized_job_state == "COMPLETED":
             db_deployment.status = "completed"
+            db_deployment.errorMessage = None
+        elif normalized_job_state in SLURM_FAILED_JOB_STATES:
+            db_deployment.status = "failed"
+            db_deployment.errorMessage = result.get("failed_reason") or f"Slurm job {normalized_job_state.lower()}"
 
         # Try to get the tunnel URL if Cloudflare tunnel was enabled
         if (
@@ -412,6 +448,57 @@ class ModelService:
         db.commit()
         db.refresh(db_deployment)
         return db_deployment
+
+    def _normalize_slurm_state(self, state: Any) -> str:
+        """Normalize Slurm state strings (e.g., 'CANCELLED by 1234' -> 'CANCELLED')."""
+        if not isinstance(state, str):
+            return ""
+        normalized = state.strip().upper()
+        if not normalized:
+            return ""
+        # States may include suffixes/details such as '+', or "by <uid>".
+        normalized = normalized.split("+", 1)[0].split(" ", 1)[0]
+        return normalized
+
+    def _get_slurm_state_from_sacct(self, slurm_job_id: str) -> Optional[str]:
+        """Fallback lookup for terminal status when scontrol no longer has the job."""
+        if not slurm_job_id:
+            return None
+        try:
+            proc = subprocess.run(
+                [
+                    "sacct",
+                    "-j",
+                    str(slurm_job_id),
+                    "--format=JobIDRaw,State",
+                    "--noheader",
+                    "-P",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                return None
+            for line in proc.stdout.splitlines():
+                if not line.strip():
+                    continue
+                parts = line.split("|")
+                if len(parts) < 2:
+                    continue
+                job_id_raw = parts[0].strip()
+                state = parts[1].strip()
+                # Prefer the top-level row for exact job id; skip .batch/.extern rows.
+                if job_id_raw == str(slurm_job_id) and state:
+                    return state
+            return None
+        except Exception as e:
+            logger.warning(
+                "sacct fallback status lookup failed for slurm_job_id=%s: %s",
+                slurm_job_id,
+                e,
+            )
+            return None
 
     def shutdown_deployment(self, db: Session, deployment_id: UUID) -> Optional[ModelDeployment]:
         """Shutdown a model deployment."""
@@ -503,6 +590,11 @@ class ModelService:
         db_deployment = self.get_deployment(db, deployment_id)
         if not db_deployment:
             return {"success": False, "error": "Deployment not found"}
+
+        # Keep status fresh for log polling views (e.g., logs panel pill state).
+        refreshed = self.update_deployment_status(db=db, deployment_id=deployment_id)
+        if refreshed:
+            db_deployment = refreshed
         
         # Get the log directory from the llm_client
         log_dir = self.llm_client.slurm_log_dir
