@@ -54,6 +54,28 @@ const showErrorToast = (message: string) => {
   });
 };
 
+const areMessagesEquivalent = (left: Message, right: Message): boolean => {
+  if (left.id === right.id) {
+    return true;
+  }
+
+  return (
+    left.role === right.role &&
+    JSON.stringify(left.content) === JSON.stringify(right.content)
+  );
+};
+
+const isPrefixOf = (candidate: Message[], full: Message[]): boolean => {
+  if (candidate.length > full.length) {
+    return false;
+  }
+
+  return candidate.every((message, index) => {
+    const target = full[index];
+    return target ? areMessagesEquivalent(message, target) : false;
+  });
+};
+
 // Inner component that handles the actual chat logic.
 function ChatInner({
   chatId,
@@ -220,9 +242,19 @@ function ChatInner({
   const previousSessionRouteRef = useRef(`${selectedModel}|${apiEndpoint}`);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      lastNonEmptyMessagesRef.current = messages;
+    if (messages.length === 0) {
+      return;
     }
+
+    const snapshot = lastNonEmptyMessagesRef.current;
+    const isTruncatedRouteTransition =
+      snapshot.length > messages.length && isPrefixOf(messages, snapshot);
+
+    if (isTruncatedRouteTransition) {
+      return;
+    }
+
+    lastNonEmptyMessagesRef.current = messages;
   }, [messages]);
 
   useEffect(() => {
@@ -245,9 +277,7 @@ function ChatInner({
 
       const isPrefixOfPrevious =
         currentMessages.length < previousMessages.length &&
-        currentMessages.every(
-          (message, index) => previousMessages[index]?.id === message.id,
-        );
+        isPrefixOf(currentMessages, previousMessages);
 
       return isPrefixOfPrevious ? previousMessages : currentMessages;
     });
