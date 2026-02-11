@@ -42,7 +42,6 @@ function PureMultimodalInput({
   messages,
   setMessages,
   append,
-  beforeAppend,
   className,
   isGuestMode = false,
 }: {
@@ -58,7 +57,6 @@ function PureMultimodalInput({
     message: Message | CreateMessage,
     chatRequestOptions?: ChatRequestOptions,
   ) => Promise<string | null | undefined>;
-  beforeAppend?: () => Promise<boolean> | boolean;
   className?: string;
   isGuestMode?: boolean;
 }) {
@@ -114,14 +112,9 @@ function PureMultimodalInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<Array<string>>([]);
 
-  const submitForm = useCallback(async () => {
+  const submitForm = useCallback(() => {
     const trimmedInput = input.trim();
     if (!trimmedInput && attachments.length === 0) {
-      return;
-    }
-
-    const canAppend = await Promise.resolve(beforeAppend?.() ?? true);
-    if (!canAppend) {
       return;
     }
 
@@ -149,7 +142,6 @@ function PureMultimodalInput({
   }, [
     attachments,
     append,
-    beforeAppend,
     input,
     setAttachments,
     setLocalStorageInput,
@@ -215,7 +207,7 @@ function PureMultimodalInput({
         attachments.length === 0 &&
         uploadQueue.length === 0 &&
         !isGuestMode && (
-          <SuggestedActions beforeAppend={beforeAppend} append={append} />
+          <SuggestedActions append={append} />
         )}
 
       <input
@@ -265,7 +257,7 @@ function PureMultimodalInput({
             if (isLoading) {
               toast.error('Please wait for the model to finish its response!');
             } else {
-              void submitForm();
+              submitForm();
             }
           }
         }}
@@ -356,7 +348,7 @@ function PureSendButton({
   input,
   uploadQueue,
 }: {
-  submitForm: () => Promise<void> | void;
+  submitForm: () => void;
   input: string;
   uploadQueue: Array<string>;
 }) {
@@ -365,7 +357,7 @@ function PureSendButton({
       className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
       onClick={(event) => {
         event.preventDefault();
-        void submitForm();
+        submitForm();
       }}
       disabled={input.length === 0 || uploadQueue.length > 0}
     >

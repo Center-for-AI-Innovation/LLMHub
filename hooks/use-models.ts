@@ -17,6 +17,41 @@ const deploymentLogsEndpoint = (deploymentId: string, tail = 200) =>
     ? `/api/test/local/deployments/${deploymentId}/logs?tail=${tail}`
     : `/api/models/deployments/${deploymentId}/logs?tail=${tail}`;
 
+async function parseLaunchErrorResponse(response: Response): Promise<string> {
+  const fallbackMessage = `Failed to launch model (${response.status})`;
+  const errorText = await response.text().catch(() => '');
+
+  if (!errorText) {
+    return fallbackMessage;
+  }
+
+  let parsedMessage = errorText;
+  try {
+    const parsed = JSON.parse(errorText) as
+      | {
+          error?: unknown;
+          detail?: unknown;
+          message?: unknown;
+        }
+      | undefined;
+    const candidate =
+      (typeof parsed?.error === 'string' && parsed.error) ||
+      (typeof parsed?.detail === 'string' && parsed.detail) ||
+      (typeof parsed?.message === 'string' && parsed.message);
+    if (candidate) {
+      parsedMessage = candidate;
+    }
+  } catch {
+    // Keep raw text when response is not JSON.
+  }
+
+  if (parsedMessage.toLowerCase().includes('slurm job failed')) {
+    return 'Failed to launch model';
+  }
+
+  return parsedMessage || fallbackMessage;
+}
+
 // Types for models
 export interface ModelSpecs {
   gpus: number;
@@ -285,7 +320,7 @@ export function useLaunchModel() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to launch model');
+        throw new Error(await parseLaunchErrorResponse(res));
       }
 
       return res.json();

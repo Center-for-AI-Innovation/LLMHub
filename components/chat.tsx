@@ -1,6 +1,11 @@
 'use client';
 
-import type { Attachment, Message, ChatRequestOptions } from 'ai';
+import type {
+  Attachment,
+  Message,
+  CreateMessage,
+  ChatRequestOptions,
+} from 'ai';
 import { useChat } from 'ai/react';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import useSWR from 'swr';
@@ -177,6 +182,40 @@ function ChatInner({
     onError: handleChatRequestError,
   });
 
+  const guardedAppend = useCallback(
+    async (
+      message: Message | CreateMessage,
+      chatRequestOptions?: ChatRequestOptions,
+    ): Promise<string | null | undefined> => {
+      if (!ensureModelReadyForAppend()) {
+        return null;
+      }
+
+      if (
+        isGuestMode &&
+        getGuestMessageCountFromCookie() >= GUEST_CHAT_MAX_MESSAGES
+      ) {
+        onGuestLimitReached?.();
+        return null;
+      }
+
+      try {
+        return await append(message, chatRequestOptions);
+      } catch (error) {
+        handleChatRequestError(error);
+        return null;
+      }
+    },
+    [
+      append,
+      ensureModelReadyForAppend,
+      getGuestMessageCountFromCookie,
+      handleChatRequestError,
+      isGuestMode,
+      onGuestLimitReached,
+    ],
+  );
+
   const lastNonEmptyMessagesRef = useRef<Array<Message>>(initialMessages);
   const previousSessionRouteRef = useRef(`${selectedModel}|${apiEndpoint}`);
 
@@ -332,8 +371,7 @@ function ChatInner({
                       setAttachments={setAttachments}
                       messages={messages}
                       setMessages={setMessages}
-                      beforeAppend={ensureModelReadyForAppend}
-                      append={append}
+                      append={guardedAppend}
                       isGuestMode={isGuestMode}
                     />
                   )}
@@ -353,7 +391,7 @@ function ChatInner({
         stop={stop}
         attachments={attachments}
         setAttachments={setAttachments}
-        append={append}
+        append={guardedAppend}
         messages={messages}
         setMessages={setMessages}
         reload={reload}

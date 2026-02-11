@@ -9,7 +9,6 @@ export default auth(async (req: NextRequest) => {
 
   const isProtectedRoute = 
     nextUrl.pathname.startsWith('/dashboard') ||
-    nextUrl.pathname.startsWith('/chat') ||
     nextUrl.pathname.startsWith('/api/chat') ||
     nextUrl.pathname.startsWith('/api/models') ||
     nextUrl.pathname.startsWith('/api/v1/job') ||
@@ -35,7 +34,6 @@ export default auth(async (req: NextRequest) => {
 export const config = {
   matcher: [
     '/dashboard/:path*',
-    '/chat/:path*',
     '/api/chat/:path*',
     '/api/models/:path*',
     '/api/v1/job/:path*',

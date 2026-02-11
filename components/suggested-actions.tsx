@@ -9,7 +9,6 @@ import { toast } from '@/components/ui/use-toast';
 import { extractErrorMessage } from '@/lib/chat-client-errors';
 
 interface SuggestedActionsProps {
-  beforeAppend?: () => Promise<boolean> | boolean;
   append: (
     message: Message | CreateMessage,
     chatRequestOptions?: ChatRequestOptions,
@@ -24,7 +23,7 @@ const showErrorToast = (message: string) => {
   });
 };
 
-function PureSuggestedActions({ beforeAppend, append }: SuggestedActionsProps) {
+function PureSuggestedActions({ append }: SuggestedActionsProps) {
   const suggestedActions = [
     {
       title: 'What are the advantages',
@@ -62,19 +61,12 @@ function PureSuggestedActions({ beforeAppend, append }: SuggestedActionsProps) {
           <Button
             variant="outline"
             onClick={() => {
-              void Promise.resolve(beforeAppend?.() ?? true)
-                .then((canAppend) => {
-                  if (!canAppend) {
-                    return;
-                  }
-
-                  return append({
-                    id: generateUUID(),
-                    role: 'user',
-                    content: suggestedAction.action,
-                    createdAt: new Date(),
-                  });
-                })
+              void append({
+                id: generateUUID(),
+                role: 'user',
+                content: suggestedAction.action,
+                createdAt: new Date(),
+              })
                 .catch((error) => {
                   showErrorToast(
                     extractErrorMessage(error, 'Failed to send message'),
