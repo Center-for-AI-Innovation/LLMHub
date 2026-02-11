@@ -234,7 +234,17 @@ class LLMInferenceClient:
         if models_file.exists():
             logger.info("Found models.yaml at: %s", models_file)
         else:
-            logger.warning("models.yaml not found at: %s", models_file)
+            model_config_override = os.getenv("VEC_INF_MODEL_CONFIG") or getattr(
+                settings, "MODEL_CONFIG_PATH", None
+            )
+            if model_config_override and Path(model_config_override).exists():
+                logger.info(
+                    "models.yaml not found at: %s; using model config override at: %s",
+                    models_file,
+                    model_config_override,
+                )
+            else:
+                logger.warning("models.yaml not found at: %s", models_file)
 
     def get_tunnel_url(self, job_name: str, slurm_job_id: str):
         """Get the Cloudflare tunnel URL for a deployed model (if available)."""
