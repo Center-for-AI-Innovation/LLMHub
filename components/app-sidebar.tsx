@@ -3,7 +3,8 @@
 import type { User } from 'next-auth';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Bot } from 'lucide-react';
+import Image from 'next/image';
+import { LogInIcon, PanelLeftIcon } from 'lucide-react';
 
 import { PlusIcon } from '@/components/icons';
 import { SidebarHistory } from '@/components/sidebar-history';
@@ -16,26 +17,29 @@ import {
   SidebarHeader,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { PanelLeftIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { ThemeToggle } from './theme-toggle';
+import { BrandMark } from './brand-mark';
+import { useNewChat } from '@/hooks/use-new-chat';
 
 export function AppSidebar({ user }: { user: User | undefined }) {
   const router = useRouter();
   const pathname = usePathname();
   const { setOpenMobile, open, toggleSidebar } = useSidebar();
+  const triggerNewChatReset = useNewChat((state) => state.triggerNewChatReset);
+  const hasDraftMessages = useNewChat((state) => state.hasDraftMessages);
   const isChatPage = pathname.startsWith('/chat');
 
   const handleNewChat = () => {
     setOpenMobile(false);
-    
-    // Check if we're already on the new chat page
-    const pathname = window.location.pathname;
+
     if (pathname === '/chat' || pathname === '/chat/new') {
-      // Already on new chat, do nothing or just reset the chat UI
+      if (hasDraftMessages) {
+        triggerNewChatReset();
+      }
       return;
     }
-    
+
     router.push('/chat');
   };
 
@@ -45,25 +49,20 @@ export function AppSidebar({ user }: { user: User | undefined }) {
       collapsible="icon"
       className="border-none flex flex-col min-h-screen"
     >
-      <SidebarHeader className={`flex flex-col ${open ? 'gap-4 p-4' : 'gap-2 px-3'}`}>
+      <SidebarHeader
+        className={`flex flex-col ${open ? 'gap-4 p-4' : 'gap-2 px-3'}`}
+      >
         {open ? (
           <>
             <div className="flex items-center justify-between">
-              {isChatPage && (
-                <Link href="/" className="flex items-center gap-2">
-                  <Bot className="size-6 text-secondary" />
-                  <span className="font-bold text-lg">
-                    illin.ai
-                  </span>
-                </Link>
-              )}
+              {isChatPage && <BrandMark />}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={toggleSidebar}
-                    className="h-8 w-8 hover:bg-sidebar-accent transition-colors ml-auto"
+                    className="size-8 hover:bg-sidebar-accent transition-colors ml-auto"
                   >
                     <PanelLeftIcon size={18} />
                   </Button>
@@ -83,11 +82,17 @@ export function AppSidebar({ user }: { user: User | undefined }) {
         ) : (
           <div className="flex flex-col items-center gap-2">
             {isChatPage && (
-              <Link 
-                href="/" 
-                className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-sidebar-accent transition-colors"
+              <Link
+                href="/"
+                className="flex size-9 items-center justify-center rounded-lg hover:bg-sidebar-accent transition-colors"
               >
-                <Bot className="size-5 text-secondary" />
+                <Image
+                  src="https://chat.illinois.edu/media/logo_illinois.png"
+                  alt="Illinois Logo"
+                  width={18}
+                  height={18}
+                  className="rounded-sm"
+                />
               </Link>
             )}
             <Tooltip>
@@ -96,7 +101,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                   variant="ghost"
                   size="icon"
                   onClick={toggleSidebar}
-                  className="w-9 h-9 rounded-lg hover:bg-sidebar-accent transition-colors"
+                  className="size-9 rounded-lg hover:bg-sidebar-accent transition-colors"
                 >
                   <PanelLeftIcon size={16} className="rotate-180" />
                 </Button>
@@ -109,7 +114,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                   variant="secondary"
                   size="icon"
                   onClick={handleNewChat}
-                  className="w-9 h-9 rounded-lg hover:bg-sidebar-accent border-none transition-colors"
+                  className="size-9 rounded-lg hover:bg-sidebar-accent border-none transition-colors"
                 >
                   <PlusIcon size={16} />
                 </Button>
@@ -127,12 +132,34 @@ export function AppSidebar({ user }: { user: User | undefined }) {
           </SidebarContent>
           <SidebarFooter className="flex flex-col gap-2 p-4">
             {isChatPage && <ThemeToggle />}
+            {!user && isChatPage && (
+              <Button variant="outline" asChild>
+                <Link href="/login?redirectTo=%2Fchat">Login</Link>
+              </Button>
+            )}
             {user && <SidebarUserNav user={user} />}
           </SidebarFooter>
         </>
       ) : (
         <SidebarFooter className="mt-auto p-2 flex flex-col items-center gap-2">
           {isChatPage && <ThemeToggle />}
+          {!user && isChatPage && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  asChild
+                  className="size-9 rounded-lg"
+                >
+                  <Link href="/login?redirectTo=%2Fchat">
+                    <LogInIcon size={14} />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Login</TooltipContent>
+            </Tooltip>
+          )}
           {user && <SidebarUserNav user={user} />}
         </SidebarFooter>
       )}
