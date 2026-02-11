@@ -1,8 +1,11 @@
 import { getModelDeploymentById } from '@/lib/db/queries';
 import { NextResponse } from 'next/server';
 
-function isDevelopment() {
-  return process.env.NODE_ENV === 'development';
+function isLocalTestEnabled() {
+  return (
+    process.env.NODE_ENV === 'development' &&
+    process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true'
+  );
 }
 
 export async function GET(
@@ -10,9 +13,12 @@ export async function GET(
   { params }: { params: Promise<{ deploymentId: string }> },
 ) {
   try {
-    if (!isDevelopment()) {
+    if (!isLocalTestEnabled()) {
       return NextResponse.json(
-        { error: 'Local test deployments are only available in development mode.' },
+        {
+          error:
+            'Local test deployments are only available in development mode.',
+        },
         { status: 501 },
       );
     }
@@ -21,7 +27,10 @@ export async function GET(
     const deployment = await getModelDeploymentById(deploymentId);
 
     if (!deployment) {
-      return NextResponse.json({ error: 'Deployment not found' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Deployment not found' },
+        { status: 404 },
+      );
     }
 
     return NextResponse.json({
