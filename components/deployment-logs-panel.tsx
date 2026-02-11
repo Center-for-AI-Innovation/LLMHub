@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { motion } from 'framer-motion';
 import {
   Sheet,
   SheetContent,
@@ -228,25 +229,25 @@ export function DeploymentLogsPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl p-0 flex flex-col bg-gradient-to-b from-[#F7F8FA] via-white to-[#F7F8FA] dark:from-[#0F1F3A] dark:via-[#13294B] dark:to-[#0F1F3A] border-[#13294B]/20"
+        className="w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl p-0 flex flex-col bg-gradient-to-b from-[#F7F8FA] via-white to-[#F7F8FA] dark:from-[#0F1F3A] dark:via-[#13294B] dark:to-[#0F1F3A] border-[#13294B]/20 sm:inset-y-8 sm:h-auto sm:rounded-l-2xl sm:rounded-r-none sm:overflow-hidden"
       >
         {/* Header */}
         <SheetHeader className="p-4 border-b border-[#13294B]/15 shrink-0 bg-white/70 dark:bg-[#13294B]/65 backdrop-blur-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-[#13294B]/10 dark:bg-[#13294B]/50">
-                <Terminal className="size-4 text-[#13294B] dark:text-[#FF5F05]" />
-              </div>
-              <div>
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-[#13294B]/10 dark:bg-[#13294B]/50">
+              <Terminal className="size-4 text-[#13294B] dark:text-[#FF5F05]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
                 <SheetTitle className="text-[#13294B] dark:text-[#F7F8FA] text-left font-display tracking-tight">
                   {displayModelName}
                 </SheetTitle>
-                <SheetDescription className="text-[#5E6A71] dark:text-[#C8CDD0] text-left text-xs">
-                  Deployment Logs
-                </SheetDescription>
+                <StatusBadge status={status} />
               </div>
+              <SheetDescription className="text-[#5E6A71] dark:text-[#C8CDD0] text-left text-xs">
+                Deployment Logs
+              </SheetDescription>
             </div>
-            <StatusBadge status={status} />
           </div>
 
           {/* Error message if any */}
@@ -261,22 +262,33 @@ export function DeploymentLogsPanel({
         </SheetHeader>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-1 px-4 py-2 border-b border-[#13294B]/15 shrink-0 bg-white/80 dark:bg-[#13294B]/45">
+        <div className="flex items-center gap-4 px-4 py-2.5 border-b border-[#13294B]/15 shrink-0 bg-white/80 dark:bg-[#13294B]/45">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setActiveTab('stderr')}
             className={cn(
-              'h-7 px-3 text-xs font-medium gap-1.5',
+              'relative h-9 px-1 text-xs font-semibold rounded-none -mb-2.5 hover:bg-transparent transition-colors duration-200',
               activeTab === 'stderr'
-                ? 'bg-[#13294B] text-white'
-                : 'text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white hover:bg-[#13294B]/10',
+                ? '!text-[#13294B] dark:!text-[#F7F8FA] hover:!text-[#13294B] dark:hover:!text-[#F7F8FA]'
+                : 'text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-[#F7F8FA]',
             )}
           >
-            <FileText className="size-3" />
-            stderr
-            {logs.length > 0 && activeTab === 'stderr' && (
-              <span className="ml-1 text-zinc-500">({logs.length})</span>
+            <span className="relative z-10 inline-flex items-center gap-1.5">
+              <FileText className="size-3" />
+              stderr
+              {logs.length > 0 && activeTab === 'stderr' && (
+                <span className="ml-1 text-zinc-500 dark:text-[#C8CDD0]">
+                  ({logs.length})
+                </span>
+              )}
+            </span>
+            {activeTab === 'stderr' && (
+              <motion.span
+                layoutId="logs-tab-underline"
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                className="pointer-events-none absolute bottom-0 inset-x-0 h-0.5 rounded-full bg-[#13294B] dark:bg-[#FF5F05]"
+              />
             )}
           </Button>
           <Button
@@ -284,14 +296,23 @@ export function DeploymentLogsPanel({
             size="sm"
             onClick={() => setActiveTab('stdout')}
             className={cn(
-              'h-7 px-3 text-xs font-medium gap-1.5',
+              'relative h-9 px-1 text-xs font-semibold rounded-none -mb-2.5 hover:bg-transparent transition-colors duration-200',
               activeTab === 'stdout'
-                ? 'bg-[#13294B] text-white'
-                : 'text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white hover:bg-[#13294B]/10',
+                ? '!text-[#13294B] dark:!text-[#F7F8FA] hover:!text-[#13294B] dark:hover:!text-[#F7F8FA]'
+                : 'text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-[#F7F8FA]',
             )}
           >
-            <Terminal className="size-3" />
-            stdout
+            <span className="relative z-10 inline-flex items-center gap-1.5">
+              <Terminal className="size-3" />
+              stdout
+            </span>
+            {activeTab === 'stdout' && (
+              <motion.span
+                layoutId="logs-tab-underline"
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                className="pointer-events-none absolute bottom-0 inset-x-0 h-0.5 rounded-full bg-[#13294B] dark:bg-[#FF5F05]"
+              />
+            )}
           </Button>
 
           <div className="flex-1" />
@@ -301,7 +322,7 @@ export function DeploymentLogsPanel({
             size="sm"
             onClick={copyLogs}
             disabled={logs.length === 0}
-            className="h-7 px-2 text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white"
+            className="h-8 px-2.5 rounded-full text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white"
             title={`Copy ${activeTab} logs`}
           >
             {copied ? (
@@ -316,7 +337,7 @@ export function DeploymentLogsPanel({
             size="sm"
             onClick={() => refetch()}
             disabled={isLoading}
-            className="h-7 px-2 text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white"
+            className="h-8 px-2.5 rounded-full text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white"
           >
             <RefreshCw className={cn('size-3', isLoading && 'animate-spin')} />
           </Button>
@@ -328,6 +349,7 @@ export function DeploymentLogsPanel({
           className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(19,41,75,0.02),rgba(19,41,75,0.04))] dark:bg-[linear-gradient(180deg,rgba(9,22,43,0.75),rgba(15,31,58,0.85))]"
           onScroll={handleScroll}
         >
+          <div className="h-full">
           {isLoading && logs.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
               <Loader2 className="size-6 animate-spin text-[#13294B] dark:text-[#FF5F05]" />
@@ -389,6 +411,7 @@ export function DeploymentLogsPanel({
               <div ref={logsEndRef} />
             </div>
           )}
+          </div>
         </div>
 
         {/* Footer with scroll indicator */}

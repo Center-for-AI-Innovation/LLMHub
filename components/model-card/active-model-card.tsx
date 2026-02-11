@@ -31,7 +31,7 @@ const ActiveModelCard = memo(({
   model: ModelInfo, 
   getModelIcon: (model: ModelInfo) => any, 
   getModelGradient: (model: ModelInfo) => string,
-  getModelDeployment: (modelId: string) => ModelDeployment | undefined, 
+  getModelDeployment: (model: ModelInfo) => ModelDeployment | undefined, 
   getStatusInfo: (status: string) => { label: string, color: string, icon: any },
   handleStopModel: (deploymentId: string) => Promise<void>,
   openLogsPanel: (deploymentId: string, modelName: string) => void,
@@ -39,16 +39,23 @@ const ActiveModelCard = memo(({
 }) => {
   const Icon = getModelIcon(model);
   const gradient = getModelGradient(model);
-  const deployment = getModelDeployment(model.id);
+  const deployment = getModelDeployment(model);
   const statusInfo = deployment ? getStatusInfo(deployment.status) : null;
   const deploymentStatus = deployment?.status?.toLowerCase();
+  const displayModelName =
+    ((model as unknown as { name?: string }).name ??
+      model.modelName ??
+      model.id);
   
   return (
     <div 
       key={model.id} 
       onClick={() => {
         if (deployment?.id) {
-          openLogsPanel(deployment.id, deployment.modelName || model.name);
+          openLogsPanel(
+            deployment.id,
+            deployment.modelName || displayModelName,
+          );
         }
       }}
       className={cn(
@@ -78,7 +85,7 @@ const ActiveModelCard = memo(({
       </div>
       
       <div className="mb-2">
-        <h3 className="text-xl font-semibold truncate">{model.name}</h3>
+        <h3 className="text-xl font-semibold truncate">{displayModelName}</h3>
       </div>
       
       <p className="text-muted-foreground line-clamp-2 mb-4">{model.description}</p>
