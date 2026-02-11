@@ -9,8 +9,9 @@ const config: Config = {
   ],
   theme: {
     fontFamily: {
-      sans: ['geist'],
-      mono: ['geist-mono'],
+      sans: ['var(--il-font-sans)', '"Source Sans 3"', '"Source Sans Pro"', 'Arial', 'sans-serif'],
+      display: ['var(--il-font-heading)', 'Montserrat', '"Avenir Next"', '"Segoe UI"', 'sans-serif'],
+      mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', '"Courier New"', 'monospace'],
     },
     extend: {
       borderRadius: {

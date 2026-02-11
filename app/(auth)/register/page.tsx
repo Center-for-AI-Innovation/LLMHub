@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useActionState, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { AuthForm } from '@/components/auth-form';
 import { SubmitButton } from '@/components/submit-button';
@@ -12,6 +13,8 @@ import { register, type RegisterActionState } from '../actions';
 
 export default function Page() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
 
   const [email, setEmail] = useState('');
   const [isSuccessful, setIsSuccessful] = useState(false);
@@ -23,19 +26,33 @@ export default function Page() {
     },
   );
 
+  const requestedRedirect = searchParams?.get('redirectTo');
+  const redirectTo =
+    requestedRedirect && requestedRedirect.startsWith('/')
+      ? requestedRedirect
+      : '/chat';
+
   useEffect(() => {
     if (state.status === 'user_exists') {
-      toast.error('Account already exists');
+      toast.error(state.error || 'Account already exists');
     } else if (state.status === 'failed') {
-      toast.error('Failed to create account');
+      toast.error(state.error || 'Failed to create account');
     } else if (state.status === 'invalid_data') {
-      toast.error('Failed validating your submission!');
+      toast.error(state.error || 'Failed validating your submission!');
     } else if (state.status === 'success') {
       toast.success('Account created successfully');
       setIsSuccessful(true);
-      router.refresh();
+      const params = new URLSearchParams();
+      params.set('redirectTo', redirectTo);
+      params.set('registered', '1');
+      void (async () => {
+        await queryClient.invalidateQueries({ queryKey: ['session'] });
+        await queryClient.refetchQueries({ queryKey: ['session'] });
+        router.push(`/login?${params.toString()}`);
+        router.refresh();
+      })();
     }
-  }, [state, router]);
+  }, [queryClient, state, redirectTo, router]);
 
   const handleSubmit = (formData: FormData) => {
     setEmail(formData.get('email') as string);
@@ -56,7 +73,7 @@ export default function Page() {
           <p className="text-center text-sm text-gray-600 mt-4 dark:text-zinc-400">
             {'Already have an account? '}
             <Link
-              href="/login"
+              href={`/login${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`}
               className="font-semibold text-gray-800 hover:underline dark:text-zinc-200"
             >
               Sign in
