@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useActionState, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { AuthForm } from '@/components/auth-form';
 import { SubmitButton } from '@/components/submit-button';
@@ -12,6 +13,8 @@ import { login, type LoginActionState } from '../actions';
 
 export default function Page() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
 
   const [email, setEmail] = useState('');
   const [isSuccessful, setIsSuccessful] = useState(false);
@@ -23,16 +26,33 @@ export default function Page() {
     },
   );
 
+  const requestedRedirect = searchParams?.get('redirectTo');
+  const redirectTo =
+    requestedRedirect && requestedRedirect.startsWith('/')
+      ? requestedRedirect
+      : '/chat';
+
+  useEffect(() => {
+    if (searchParams?.get('registered') === '1') {
+      toast.success('Registration complete. Please sign in.');
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     if (state.status === 'failed') {
-      toast.error('Invalid credentials!');
+      toast.error(state.error || 'Invalid credentials!');
     } else if (state.status === 'invalid_data') {
-      toast.error('Failed validating your submission!');
+      toast.error(state.error || 'Failed validating your submission!');
     } else if (state.status === 'success') {
       setIsSuccessful(true);
-      router.refresh();
+      void (async () => {
+        await queryClient.invalidateQueries({ queryKey: ['session'] });
+        await queryClient.refetchQueries({ queryKey: ['session'] });
+        router.push(redirectTo);
+        router.refresh();
+      })();
     }
-  }, [state.status, router]);
+  }, [queryClient, state.status, state.error, redirectTo, router]);
 
   const handleSubmit = (formData: FormData) => {
     setEmail(formData.get('email') as string);
@@ -53,7 +73,7 @@ export default function Page() {
           <p className="text-center text-sm text-gray-600 mt-4 dark:text-zinc-400">
             {"Don't have an account? "}
             <Link
-              href="/register"
+              href={`/register${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`}
               className="font-semibold text-gray-800 hover:underline dark:text-zinc-200"
             >
               Sign up
