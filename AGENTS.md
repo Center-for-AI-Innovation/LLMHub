@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - `app/`: Next.js app routes, layouts, and server route handlers (`app/api/**/route.ts`).
 - `components/`: UI components (`components/ui`) and feature components.
-- `hooks/`: React Query/SWR hooks (for models, deployments, chat).
+- `hooks/`: React Query hooks (for models, deployments, chat).
 - `lib/`: shared logic (`lib/db`, `lib/ai`, `lib/models`, `lib/security`).
 - `public/`, `docs/`, and Drizzle migrations under `lib/db/migrations/`.
 
@@ -17,6 +17,7 @@
 
 ## Coding Style & Naming Conventions
 - TypeScript + React function components; 2-space indentation.
+- Tanstack React query + mutation hooks are used for data fetching and caching. No use of useEffect/useState/useSWR unless absolutely necessary.
 - Hooks use `useXxx` naming in `hooks/`.
 - API routes use Next conventions (`app/api/.../route.ts`).
 - File names should be in kebab-case.
