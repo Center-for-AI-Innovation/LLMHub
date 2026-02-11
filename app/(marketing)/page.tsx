@@ -41,7 +41,7 @@ export default function LandingPage() {
           </p>
         </div>
 
-        {/* <ChatBar /> */}
+        <ChatBar />
       </section>
 
       {/* Features Section */}
@@ -155,7 +155,7 @@ export default function LandingPage() {
       <footer className="border-t border-primary/10 bg-background/50 backdrop-blur-sm py-8 mt-auto">
         <div className="container flex flex-col items-center justify-between gap-4 px-4 text-center md:flex-row md:text-left">
           <p className="text-sm text-muted-foreground">
-            © 2024 illin.ai. All rights reserved.
+            © 2026 LLM Hub. All rights reserved.
           </p>
           <div className="flex items-center space-x-6">
             <Link href="https://github.com/uiuc-llm" className="text-muted-foreground hover:text-primary transition-colors">
