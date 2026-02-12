@@ -19,7 +19,7 @@ from app.services.resource_service import ResourceService
 
 logger = get_logger("model_service")
 
-TRANSIENT_STATUS_LOOKUP_WINDOW = timedelta(seconds=20)
+TRANSIENT_STATUS_LOOKUP_WINDOW = timedelta(minutes=50)
 SLURM_FAILED_JOB_STATES = {
     "FAILED",
     "CANCELLED",
@@ -270,7 +270,7 @@ class ModelService:
             modelName=deployment.modelName,
             userId=deployment.userId,
             slurmJobId=slurm_job_id,
-            status="launching",
+            status="pending",
             resourceAllocation=resource_allocation,
             # Expiration is set when deployment becomes ready, so queued time
             # does not consume model lifetime.
@@ -389,6 +389,10 @@ class ModelService:
                     elif normalized_state in SLURM_FAILED_JOB_STATES:
                         db_deployment.status = "failed"
                         db_deployment.errorMessage = f"Slurm job {slurm_state.lower()}"
+                    elif normalized_state == "PENDING":
+                        db_deployment.status = "pending"
+                    elif normalized_state == "RUNNING":
+                        db_deployment.status = "running"
                     else:
                         db_deployment.status = "launching"
                     db_deployment.updatedAt = datetime.utcnow()
@@ -433,8 +437,12 @@ class ModelService:
                         db_deployment.id,
                         db_deployment.slurmJobId,
                     )
-        elif status in {"PENDING", "LAUNCHING"}:
+        elif status == "PENDING":
+            db_deployment.status = "pending"
+        elif status == "LAUNCHING":
             db_deployment.status = "launching"
+        elif status == "RUNNING":
+            db_deployment.status = "running"
         elif status == "FAILED":
             db_deployment.status = "failed"
             db_deployment.errorMessage = result.get("failed_reason") or "Job failed"
