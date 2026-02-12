@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { DataStreamHandler } from '@/components/data-stream-handler';
@@ -20,6 +20,8 @@ export default function ChatPage() {
   const resetVersion = useNewChat((state) => state.resetVersion);
   const [activeChatId, setActiveChatId] = useState('new');
   const { data: chatModelOptions = [] } = useChatModels();
+  const preferredModelRef = useRef<string | null>(null);
+  const hasInitializedSelectedModelRef = useRef(false);
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
@@ -33,17 +35,36 @@ export default function ChatPage() {
   };
 
   useEffect(() => {
-    const preferredModel = consumePreferredChatModel();
-    if (!preferredModel) {
+    if (chatModelOptions.length === 0) {
       return;
     }
 
-    const modelExists = chatModelOptions.some(
-      (chatModel) => chatModel.id === preferredModel,
-    );
-    if (modelExists) {
-      setSelectedModel(preferredModel);
+    if (preferredModelRef.current === null) {
+      preferredModelRef.current = consumePreferredChatModel();
     }
+    const preferredModel = preferredModelRef.current;
+    if (preferredModel) {
+      const modelExists = chatModelOptions.some(
+        (chatModel) => chatModel.id === preferredModel,
+      );
+      if (modelExists) {
+        setSelectedModel(preferredModel);
+        preferredModelRef.current = null;
+        hasInitializedSelectedModelRef.current = true;
+        return;
+      }
+
+      preferredModelRef.current = null;
+    }
+
+    if (hasInitializedSelectedModelRef.current) {
+      return;
+    }
+
+    // Default to the first option, which is already prioritized by /api/chat/models:
+    // recent deployment -> always-on -> dev model.
+    setSelectedModel(chatModelOptions[0].id);
+    hasInitializedSelectedModelRef.current = true;
   }, [chatModelOptions, setSelectedModel]);
 
   // Check authentication

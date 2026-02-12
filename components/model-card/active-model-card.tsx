@@ -8,6 +8,7 @@ import {
   Square,
   ArrowRight,
 } from 'lucide-react';
+import { setPreferredChatModel } from '@/lib/chat-navigation';
 import type { 
   ModelInfo,
   ModelDeployment,
@@ -133,7 +134,10 @@ const ActiveModelCard = memo(({
         >
           <Link
             href={`/chat?model=${model.id}`}
-            onClick={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              setPreferredChatModel('vllm-model');
+            }}
           >
             Chat
             <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />

@@ -70,16 +70,30 @@ export async function GET() {
 
   const activeDeploymentOption =
     await getActiveDeploymentOptionForUser(sessionUser);
-  const models: ChatModelOption[] = [
-    activeDeploymentOption ?? getDefaultVllmOption(),
-  ];
+  const alwaysOnOption = ALWAYS_ON_VLLM_MODEL
+    ? {
+        id: 'always-on-model',
+        name: ALWAYS_ON_VLLM_MODEL,
+        description: `Always-on model (${ALWAYS_ON_VLLM_MODEL})`,
+      }
+    : null;
 
-  if (ALWAYS_ON_VLLM_MODEL) {
-    models.push({
-      id: 'always-on-model',
-      name: ALWAYS_ON_VLLM_MODEL,
-      description: `Always-on model (${ALWAYS_ON_VLLM_MODEL})`,
-    });
+  const defaultVllmOption = getDefaultVllmOption();
+  const models: ChatModelOption[] = [];
+
+  // Priority order:
+  // 1) User's most recently active deployment
+  // 2) Always-on model
+  // 3) Development/default vLLM model
+  if (activeDeploymentOption) {
+    models.push(activeDeploymentOption);
+    if (alwaysOnOption) {
+      models.push(alwaysOnOption);
+    }
+  } else if (alwaysOnOption) {
+    models.push(alwaysOnOption, defaultVllmOption);
+  } else {
+    models.push(defaultVllmOption);
   }
 
   return NextResponse.json(models);

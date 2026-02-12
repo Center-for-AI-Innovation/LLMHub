@@ -263,8 +263,9 @@ export function useChatModels() {
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     },
-    staleTime: 60_000,
+    staleTime: 0,
     gcTime: 300_000,
+    refetchOnMount: 'always',
   });
 }
 
@@ -328,6 +329,7 @@ export function useLaunchModel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
+      queryClient.invalidateQueries({ queryKey: ['chat-models'] });
     },
   });
 }
@@ -349,6 +351,7 @@ export function useStopModel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
+      queryClient.invalidateQueries({ queryKey: ['chat-models'] });
     },
   });
 }
