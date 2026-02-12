@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
       slurmJobId: `test-${createSlurmJobId()}`,
       status: 'running',
       endpointUrl: DEV_ENDPOINT_URL,
+      proxyUrl: '/api/vllm/chat',
       resourceAllocation: { mode: 'local' },
     });
 
