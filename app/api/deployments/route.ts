@@ -76,6 +76,7 @@ export async function POST() {
       slurmJobId: `test-${createSlurmJobId()}`,
       status: 'running',
       endpointUrl: DEV_ENDPOINT_URL,
+      proxyUrl: `http://localhost:3000/api/vllm/chat`,
     });
 
     return NextResponse.json(deployment);
