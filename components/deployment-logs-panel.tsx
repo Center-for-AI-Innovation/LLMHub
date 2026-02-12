@@ -69,7 +69,7 @@ const statusConfig: Record<
     animate: true,
   },
   ready: {
-    label: 'Ready',
+    label: 'Running',
     icon: CheckCircle2,
     color: 'text-[#009B77]',
     bgColor: 'bg-[#009B77]/10',

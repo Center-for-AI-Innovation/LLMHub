@@ -41,7 +41,6 @@ import {
   ModelContext,
 } from '@/components/model-card';
 import { DeploymentLogsPanel } from '@/components/deployment-logs-panel';
-import { setPreferredChatModel } from '@/lib/chat-navigation';
 import { toast } from '@/components/ui/use-toast';
 
 export default function CatalogPage() {
@@ -132,16 +131,22 @@ export default function CatalogPage() {
       case 'running':
       case 'ready':
         return {
-          label: 'Active',
+          label: 'Running',
           color:
             'bg-emerald-500/10 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400',
           icon: CheckCircle2,
         };
-      case 'starting':
       case 'launching':
+      case 'starting':
+        return {
+          label: 'Launching',
+          color:
+            'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400',
+          icon: Loader2,
+        };
       case 'pending':
         return {
-          label: 'Starting',
+          label: 'Pending',
           color:
             'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400',
           icon: Loader2,
@@ -331,19 +336,6 @@ export default function CatalogPage() {
     refreshModels();
   }, [refreshModels]);
 
-  const hasAlwaysOnModel = useMemo(
-    () => chatModelOptions.some((model) => model.id === 'always-on-model'),
-    [chatModelOptions],
-  );
-
-  const openChatWithModel = useCallback(
-    (modelId: string) => {
-      setPreferredChatModel(modelId);
-      router.push('/chat');
-    },
-    [router],
-  );
-
   return (
     <>
       <Navbar />
@@ -353,9 +345,7 @@ export default function CatalogPage() {
             variant="default"
             size="sm"
             className="relative ml-3 h-9 overflow-visible rounded-l-none bg-[#ff5f05] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#e65404] before:absolute before:right-full before:top-0 before:size-0 before:border-y-[18px] before:border-r-[12px] before:border-y-transparent before:border-r-[#ff5f05] before:transition-colors before:content-[''] hover:before:border-r-[#e65404]"
-            onClick={() =>
-              openChatWithModel(hasAlwaysOnModel ? 'always-on-model' : 'vllm-model')
-            }
+            onClick={() => router.push('/chat')}
           >
             Back to chat
           </Button>
