@@ -197,7 +197,7 @@ class BackgroundService:
         """Get active deployments that need status updates."""
         return (
             db.query(ModelDeployment)
-            .filter(ModelDeployment.status.in_(["launching", "running", "ready"]))
+            .filter(ModelDeployment.status.in_(["pending", "launching", "running", "ready"]))
             .all()
         )
 
