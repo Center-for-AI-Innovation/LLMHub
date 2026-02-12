@@ -38,3 +38,13 @@ pnpm dev
 ```
 
 The chatbot template will be available at `http://localhost:3000`.
+
+### Local vLLM (Development Deployments)
+
+For local model deployments in development, ensure your vLLM server is running with the model you want to test:
+
+```bash
+vllm serve Qwen/Qwen2.5-1.5B-Instruct --max-model-len=2048
+```
+
+The app expects the local endpoint at `http://localhost:8000/v1` and uses `DEV_USER_EMAIL` to resolve the user for dev-only deployment rows. You can control the model used for dev deployments with `DEV_VLLM_MODEL_NAME` (defaults to `Qwen/Qwen2.5-1.5B-Instruct`).

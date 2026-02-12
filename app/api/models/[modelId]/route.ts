@@ -22,7 +22,7 @@ function transformModel(modelId: string, backendResponse: BackendModelResponse):
       id: modelId,
       name: formatModelName(modelId),
       description: generateModelDescription(modelId, config.model_family, config.max_model_len),
-      status: 'WARM', // Default status, would be updated from actual deployment status
+      status: 'warm', // Default status, would be updated from actual deployment status
       type: modelSize,
       family: config.model_family,
       variant: config.model_variant,
@@ -53,7 +53,7 @@ function transformModel(modelId: string, backendResponse: BackendModelResponse):
       id: modelId,
       name: formatModelName(modelId),
       description: generateModelDescription(modelId, family, 4096), // Default context length
-      status: 'WARM',
+      status: 'warm',
       type,
       family,
       variant: nameParts.slice(1).join('-'),
@@ -112,7 +112,7 @@ export async function GET(
           id: modelId,
           name: formatModelName(modelId),
           description: generateModelDescription(modelId, family, 4096), // Default context length
-          status: 'WARM',
+          status: 'warm',
           type,
           family,
           variant: nameParts.slice(1).join('-'),

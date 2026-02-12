@@ -41,7 +41,7 @@ export default function LandingPage() {
           </p>
         </div>
 
-        <ChatBar />
+        {/* <ChatBar /> */}
       </section>
 
       {/* Features Section */}

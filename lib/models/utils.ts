@@ -37,7 +37,7 @@ export const modelUtilFunctions = {
     // Try to match by family first
     for (const [key, icon] of Object.entries(modelIcons)) {
       if (model.family.toLowerCase().includes(key.toLowerCase()) || 
-          model.modelId.toLowerCase().includes(key.toLowerCase())) {
+          model.id.toLowerCase().includes(key.toLowerCase())) {
         return icon;
       }
     }
@@ -48,7 +48,7 @@ export const modelUtilFunctions = {
     // Try to match by family first
     for (const [key, gradient] of Object.entries(modelGradients)) {
       if (model.family.toLowerCase().includes(key.toLowerCase()) || 
-          model.modelId.toLowerCase().includes(key.toLowerCase())) {
+          model.id.toLowerCase().includes(key.toLowerCase())) {
         return gradient;
       }
     }

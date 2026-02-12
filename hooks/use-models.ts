@@ -9,10 +9,10 @@ export interface ModelSpecs {
 }
 
 export interface ModelInfo {
-  modelId: string;
+  id: string;
   modelName: string;
-  description: string;
-  status: 'WARM' | 'COLD' | 'OFFLINE';
+  description: string;  
+  status: 'warm' | 'cold' ;
   type: 'Small' | 'Medium' | 'Large';
   family: string;
   variant: string;
@@ -28,7 +28,6 @@ export interface ModelDeployment {
   slurmJobId: string;
   status: 'pending' | 'launching' | 'ready' | 'running' | 'failed' | 'shutdown' | 'completed';
   endpointUrl: string | null;
-  tunnelUrl: string | null;
   errorMessage: string | null;
   resourceAllocation: Record<string, unknown> | null;
   createdAt: string;
@@ -189,6 +188,7 @@ export function useLaunchModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
     },
   });
 }
@@ -209,6 +209,7 @@ export function useStopModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
     },
   });
 } 

@@ -17,6 +17,8 @@ export const user = pgTable('User', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
   email: varchar('email', { length: 64 }).notNull(),
   password: varchar('password', { length: 64 }),
+  apiKeyHash: text('apiKeyHash'),
+  apiKeyExpiresAt: timestamp('apiKeyExpiresAt'),
 });
 
 export type User = InferSelectModel<typeof user>;
@@ -31,6 +33,7 @@ export const chat = pgTable('Chat', {
   visibility: varchar('visibility', { enum: ['public', 'private'] })
     .notNull()
     .default('private'),
+  isBrowserChat: boolean('isBrowserChat').notNull().default(false),
 });
 
 export type Chat = InferSelectModel<typeof chat>;
@@ -167,7 +170,7 @@ export const modelDeployment = pgTable('ModelDeployment', {
     .notNull()
     .default('pending'),
   endpointUrl: varchar('endpointUrl', { length: 255 }),
-  tunnelUrl: varchar('tunnelUrl', { length: 255 }),
+  proxyUrl: varchar('proxyUrl', { length: 255 }),
   errorMessage: text('errorMessage'),
   resourceAllocation: json('resourceAllocation'),
   createdAt: timestamp('createdAt').notNull().defaultNow(),
@@ -181,7 +184,7 @@ export const availableModel = pgTable('AvailableModel', {
   id: varchar('id', { length: 255 }).primaryKey().notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
-  status: varchar('status', { enum: ['WARM', 'COLD', 'OFFLINE'] }).notNull().default('WARM'),
+  status: varchar('status', { enum: ['warm', 'cold'] }).notNull().default('cold'),
   type: varchar('type', { enum: ['Small', 'Medium', 'Large'] }).notNull(),
   family: varchar('family', { length: 100 }).notNull(),
   variant: varchar('variant', { length: 100 }).notNull(),

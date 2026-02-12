@@ -1,8 +1,18 @@
+import { randomInt } from 'crypto';
 import { NextResponse } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
+import {
+  createModelDeployment,
+  getAvailableModelByName,
+  getModelDeploymentsByUserId,
+} from '@/lib/db/queries';
 
-// Backend API URL
-const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
+const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
+const DEV_MODEL_NAME = process.env.DEV_VLLM_MODEL_NAME || 'Qwen/Qwen2.5-1.5B-Instruct';
+const SLURM_JOB_ID_LENGTH = 6;
+
+const createSlurmJobId = () =>
+  randomInt(0, 10 ** SLURM_JOB_ID_LENGTH).toString().padStart(SLURM_JOB_ID_LENGTH, '0');
 
 export async function GET() {
   try {
@@ -16,32 +26,66 @@ export async function GET() {
       );
     }
 
-    // Get the user's email from the session
-    const useremail = session.user.email;
     const userId = session.user.id;
-    
-    // Build the backend URL with useremail and userId parameters
-    const url = new URL(`${BACKEND_API_URL}/api/models/deployments`);
-    url.searchParams.append('useremail', useremail || '');
-    url.searchParams.append('userId', userId || '');
-    
-    // Fetch deployments from the backend with useremail
-    const response = await fetch(url.toString());
-    
-    if (!response.ok) {
-      throw new Error(`Backend API returned ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    // Ensure we always return an array
-    const deploymentsArray = Array.isArray(data) ? data : 
-                            (data && typeof data === 'object' && Array.isArray(data.deployments)) ? data.deployments : [];
-    
-    return NextResponse.json(deploymentsArray);
+
+    const deployments = await getModelDeploymentsByUserId(userId || '');
+    return NextResponse.json(deployments);
   } catch (error) {
     console.error('Error fetching deployments:', error);
     // Return empty array on error
     return NextResponse.json([]);
   }
 } 
+
+export async function POST() {
+  try {
+    const session = await auth();
+
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const isDevelopment = process.env.NODE_ENV === 'development';
+
+    // TODO: When we have the backend ready, we will modify this to use the backend API.
+    if (!isDevelopment) {
+      return NextResponse.json(
+        { error: 'Model deployments are only available in development mode.' },
+        { status: 501 }
+      );
+    }
+
+    const userId = session.user.id;
+
+    const [model] = await getAvailableModelByName({ name: DEV_MODEL_NAME });
+
+    if (!model) {
+      return NextResponse.json(
+        { error: `Model ${DEV_MODEL_NAME} is not available.` },
+        { status: 404 }
+      );
+    }
+
+    const deployment = await createModelDeployment({
+      modelId: model.id,
+      modelName: model.name,
+      userId,
+      slurmJobId: `test-${createSlurmJobId()}`,
+      status: 'running',
+      endpointUrl: DEV_ENDPOINT_URL,
+      proxyUrl: `http://localhost:3000/api/vllm/chat`,
+    });
+
+    return NextResponse.json(deployment);
+  } catch (error) {
+    console.error('Error creating deployment:', error);
+    return NextResponse.json(
+      { error: 'Failed to create deployment.' },
+      { status: 500 }
+    );
+  }
+}
+

@@ -94,7 +94,7 @@ const ActiveModelCard = memo(({
       </div>
       
       <div className="mt-auto flex justify-between w-full gap-3">
-        {deployment && deployment.status === 'RUNNING' && (
+        {deployment && deployment.status === 'running' && (
           <Button 
             variant="outline" 
             className={scheduleButtonClass}
@@ -109,7 +109,7 @@ const ActiveModelCard = memo(({
             Stop
           </Button>
         )}
-        {!deployment || deployment.status !== 'RUNNING' ? (
+        {!deployment || deployment.status !== 'running' ? (
           <Button 
             variant="outline" 
             className={scheduleButtonClass}
@@ -120,7 +120,7 @@ const ActiveModelCard = memo(({
         <Button 
           asChild 
           className={actionButtonClass}
-          disabled={deployment?.status === 'STARTING'}
+          disabled={deployment?.status === 'launching'}
         >
           <Link href={`/chat?model=${model.id}`}>
             Chat
