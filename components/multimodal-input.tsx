@@ -133,6 +133,7 @@ function PureMultimodalInput({
     });
 
     setAttachments([]);
+    setInput('');
     setLocalStorageInput('');
     resetHeight();
 
@@ -144,6 +145,7 @@ function PureMultimodalInput({
     append,
     input,
     setAttachments,
+    setInput,
     setLocalStorageInput,
     width,
   ]);
@@ -290,6 +292,9 @@ export const MultimodalInput = memo(
   (prevProps, nextProps) => {
     if (prevProps.input !== nextProps.input) return false;
     if (prevProps.isLoading !== nextProps.isLoading) return false;
+    if (prevProps.append !== nextProps.append) return false;
+    if (prevProps.messages.length !== nextProps.messages.length) return false;
+    if (prevProps.isGuestMode !== nextProps.isGuestMode) return false;
     if (!equal(prevProps.attachments, nextProps.attachments)) return false;
 
     return true;
