@@ -5,7 +5,7 @@ import {
   createModelDeployment,
   getAvailableModelByName,
   getModelDeploymentsByUserId,
-  createAuthorizedUsers,
+  addUserToDeployment,
 } from '@/lib/db/queries';
 
 const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
@@ -82,9 +82,10 @@ export async function POST() {
       proxyUrl: `http://localhost:3000/api/vllm/chat`,  // TODO: Need to update this to vllm/testSlurmJobId proxyUrl
     });
 
-    const authorizedUsers = await createAuthorizedUsers({
+    const authorizedUsers = await addUserToDeployment({
       deploymentId: deployment.id,
       userId,
+      permission: 'owner',
     });
 
     if (!authorizedUsers) {

@@ -656,14 +656,14 @@ export async function shutdownModelDeploymentById(id: string): Promise<void> {
 // Authorized Users Utility Functions
 // ==========================================
 
+
 /**
- * Insert a single owner row into the AuthorizedUsers join table.
- * Called when a deployment is first created.
+ * Add a user to a deployment.
  */
-export async function createAuthorizedUsers({
+export async function addUserToDeployment({
   deploymentId,
   userId,
-  permission = 'owner',
+  permission = 'user',
 }: {
   deploymentId: string;
   userId: string;
@@ -673,28 +673,6 @@ export async function createAuthorizedUsers({
     const [row] = await db
       .insert(authorizedUsers)
       .values({ deploymentId, userId, permission })
-      .returning();
-    return row;
-  } catch (error) {
-    console.error('Failed to create authorized users in database', error);
-    throw error;
-  }
-}
-
-/**
- * Grant a non-owner user access to a deployment.
- */
-export async function addUserToDeployment({
-  deploymentId,
-  userId,
-}: {
-  deploymentId: string;
-  userId: string;
-}): Promise<AuthorizedUsers | null> {
-  try {
-    const [row] = await db
-      .insert(authorizedUsers)
-      .values({ deploymentId, userId, permission: 'user' })
       .returning();
     return row;
   } catch (error) {
