@@ -157,29 +157,6 @@ export const resourceAllocation = pgTable('ResourceAllocation', {
 
 export type ResourceAllocation = InferSelectModel<typeof resourceAllocation>;
 
-export const modelDeployment = pgTable('ModelDeployment', {
-  id: uuid('id').primaryKey().notNull().defaultRandom(),
-  modelId: varchar('modelId', { length: 255 })
-    .notNull()
-    .references(() => availableModel.id),
-  modelName: varchar('modelName', { length: 255 }).notNull(),
-  userId: uuid('userId').notNull().references(() => user.id),
-  slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
-  status: varchar('status', {
-    enum: ['pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],
-  })
-    .notNull()
-    .default('pending'),
-  endpointUrl: varchar('endpointUrl', { length: 255 }),
-  proxyUrl: varchar('proxyUrl', { length: 255 }),
-  errorMessage: text('errorMessage'),
-  resourceAllocation: json('resourceAllocation'),
-  createdAt: timestamp('createdAt').notNull().defaultNow(),
-  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
-  expiresAt: timestamp('expiresAt'),
-});
-
-export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
 
 export const availableModel = pgTable('AvailableModel', {
   id: varchar('id', { length: 255 }).primaryKey().notNull(),
@@ -199,6 +176,7 @@ export const availableModel = pgTable('AvailableModel', {
 
 export type AvailableModel = InferSelectModel<typeof availableModel>;
 
+
 export const modelDeployment = pgTable('ModelDeployment',
   {
     id: uuid('id').primaryKey().notNull().defaultRandom(),
@@ -214,7 +192,7 @@ export const modelDeployment = pgTable('ModelDeployment',
       .notNull()
       .default('pending'),
     endpointUrl: varchar('endpointUrl', { length: 255 }),
-    tunnelUrl: varchar('tunnelUrl', { length: 255 }),
+    proxyUrl: varchar('proxyUrl', { length: 255 }),
     errorMessage: text('errorMessage'),
     resourceAllocation: json('resourceAllocation'),
     createdAt: timestamp('createdAt').notNull().defaultNow(),
@@ -233,10 +211,7 @@ export const authorizedUsers = pgTable('AuthorizedUsers',
   {
     id: uuid('id').primaryKey().notNull().defaultRandom(),
     deploymentId: uuid('deploymentId').notNull().unique().references(() => modelDeployment.id),
-    modelId: varchar('modelId', { length: 255 }).notNull(),
-    modelName: varchar('modelName', { length: 255 }).notNull(),
     ownerId: uuid('ownerId').notNull(),
-    ownerEmail: varchar('ownerEmail', { length: 255 }).notNull(),
     allowedUserIds: uuid('allowedUserIds').array(),
     allowedUserEmails: varchar('allowedUserEmails', { length: 255 }).array(),
     updatedAt: timestamp('updatedAt').notNull().defaultNow(),
