@@ -11,6 +11,7 @@ import {
   boolean,
   date,
   integer,
+  unique,
 } from 'drizzle-orm/pg-core';
 
 export const user = pgTable('User', {
@@ -156,29 +157,6 @@ export const resourceAllocation = pgTable('ResourceAllocation', {
 
 export type ResourceAllocation = InferSelectModel<typeof resourceAllocation>;
 
-export const modelDeployment = pgTable('ModelDeployment', {
-  id: uuid('id').primaryKey().notNull().defaultRandom(),
-  modelId: varchar('modelId', { length: 255 })
-    .notNull()
-    .references(() => availableModel.id),
-  modelName: varchar('modelName', { length: 255 }).notNull(),
-  userId: uuid('userId').notNull().references(() => user.id),
-  slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
-  status: varchar('status', {
-    enum: ['pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],
-  })
-    .notNull()
-    .default('pending'),
-  endpointUrl: varchar('endpointUrl', { length: 255 }),
-  proxyUrl: varchar('proxyUrl', { length: 255 }),
-  errorMessage: text('errorMessage'),
-  resourceAllocation: json('resourceAllocation'),
-  createdAt: timestamp('createdAt').notNull().defaultNow(),
-  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
-  expiresAt: timestamp('expiresAt'),
-});
-
-export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
 
 export const availableModel = pgTable('AvailableModel', {
   id: varchar('id', { length: 255 }).primaryKey().notNull(),
@@ -197,3 +175,55 @@ export const availableModel = pgTable('AvailableModel', {
 });
 
 export type AvailableModel = InferSelectModel<typeof availableModel>;
+
+
+export const modelDeployment = pgTable('ModelDeployment',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    modelId: varchar('modelId', { length: 255 })
+      .notNull()
+      .references(() => availableModel.id),
+    modelName: varchar('modelName', { length: 255 }).notNull(),
+    userId: uuid('userId').notNull().references(() => user.id),
+    slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
+    status: varchar('status', {
+      enum: ['pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],
+    })
+      .notNull()
+      .default('pending'),
+    endpointUrl: varchar('endpointUrl', { length: 255 }),
+    proxyUrl: varchar('proxyUrl', { length: 255 }),
+    errorMessage: text('errorMessage'),
+    resourceAllocation: json('resourceAllocation'),
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+    expiresAt: timestamp('expiresAt'),
+  },
+  (table) => ({
+    modelIdUserIdUnique: unique().on(table.modelId, table.userId), // Ensure each model is deployed only once per user
+  }),
+);
+
+export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
+
+
+export const authorizedUsers = pgTable(
+  'AuthorizedUsers',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    deploymentId: uuid('deploymentId')
+      .notNull()
+      .references(() => modelDeployment.id),
+    userId: uuid('userId')
+      .notNull()
+      .references(() => user.id),
+    permission: varchar('permission', { enum: ['owner', 'user'] }).notNull().default('owner'),
+    updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  },
+  (table) => ({
+    // One permission row per user per deployment
+    deploymentUserUnique: unique().on(table.deploymentId, table.userId),
+  }),
+);
+
+export type AuthorizedUsers = InferSelectModel<typeof authorizedUsers>;

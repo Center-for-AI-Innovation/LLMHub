@@ -26,7 +26,8 @@ import {
   isChatCompletionsEndpoint,
   handleChatCompletions,
 } from '@/lib/vllm-ai-sdk';
-import { createErrorResponse, validateDeployment, userOwnsDeployment } from '@/lib/utils';
+import { createErrorResponse, validateDeployment } from '@/lib/utils';
+import { canUserAccessDeployment } from '@/lib/auth/validate-request';
 import type { ModelDeployment } from '@/hooks/use-models';
 
 export const maxDuration = 60;
@@ -64,8 +65,8 @@ async function handleRequest(
       return createErrorResponse(`Deployment not found for job ID: ${jobId}`, 404);
     }
 
-    // Step 4: Verify user owns the deployment
-    if (!userOwnsDeployment(deployment, userId)) {
+    // Step 4: Verify user access to the deployment
+    if (!await canUserAccessDeployment(deployment, userId)) {
       return createErrorResponse('Unauthorized - You do not have access to this deployment', 403);
     }
 

@@ -5,6 +5,7 @@ import {
   createModelDeployment,
   getAvailableModelByName,
   getModelDeploymentsByUserId,
+  addUserToDeployment,
 } from '@/lib/db/queries';
 
 const DEV_ENDPOINT_URL = process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
@@ -69,17 +70,33 @@ export async function POST() {
       );
     }
 
+    const testSlurmJobId = `test-${createSlurmJobId()}`;
+
     const deployment = await createModelDeployment({
       modelId: model.id,
       modelName: model.name,
       userId,
-      slurmJobId: `test-${createSlurmJobId()}`,
+      slurmJobId: testSlurmJobId,
       status: 'running',
       endpointUrl: DEV_ENDPOINT_URL,
-      proxyUrl: `http://localhost:3000/api/vllm/chat`,
+      proxyUrl: `http://localhost:3000/api/vllm/chat`,  // TODO: Need to update this to vllm/testSlurmJobId proxyUrl
     });
 
+    const authorizedUsers = await addUserToDeployment({
+      deploymentId: deployment.id,
+      userId,
+      permission: 'owner',
+    });
+
+    if (!authorizedUsers) {
+      return NextResponse.json(
+        { error: 'Failed to create authorized users.' },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json(deployment);
+
   } catch (error) {
     console.error('Error creating deployment:', error);
     return NextResponse.json(

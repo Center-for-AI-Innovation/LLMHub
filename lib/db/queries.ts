@@ -18,6 +18,8 @@ import {
   availableModel,
   modelDeployment,
   type ModelDeployment,
+  authorizedUsers,
+  type AuthorizedUsers,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 
@@ -649,3 +651,95 @@ export async function shutdownModelDeploymentById(id: string): Promise<void> {
     throw error;
   }
 }
+
+// ==========================================
+// Authorized Users Utility Functions
+// ==========================================
+
+
+/**
+ * Add a user to a deployment.
+ */
+export async function addUserToDeployment({
+  deploymentId,
+  userId,
+  permission = 'user',
+}: {
+  deploymentId: string;
+  userId: string;
+  permission?: 'owner' | 'user';
+}): Promise<AuthorizedUsers | null> {
+  try {
+    const [row] = await db
+      .insert(authorizedUsers)
+      .values({ deploymentId, userId, permission })
+      .returning();
+    return row;
+  } catch (error) {
+    console.error('Failed to add user to deployment in database', error);
+    throw error;
+  }
+}
+
+/**
+ * Revoke a user's access to a deployment.
+ */
+export async function removeUserFromDeployment({
+  deploymentId,
+  userId,
+}: {
+  deploymentId: string;
+  userId: string;
+}): Promise<void> {
+  try {
+    await db
+      .delete(authorizedUsers)
+      .where(
+        and(
+          eq(authorizedUsers.deploymentId, deploymentId),
+          eq(authorizedUsers.userId, userId),
+        ),
+      );
+  } catch (error) {
+    console.error('Failed to remove user from deployment in database', error);
+    throw error;
+  }
+}
+
+/**
+ * Return all access rows for a given deployment (owner + shared users).
+ */
+export async function getAuthorizedUsersByDeploymentId(
+  deploymentId: string,
+): Promise<AuthorizedUsers[]> {
+  try {
+    return await db
+      .select()
+      .from(authorizedUsers)
+      .where(eq(authorizedUsers.deploymentId, deploymentId));
+  } catch (error) {
+    console.error('Failed to get authorized users by deployment id from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Return all ModelDeployment rows that a given user has any access to
+ * (either as owner or as a shared user).
+ */
+export async function getAccessibleDeploymentsByUserId(
+  userId: string,
+): Promise<ModelDeployment[]> {
+  try {
+    const rows = await db
+      .select({ deployment: modelDeployment })
+      .from(authorizedUsers)
+      .innerJoin(modelDeployment, eq(authorizedUsers.deploymentId, modelDeployment.id))
+      .where(eq(authorizedUsers.userId, userId));
+    return rows.map((r) => r.deployment);
+  } catch (error) {
+    console.error('Failed to get accessible deployments by user id from database', error);
+    throw error;
+  }
+}
+

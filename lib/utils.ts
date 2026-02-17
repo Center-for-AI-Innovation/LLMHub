@@ -255,17 +255,6 @@ export function validateDeployment(deployment: ModelDeployment): { isValid: bool
   return { isValid: true };
 }
 
-/**
- * Check if the current user owns/has access to the deployment
- * 
- * @param deployment - The deployment
- * @param userId - The current user's ID
- * @returns true if the user has access to the deployment
- */
-export function userOwnsDeployment(deployment: ModelDeployment, userId: string): boolean {
-  return deployment.userId === userId;
-}
-
 
 /**
  * Create an error response in JSON format
