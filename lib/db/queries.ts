@@ -640,17 +640,6 @@ export async function getActiveModelDeploymentByUserId(userId: string): Promise<
   }
 }
 
-
-export async function getAuthorizedUsersByDeploymentId(deploymentId: string): Promise<AuthorizedUsers[]> {
-  try {
-    const authorizedUsersData = await db.select().from(authorizedUsers).where(eq(authorizedUsers.deploymentId, deploymentId));
-    return authorizedUsersData;
-  } catch (error) {
-    console.error('Failed to get authorized users by model deployment id from database', error);
-    throw error;
-  }
-}
-
 /**
  * Set the status of a model deployment by ID to 'shutdown'
  */
@@ -662,3 +651,58 @@ export async function shutdownModelDeploymentById(id: string): Promise<void> {
     throw error;
   }
 }
+
+// ==========================================
+// Authorized Users Utility Functions
+// ==========================================
+
+export async function createAuthorizedUsers({
+  deploymentId,
+  ownerId,
+}: {
+  deploymentId: string;
+  ownerId: string;
+}): Promise<AuthorizedUsers | null> {
+  try {
+    const [authorizedUsersRow] = await db.insert(authorizedUsers).values({ deploymentId, ownerId }).returning();
+    return authorizedUsersRow;
+  } catch (error) {
+    console.error('Failed to create authorized users in database', error);
+    throw error;
+  }
+}
+
+export async function updateAuthorizedUsers({
+  deploymentId,
+  allowedUserIds,
+  allowedUserEmails,
+}: {
+  deploymentId: string;
+  ownerId: string;
+  allowedUserIds: string[] | null;
+  allowedUserEmails: string[] | null;
+}): Promise<AuthorizedUsers | null> {
+  try {
+    const [authorizedUsersRow] = await db
+      .update(authorizedUsers)
+      .set({ allowedUserIds, allowedUserEmails })
+      .where(eq(authorizedUsers.deploymentId, deploymentId))
+      .returning();
+    return authorizedUsersRow;
+  } catch (error) {
+    console.error('Failed to update authorized users in database', error);
+    throw error;
+  }
+}
+
+
+export async function getAuthorizedUsersByDeploymentId(deploymentId: string): Promise<AuthorizedUsers[]> {
+  try {
+    const authorizedUsersData = await db.select().from(authorizedUsers).where(eq(authorizedUsers.deploymentId, deploymentId));
+    return authorizedUsersData;
+  } catch (error) {
+    console.error('Failed to get authorized users by model deployment id from database', error);
+    throw error;
+  }
+}
+
