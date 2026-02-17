@@ -22,17 +22,5 @@ export async function canUserAccessDeployment(deployment: ModelDeployment, userI
     }
   }
   
-  /**
-   * Check if the current user is authorized to access the deployment
-   * 
-   * @param allowedUserIds - The allowed user IDs
-   * @param userId - The current user's ID
-   * @returns true if the user is authorized to access the deployment
-   */
-  export function userIsAuthorized( allowedUserIds: string[] | null, userId: string): boolean {
-    if (!allowedUserIds) {
-      return false;
-    }
-    return allowedUserIds.includes(userId);
-  }
+
   
