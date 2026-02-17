@@ -31,7 +31,7 @@
           "type": "varchar",
           "primaryKey": false,
           "notNull": true,
-          "default": "'WARM'"
+          "default": "'warm'"
         },
         "type": {
           "name": "type",

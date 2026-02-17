@@ -4,7 +4,6 @@ import type { Attachment, Message, ChatRequestOptions } from 'ai';
 import { useChat } from 'ai/react';
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
-import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 
 import type { Vote, Document } from '@/lib/db/schema';
@@ -53,8 +52,6 @@ function ChatInner({
   isReadonly: boolean;
 }) {
   const queryClient = useQueryClient();
-  const router = useRouter();
-  const [hasCreatedChat, setHasCreatedChat] = useState(false);
   const [votes, setVotes] = useState<Array<Vote>>(initialVotes || []);
   const [attachments, setAttachments] = useState<Array<Attachment>>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
@@ -100,8 +97,7 @@ function ChatInner({
     id: chatId,
     api: apiEndpoint,
     headers: {
-      // Request AI SDK data stream format for useChat hook compatibility
-      // Without this header, the API returns JSON OpenAI compatible response
+      // This header specifies that the API should return the response in the streaming format
       'x-response-format': 'ai-sdk',
     },
     body: { 
@@ -125,30 +121,8 @@ function ChatInner({
     },
   });
 
-  const handleFormSubmit = async (event?: { preventDefault?: () => void }, chatRequestOptions?: ChatRequestOptions) => {
+  const handleFormSubmit = (event?: { preventDefault?: () => void }, chatRequestOptions?: ChatRequestOptions) => {
     event?.preventDefault?.();
-    
-    if (messages.length === 0 && isTemporaryChat) {
-      handleSubmit(event, chatRequestOptions);
-      return;
-    }
-
-    if (isTemporaryChat && !hasCreatedChat) {
-      try {
-        const response = await fetch('/api/chat/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: chatId }),
-        });
-        if (!response.ok) throw new Error('Failed to create chat');
-        setHasCreatedChat(true);
-        router.replace(`/chat/${chatId}`, { scroll: false });
-      } catch (error) {
-        toast.error('Failed to create chat');
-        return;
-      }
-    }
-
     handleSubmit(event, chatRequestOptions);
   };
 

@@ -13,6 +13,9 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
 import { getActiveModelDeploymentByUserId } from '@/lib/db/queries';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 /**
  * GET - Get user's active vLLM job from ModelDeployment table
  */
@@ -42,7 +45,6 @@ export async function GET() {
           modelId: activeDeployment.modelId,
           proxyUrl: `/api/v1/job/${activeDeployment.slurmJobId}/chat/completions`,
           endpointUrl: activeDeployment.endpointUrl,
-          tunnelUrl: activeDeployment.tunnelUrl,
           modelName: activeDeployment.modelName,
           status: activeDeployment.status,
           expiresAt: activeDeployment.expiresAt,
@@ -101,7 +103,6 @@ export async function POST() {
           modelId: activeDeployment.modelId,
           proxyUrl: `/api/v1/job/${activeDeployment.slurmJobId}/chat/completions`,
           endpointUrl: activeDeployment.endpointUrl,
-          tunnelUrl: activeDeployment.tunnelUrl,
           modelName: activeDeployment.modelName,
           status: activeDeployment.status,
           expiresAt: activeDeployment.expiresAt,

@@ -29,7 +29,7 @@ export function ChatBar() {
         <div className="w-full h-2 bg-gradient-to-r from-transparent via-secondary to-transparent blur-md" />
         <div className="absolute inset-0 w-full h-4 bg-gradient-to-r from-transparent via-primary to-transparent blur-xl" />
       </div>
-      
+      {/* Chat should be enabled only when user is logged in and from Model Deployment Page */}
       <form 
         onSubmit={handleSubmit}
         className="relative flex items-center gap-2 p-2 rounded-full bg-background/80 backdrop-blur-xl border border-primary/10 shadow-xl"

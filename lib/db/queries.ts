@@ -507,6 +507,14 @@ export async function getAvailableModelById({ id }: { id: string }) {
     .limit(1);
 }
 
+export async function getAvailableModelByName({ name }: { name: string }) {
+  return await db
+    .select()
+    .from(availableModel)
+    .where(eq(availableModel.name, name))
+    .limit(1);
+}
+
 export async function searchAvailableModels({ query }: { query: string }) {
   return await db
     .select()
@@ -520,6 +528,57 @@ export async function searchAvailableModels({ query }: { query: string }) {
       )
     )
     .orderBy(availableModel.family, availableModel.variant);
+}
+
+
+// ==========================================
+// Model Deployment Utility Functions
+// ==========================================
+
+export async function createModelDeployment({
+  modelId,
+  modelName,
+  userId,
+  slurmJobId,
+  status = 'pending',
+  endpointUrl,
+  proxyUrl,
+  errorMessage,
+  resourceAllocation,
+  expiresAt,
+}: {
+  modelId: string;
+  modelName: string;
+  userId: string;
+  slurmJobId: string;
+  status?: ModelDeployment['status'];
+  endpointUrl?: string | null;
+  proxyUrl?: string | null;
+  errorMessage?: string | null;
+  resourceAllocation?: Record<string, unknown> | null;
+  expiresAt?: Date | null;
+}): Promise<ModelDeployment> {
+  try {
+    const [deployment] = await db
+      .insert(modelDeployment)
+      .values({
+        modelId,
+        modelName,
+        userId,
+        slurmJobId,
+        status,
+        endpointUrl,
+        proxyUrl,
+        errorMessage,
+        resourceAllocation,
+        expiresAt,
+      })
+      .returning();
+    return deployment;
+  } catch (error) {
+    console.error('Failed to create model deployment in database', error);
+    throw error;
+  }
 }
 
 /**
@@ -571,7 +630,8 @@ export async function getActiveModelDeploymentByUserId(userId: string): Promise<
           )
         )
       )
-      .orderBy(desc(modelDeployment.updatedAt))
+      // Prefer the newest active deployment deterministically.
+      .orderBy(desc(modelDeployment.updatedAt), desc(modelDeployment.createdAt))
       .limit(1);
     return deployment || null;
   } catch (error) {
@@ -587,6 +647,18 @@ export async function getAuthorizedUsersByDeploymentId(deploymentId: string): Pr
     return authorizedUsersData;
   } catch (error) {
     console.error('Failed to get authorized users by model deployment id from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Set the status of a model deployment by ID to 'shutdown'
+ */
+export async function shutdownModelDeploymentById(id: string): Promise<void> {
+  try {
+    await db.update(modelDeployment).set({ status: 'shutdown' }).where(eq(modelDeployment.id, id));
+  } catch (error) {
+    console.error('Failed to shutdown model deployment by id from database', error);
     throw error;
   }
 }

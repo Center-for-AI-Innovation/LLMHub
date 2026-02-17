@@ -157,11 +157,35 @@ export const resourceAllocation = pgTable('ResourceAllocation', {
 
 export type ResourceAllocation = InferSelectModel<typeof resourceAllocation>;
 
+export const modelDeployment = pgTable('ModelDeployment', {
+  id: uuid('id').primaryKey().notNull().defaultRandom(),
+  modelId: varchar('modelId', { length: 255 })
+    .notNull()
+    .references(() => availableModel.id),
+  modelName: varchar('modelName', { length: 255 }).notNull(),
+  userId: uuid('userId').notNull().references(() => user.id),
+  slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
+  status: varchar('status', {
+    enum: ['pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],
+  })
+    .notNull()
+    .default('pending'),
+  endpointUrl: varchar('endpointUrl', { length: 255 }),
+  proxyUrl: varchar('proxyUrl', { length: 255 }),
+  errorMessage: text('errorMessage'),
+  resourceAllocation: json('resourceAllocation'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  expiresAt: timestamp('expiresAt'),
+});
+
+export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
+
 export const availableModel = pgTable('AvailableModel', {
   id: varchar('id', { length: 255 }).primaryKey().notNull(),
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
-  status: varchar('status', { enum: ['WARM', 'COLD', 'OFFLINE'] }).notNull().default('WARM'),
+  status: varchar('status', { enum: ['warm', 'cold'] }).notNull().default('cold'),
   type: varchar('type', { enum: ['Small', 'Medium', 'Large'] }).notNull(),
   family: varchar('family', { length: 100 }).notNull(),
   variant: varchar('variant', { length: 100 }).notNull(),
