@@ -2,25 +2,21 @@ import type { ModelDeployment } from '@/hooks/use-models';
 import { getAuthorizedUsersByDeploymentId } from '@/lib/db/queries';
 
 /**
- * Check if the current user owns/has access to the deployment
- * 
- * @param deployment - The deployment
+ * Check if a user has any access to a deployment.
+ *
+ * @param deployment - The deployment to check
  * @param userId - The current user's ID
- * @returns true if the user has access to the deployment
+ * @returns true if an AuthorizedUsers row exists for this (deployment, user) pair
  */
-export async function canUserAccessDeployment(deployment: ModelDeployment, userId: string): Promise<boolean> {
-    try {
-      const authorizedUsersData = await getAuthorizedUsersByDeploymentId(deployment.id);
-      if (!authorizedUsersData.length) {
-        return false;
-      }
-      const authorizedUser = authorizedUsersData[0];
-      return authorizedUser.allowedUserIds?.includes(userId) || authorizedUser.ownerId === userId;
-    } catch (error) {
-      console.error('Failed to check if the user is authorized to access the deployment', error);
-      return false;
-    }
+export async function canUserAccessDeployment(
+  deployment: ModelDeployment,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const rows = await getAuthorizedUsersByDeploymentId(deployment.id);
+    return rows.some((row) => row.userId === userId);
+  } catch (error) {
+    console.error('Failed to check if the user is authorized to access the deployment', error);
+    return false;
   }
-  
-
-  
+}

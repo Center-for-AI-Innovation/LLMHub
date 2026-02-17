@@ -656,52 +656,111 @@ export async function shutdownModelDeploymentById(id: string): Promise<void> {
 // Authorized Users Utility Functions
 // ==========================================
 
+/**
+ * Insert a single owner row into the AuthorizedUsers join table.
+ * Called when a deployment is first created.
+ */
 export async function createAuthorizedUsers({
   deploymentId,
-  ownerId,
+  userId,
+  permission = 'owner',
 }: {
   deploymentId: string;
-  ownerId: string;
+  userId: string;
+  permission?: 'owner' | 'user';
 }): Promise<AuthorizedUsers | null> {
   try {
-    const [authorizedUsersRow] = await db.insert(authorizedUsers).values({ deploymentId, ownerId }).returning();
-    return authorizedUsersRow;
+    const [row] = await db
+      .insert(authorizedUsers)
+      .values({ deploymentId, userId, permission })
+      .returning();
+    return row;
   } catch (error) {
     console.error('Failed to create authorized users in database', error);
     throw error;
   }
 }
 
-export async function updateAuthorizedUsers({
+/**
+ * Grant a non-owner user access to a deployment.
+ */
+export async function addUserToDeployment({
   deploymentId,
-  allowedUserIds,
-  allowedUserEmails,
+  userId,
 }: {
   deploymentId: string;
-  ownerId: string;
-  allowedUserIds: string[] | null;
-  allowedUserEmails: string[] | null;
+  userId: string;
 }): Promise<AuthorizedUsers | null> {
   try {
-    const [authorizedUsersRow] = await db
-      .update(authorizedUsers)
-      .set({ allowedUserIds, allowedUserEmails })
-      .where(eq(authorizedUsers.deploymentId, deploymentId))
+    const [row] = await db
+      .insert(authorizedUsers)
+      .values({ deploymentId, userId, permission: 'user' })
       .returning();
-    return authorizedUsersRow;
+    return row;
   } catch (error) {
-    console.error('Failed to update authorized users in database', error);
+    console.error('Failed to add user to deployment in database', error);
     throw error;
   }
 }
 
-
-export async function getAuthorizedUsersByDeploymentId(deploymentId: string): Promise<AuthorizedUsers[]> {
+/**
+ * Revoke a user's access to a deployment.
+ */
+export async function removeUserFromDeployment({
+  deploymentId,
+  userId,
+}: {
+  deploymentId: string;
+  userId: string;
+}): Promise<void> {
   try {
-    const authorizedUsersData = await db.select().from(authorizedUsers).where(eq(authorizedUsers.deploymentId, deploymentId));
-    return authorizedUsersData;
+    await db
+      .delete(authorizedUsers)
+      .where(
+        and(
+          eq(authorizedUsers.deploymentId, deploymentId),
+          eq(authorizedUsers.userId, userId),
+        ),
+      );
   } catch (error) {
-    console.error('Failed to get authorized users by model deployment id from database', error);
+    console.error('Failed to remove user from deployment in database', error);
+    throw error;
+  }
+}
+
+/**
+ * Return all access rows for a given deployment (owner + shared users).
+ */
+export async function getAuthorizedUsersByDeploymentId(
+  deploymentId: string,
+): Promise<AuthorizedUsers[]> {
+  try {
+    return await db
+      .select()
+      .from(authorizedUsers)
+      .where(eq(authorizedUsers.deploymentId, deploymentId));
+  } catch (error) {
+    console.error('Failed to get authorized users by deployment id from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Return all ModelDeployment rows that a given user has any access to
+ * (either as owner or as a shared user).
+ */
+export async function getAccessibleDeploymentsByUserId(
+  userId: string,
+): Promise<ModelDeployment[]> {
+  try {
+    const rows = await db
+      .select({ deployment: modelDeployment })
+      .from(authorizedUsers)
+      .innerJoin(modelDeployment, eq(authorizedUsers.deploymentId, modelDeployment.id))
+      .where(eq(authorizedUsers.userId, userId));
+    return rows.map((r) => r.deployment);
+  } catch (error) {
+    console.error('Failed to get accessible deployments by user id from database', error);
     throw error;
   }
 }

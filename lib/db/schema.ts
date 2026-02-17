@@ -207,20 +207,22 @@ export const modelDeployment = pgTable('ModelDeployment',
 export type ModelDeployment = InferSelectModel<typeof modelDeployment>;
 
 
-export const authorizedUsers = pgTable('AuthorizedUsers',
+export const authorizedUsers = pgTable(
+  'AuthorizedUsers',
   {
     id: uuid('id').primaryKey().notNull().defaultRandom(),
-    deploymentId: uuid('deploymentId').notNull().unique().references(() => modelDeployment.id),
-    ownerId: uuid('ownerId').notNull(),
-    allowedUserIds: uuid('allowedUserIds').array(),
-    allowedUserEmails: varchar('allowedUserEmails', { length: 255 }).array(),
+    deploymentId: uuid('deploymentId')
+      .notNull()
+      .references(() => modelDeployment.id),
+    userId: uuid('userId')
+      .notNull()
+      .references(() => user.id),
+    permission: varchar('permission', { enum: ['owner', 'user'] }).notNull().default('owner'),
     updatedAt: timestamp('updatedAt').notNull().defaultNow(),
   },
   (table) => ({
-    modelDeploymentRef: foreignKey({
-      columns: [table.deploymentId, table.ownerId],
-      foreignColumns: [modelDeployment.id, modelDeployment.userId],
-    }),
+    // One permission row per user per deployment
+    deploymentUserUnique: unique().on(table.deploymentId, table.userId),
   }),
 );
 

@@ -84,7 +84,7 @@ export async function POST() {
 
     const authorizedUsers = await createAuthorizedUsers({
       deploymentId: deployment.id,
-      ownerId: userId,
+      userId,
     });
 
     if (!authorizedUsers) {
