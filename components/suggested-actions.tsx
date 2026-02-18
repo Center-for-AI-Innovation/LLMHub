@@ -2,17 +2,13 @@
 
 import { motion } from 'framer-motion';
 import { Button } from './ui/button';
-import type { ChatRequestOptions, CreateMessage, Message } from 'ai';
+import type { ChatRequestOptions } from 'ai';
 import { memo } from 'react';
-import { generateUUID } from '@/lib/utils';
 import { toast } from '@/components/ui/use-toast';
 import { extractErrorMessage } from '@/lib/chat-client-errors';
 
 interface SuggestedActionsProps {
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
 }
 
 const showErrorToast = (message: string) => {
@@ -23,7 +19,7 @@ const showErrorToast = (message: string) => {
   });
 };
 
-function PureSuggestedActions({ append }: SuggestedActionsProps) {
+function PureSuggestedActions({ sendMessage }: SuggestedActionsProps) {
   const suggestedActions = [
     {
       title: 'What are the advantages',
@@ -61,12 +57,7 @@ function PureSuggestedActions({ append }: SuggestedActionsProps) {
           <Button
             variant="outline"
             onClick={() => {
-              void append({
-                id: generateUUID(),
-                role: 'user',
-                content: suggestedAction.action,
-                createdAt: new Date(),
-              })
+              void sendMessage({ text: suggestedAction.action })
                 .catch((error) => {
                   showErrorToast(
                     extractErrorMessage(error, 'Failed to send message'),

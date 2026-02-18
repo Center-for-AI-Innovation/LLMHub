@@ -1,33 +1,32 @@
-import type { ChatRequestOptions, Message } from 'ai';
+import type { ChatRequestOptions, UIMessage } from 'ai';
 import { PreviewMessage, ThinkingMessage } from './message';
 import { useScrollToBottom } from './use-scroll-to-bottom';
 import { Overview } from './overview';
-import { memo } from 'react';
 import type { Vote } from '@/lib/db/schema';
-import equal from 'fast-deep-equal';
 
 interface MessagesProps {
   chatId: string;
   isLoading: boolean;
   votes: Array<Vote> | undefined;
-  messages: Array<Message>;
+  messages: Array<UIMessage>;
   setMessages: (
-    messages: Message[] | ((messages: Message[]) => Message[]),
+    messages: UIMessage[] | ((messages: UIMessage[]) => UIMessage[]),
   ) => void;
-  reload: (
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (
+    message?: any,
+    options?: ChatRequestOptions,
+  ) => Promise<void>;
   isReadonly: boolean;
   isArtifactVisible: boolean;
 }
 
-export const Messages = memo(function Messages({
+export function Messages({
   chatId,
   isLoading,
   votes,
   messages,
   setMessages,
-  reload,
+  sendMessage,
   isReadonly,
   isArtifactVisible,
 }: MessagesProps) {
@@ -64,7 +63,7 @@ export const Messages = memo(function Messages({
           }
           isLoading={isLoading}
           setMessages={setMessages}
-          reload={reload}
+          sendMessage={sendMessage}
           isReadonly={isReadonly}
         />
       ))}
@@ -72,4 +71,4 @@ export const Messages = memo(function Messages({
       <div ref={endRef} className="h-[24px]" />
     </div>
   );
-}, equal);
+}

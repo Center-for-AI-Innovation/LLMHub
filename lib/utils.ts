@@ -1,9 +1,4 @@
-import type {
-  CoreAssistantMessage,
-  CoreToolMessage,
-  Message,
-  ToolInvocation,
-} from 'ai';
+import type { FileUIPart, UIMessage } from 'ai';
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -51,170 +46,83 @@ export function generateUUID(): string {
   });
 }
 
-function addToolMessageToChat({
-  toolMessage,
-  messages,
-}: {
-  toolMessage: CoreToolMessage;
-  messages: Array<Message>;
-}): Array<Message> {
-  return messages.map((message) => {
-    if (message.toolInvocations) {
-      return {
-        ...message,
-        toolInvocations: message.toolInvocations.map((toolInvocation) => {
-          const toolResult = toolMessage.content.find(
-            (tool) => tool.toolCallId === toolInvocation.toolCallId,
-          );
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-          if (toolResult) {
-            return {
-              ...toolInvocation,
-              state: 'result',
-              result: toolResult.result,
-            };
-          }
+export function isUUID(value: string): boolean {
+  return UUID_RE.test(value);
+}
 
-          return toolInvocation;
-        }),
-      };
-    }
-
-    return message;
-  });
+export function ensureUUID(value: string | undefined | null): string {
+  if (typeof value === 'string' && isUUID(value)) return value;
+  return generateUUID();
 }
 
 export function convertToUIMessages(
   messages: Array<DBMessage>,
-): Array<Message> {
-  return messages.reduce((chatMessages: Array<Message>, message) => {
-    if (message.role === 'tool') {
-      return addToolMessageToChat({
-        toolMessage: message as CoreToolMessage,
-        messages: chatMessages,
-      });
-    }
+): Array<UIMessage> {
+  return messages.flatMap((dbMessage) => {
+    // Legacy rows may include tool-role messages from older SDK versions.
+    // UIMessage does not support role 'tool', so we skip them for rendering.
+    if (dbMessage.role === 'tool') return [];
 
-    let textContent = '';
-    let reasoning: string | undefined = undefined;
-    const toolInvocations: Array<ToolInvocation> = [];
-
-    if (typeof message.content === 'string') {
-      textContent = message.content;
-    } else if (Array.isArray(message.content)) {
-      for (const content of message.content) {
-        if (content.type === 'text') {
-          textContent += content.text;
-        } else if (content.type === 'tool-call') {
-          toolInvocations.push({
-            state: 'call',
-            toolCallId: content.toolCallId,
-            toolName: content.toolName,
-            args: content.args,
-          });
-        } else if (content.type === 'reasoning') {
-          reasoning = content.reasoning;
-        }
+    const parts: UIMessage['parts'] = (() => {
+      if (typeof dbMessage.content === 'string') {
+        return [{ type: 'text', text: dbMessage.content }];
       }
-    }
 
-    chatMessages.push({
-      id: message.id,
-      role: message.role as Message['role'],
-      content: textContent,
-      reasoning,
-      toolInvocations,
-    });
-
-    return chatMessages;
-  }, []);
-}
-
-type ResponseMessageWithoutId = CoreToolMessage | CoreAssistantMessage;
-type ResponseMessage = ResponseMessageWithoutId & { id: string };
-
-export function sanitizeResponseMessages({
-  messages,
-  reasoning,
-}: {
-  messages: Array<ResponseMessage>;
-  reasoning: string | undefined;
-}) {
-  const toolResultIds: Array<string> = [];
-
-  for (const message of messages) {
-    if (message.role === 'tool') {
-      for (const content of message.content) {
-        if (content.type === 'tool-result') {
-          toolResultIds.push(content.toolCallId);
-        }
+      if (Array.isArray(dbMessage.content)) {
+        // New format: directly stored UIMessage.parts.
+        return dbMessage.content as UIMessage['parts'];
       }
-    }
-  }
 
-  const messagesBySanitizedContent = messages.map((message) => {
-    if (message.role !== 'assistant') return message;
+      // Unknown/legacy format: render nothing instead of crashing.
+      return [];
+    })();
 
-    if (typeof message.content === 'string') return message;
-
-    const sanitizedContent = message.content.filter((content) =>
-      content.type === 'tool-call'
-        ? toolResultIds.includes(content.toolCallId)
-        : content.type === 'text'
-          ? content.text.length > 0
-          : true,
-    );
-
-    if (reasoning) {
-      // @ts-expect-error: reasoning message parts in sdk is wip
-      sanitizedContent.push({ type: 'reasoning', reasoning });
-    }
-
-    return {
-      ...message,
-      content: sanitizedContent,
-    };
+    return [
+      {
+        id: dbMessage.id,
+        role: dbMessage.role as UIMessage['role'],
+        parts,
+      },
+    ];
   });
-
-  return messagesBySanitizedContent.filter(
-    (message) => message.content.length > 0,
-  );
 }
 
-export function sanitizeUIMessages(messages: Array<Message>): Array<Message> {
-  const messagesBySanitizedToolInvocations = messages.map((message) => {
-    if (message.role !== 'assistant') return message;
+export function getTextFromUIMessage(message: UIMessage): string {
+  return message.parts
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('');
+}
 
-    if (!message.toolInvocations) return message;
+export function getReasoningFromUIMessage(message: UIMessage): string {
+  return message.parts
+    .filter((part) => part.type === 'reasoning')
+    .map((part) => part.text)
+    .join('');
+}
 
-    const toolResultIds: Array<string> = [];
+export function getFilePartsFromUIMessage(message: UIMessage): Array<FileUIPart> {
+  return message.parts.filter((part) => part.type === 'file') as Array<FileUIPart>;
+}
 
-    for (const toolInvocation of message.toolInvocations) {
-      if (toolInvocation.state === 'result') {
-        toolResultIds.push(toolInvocation.toolCallId);
-      }
-    }
-
-    const sanitizedToolInvocations = message.toolInvocations.filter(
-      (toolInvocation) =>
-        toolInvocation.state === 'result' ||
-        toolResultIds.includes(toolInvocation.toolCallId),
-    );
-
-    return {
+export function sanitizeUIMessages(messages: Array<UIMessage>): Array<UIMessage> {
+  return messages
+    .map((message) => ({
       ...message,
-      toolInvocations: sanitizedToolInvocations,
-    };
-  });
-
-  return messagesBySanitizedToolInvocations.filter(
-    (message) =>
-      message.content.length > 0 ||
-      (message.toolInvocations && message.toolInvocations.length > 0),
-  );
+      parts: message.parts.filter((part) => {
+        if (part.type === 'text' || part.type === 'reasoning') {
+          return part.text.trim().length > 0;
+        }
+        return true;
+      }),
+    }))
+    .filter((message) => message.parts.length > 0);
 }
 
-export function getMostRecentUserMessage(messages: Array<Message>) {
+export function getMostRecentUserMessage(messages: Array<UIMessage>) {
   const userMessages = messages.filter((message) => message.role === 'user');
   return userMessages.at(-1);
 }

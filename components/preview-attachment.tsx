@@ -1,4 +1,4 @@
-import type { Attachment } from 'ai';
+import type { UploadedAttachment } from '@/lib/chat-attachments';
 
 import { LoaderIcon } from './icons';
 
@@ -6,7 +6,7 @@ export const PreviewAttachment = ({
   attachment,
   isUploading = false,
 }: {
-  attachment: Attachment;
+  attachment: UploadedAttachment;
   isUploading?: boolean;
 }) => {
   const { name, url, contentType } = attachment;
