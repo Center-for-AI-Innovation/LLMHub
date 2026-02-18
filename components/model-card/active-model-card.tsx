@@ -57,7 +57,13 @@ const ActiveModelCard = memo(({
   return (
     <div 
       key={model.id} 
-      onClick={() => {
+      onClick={(event) => {
+        // Ignore portal-based clicks (e.g. dialog overlay/content) that bubble
+        // through the React tree but are not inside the card DOM node.
+        if (!event.currentTarget.contains(event.target as Node)) {
+          return;
+        }
+
         if (deployment?.id) {
           openLogsPanel(
             deployment.id,
@@ -114,6 +120,10 @@ const ActiveModelCard = memo(({
           </div>
         )}
       </div>
+
+      <p className="mb-3 text-xs text-muted-foreground">
+        Click anywhere on this card to view deployment logs.
+      </p>
       
       <div className="mt-auto flex justify-between w-full gap-3">
         <Button
