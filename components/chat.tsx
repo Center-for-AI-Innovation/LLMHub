@@ -31,10 +31,30 @@ import { useVllmJob, getVllmChatEndpoint } from '@/hooks/use-vllm-job';
 import { useNewChat } from '@/hooks/use-new-chat';
 import type { DataStreamDelta } from '@/lib/ai/data-stream';
 
+const VLLM_JOB_MODEL_PREFIX = 'vllm-job:';
+
+function getSelectedVllmJobId(model: string): string | null {
+  if (!model.startsWith(VLLM_JOB_MODEL_PREFIX)) {
+    return null;
+  }
+
+  const jobId = model.slice(VLLM_JOB_MODEL_PREFIX.length).trim();
+  return jobId.length > 0 ? jobId : null;
+}
+
+function isSlurmBackedModel(model: string): boolean {
+  return model === 'vllm-model' || model.startsWith(VLLM_JOB_MODEL_PREFIX);
+}
+
 // Helper to determine API endpoint based on model and job ID
 const getApiEndpoint = (model: string, vllmJobId: string | null) => {
   if (model === 'guest-vllm-model' || model === 'always-on-model') {
     return '/api/public/chat';
+  }
+
+  const selectedJobId = getSelectedVllmJobId(model);
+  if (selectedJobId) {
+    return getVllmChatEndpoint(selectedJobId);
   }
 
   if (model === 'vllm-model') {
@@ -120,7 +140,12 @@ function ensureModelReadyForSend({
     return true;
   }
 
-  if (selectedModel !== 'vllm-model') {
+  if (!isSlurmBackedModel(selectedModel)) {
+    return true;
+  }
+
+  // Deployment-specific options include the job ID directly.
+  if (getSelectedVllmJobId(selectedModel)) {
     return true;
   }
 
@@ -243,7 +268,7 @@ function ChatInner({
               trigger,
               messageId,
               selectedChatModel: selectedModel,
-              ...(selectedModel === 'vllm-model' && vllmJobId
+              ...(isSlurmBackedModel(selectedModel) && vllmJobId
                 ? { vllmJobId }
                 : {}),
             },
