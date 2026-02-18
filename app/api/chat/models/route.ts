@@ -1,5 +1,5 @@
 import { auth } from '@/app/(auth)/auth';
-import { getActiveModelDeploymentByUserId } from '@/lib/db/queries';
+import { getActiveAccessibleDeploymentByUserId } from '@/lib/db/queries';
 import { NextResponse } from 'next/server';
 
 const VLLM_MODEL = process.env.VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct';
@@ -53,7 +53,7 @@ async function getActiveDeploymentOptionForUser(
   }
 
   try {
-    const deployment = await getActiveModelDeploymentByUserId(userId);
+    const deployment = await getActiveAccessibleDeploymentByUserId(userId);
     if (!deployment) {
       return null;
     }
