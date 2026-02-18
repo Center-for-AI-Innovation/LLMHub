@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { Button } from '@/components/ui/button';
+import { PublicApiDialog } from '@/components/public-api-dialog';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import {
@@ -21,6 +22,7 @@ const actionButtonClass = "w-1/2 group";
 // Memoized Active Model Card component
 const ActiveModelCard = memo(({ 
   model, 
+  deployments,
   getModelIcon, 
   getModelGradient, 
   getModelDeployment, 
@@ -30,6 +32,7 @@ const ActiveModelCard = memo(({
   isStopping
 }: { 
   model: ModelInfo, 
+  deployments: ModelDeployment[],
   getModelIcon: (model: ModelInfo) => any, 
   getModelGradient: (model: ModelInfo) => string,
   getModelDeployment: (model: ModelInfo) => ModelDeployment | undefined, 
@@ -43,6 +46,9 @@ const ActiveModelCard = memo(({
   const deployment = getModelDeployment(model);
   const statusInfo = deployment ? getStatusInfo(deployment.status) : null;
   const deploymentStatus = deployment?.status?.toLowerCase();
+  const activeDeployments = deployments.filter((item) =>
+    ['ready', 'running'].includes(item.status.toLowerCase()),
+  );
   const displayModelName =
     ((model as unknown as { name?: string }).name ??
       model.modelName ??
@@ -143,6 +149,24 @@ const ActiveModelCard = memo(({
             <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
           </Link>
         </Button>
+      </div>
+
+      <div className="mt-3">
+        <PublicApiDialog
+          deployments={activeDeployments}
+          defaultDeploymentId={deployment?.id}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full bg-white/50 dark:bg-white/5 border-0"
+              onClick={(event) => event.stopPropagation()}
+              disabled={activeDeployments.length === 0}
+            >
+              API
+            </Button>
+          }
+        />
       </div>
     </div>
   );

@@ -412,6 +412,7 @@ export default function CatalogPage() {
                     <ActiveModelCard
                       key={model.id}
                       model={model}
+                      deployments={deployments}
                       getModelIcon={modelUtilFunctions.getModelIcon}
                       getModelGradient={modelUtilFunctions.getModelGradient}
                       getModelDeployment={getModelDeployment}
