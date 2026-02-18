@@ -4,9 +4,9 @@ import { auth } from '@/app/(auth)/auth';
 import {
   addUserToDeployment,
   createModelDeployment,
+  getAccessibleDeploymentsByUserId,
   getAvailableModelById,
   getAvailableModelByName,
-  getModelDeploymentsByUserId,
 } from '@/lib/db/queries';
 import { type NextRequest, NextResponse } from 'next/server';
 
@@ -50,7 +50,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const deployments = await getModelDeploymentsByUserId(userId);
+    const deployments = await getAccessibleDeploymentsByUserId(userId);
     return NextResponse.json(deployments);
   } catch (error) {
     console.error('Error fetching local test deployments:', error);
