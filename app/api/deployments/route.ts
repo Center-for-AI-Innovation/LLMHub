@@ -1,4 +1,5 @@
 import { auth } from '@/app/(auth)/auth';
+import { addUserToDeployment } from '@/lib/db/queries';
 import { type NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
@@ -6,6 +7,23 @@ const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 const DEFAULT_LAUNCH_RESOURCE_TYPE = 'nvidia_a40';
 const DEFAULT_LAUNCH_PARTITION = 'gpuA40x4';
 const DEFAULT_LAUNCH_TIME = '00:30:00';
+
+function getDeploymentId(payload: unknown): string | null {
+  if (payload && typeof payload === 'object') {
+    const directId = (payload as { id?: unknown }).id;
+    if (typeof directId === 'string') {
+      return directId;
+    }
+
+    const nestedId = (payload as { deployment?: { id?: unknown } }).deployment
+      ?.id;
+    if (typeof nestedId === 'string') {
+      return nestedId;
+    }
+  }
+
+  return null;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -114,6 +132,35 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
+    const deploymentId = getDeploymentId(data);
+
+    if (deploymentId) {
+      try {
+        await addUserToDeployment({
+          deploymentId,
+          userId,
+          permission: 'owner',
+        });
+      } catch (error) {
+        const errorCode =
+          typeof error === 'object' && error !== null && 'code' in error
+            ? (error as { code?: string }).code
+            : undefined;
+
+        // Ignore duplicates in case the owner row already exists.
+        if (errorCode !== '23505') {
+          console.error(
+            'Error creating authorized users for deployment:',
+            error,
+          );
+          return NextResponse.json(
+            { error: 'Failed to create authorized users.' },
+            { status: 500 },
+          );
+        }
+      }
+    }
+
     return NextResponse.json(data);
   } catch (error) {
     console.error('Error launching model:', error);
