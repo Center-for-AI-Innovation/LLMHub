@@ -69,7 +69,7 @@ export function ModelSelector({
         })}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild className="cursor-pointer font-medium">
-          <Link href="/dashboard">Request Model</Link>
+          <Link href="/catalog" prefetch={false}>Request Model</Link>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

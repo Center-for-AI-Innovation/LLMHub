@@ -142,7 +142,7 @@ export default function LandingPage() {
               Join the UIUC research community in leveraging state-of-the-art language models
               for your projects.
             </p>
-            <Link href="/dashboard">
+            <Link href="/catalog" prefetch={false}>
               <Button size="lg" className="mt-6 bg-secondary hover:bg-secondary/90 h-14 px-8 text-lg rounded-full">
                 Request Your Model Now
               </Button>

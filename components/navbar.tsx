@@ -17,6 +17,7 @@ export function Navbar() {
   const queryClient = useQueryClient();
   const { data: session } = useSession();
   const isChatPage = pathname.startsWith('/chat');
+  const isCatalogPage = pathname === '/catalog' || pathname === '/dashboard';
 
   return (
     <header className="relative z-50 border-b border-primary/10 bg-background/50 backdrop-blur-xl">
@@ -41,7 +42,18 @@ export function Navbar() {
             </Link>
             <ThemeToggle />
             <Button variant="secondary" size="sm" className="px-4" asChild>
-              <Link href="/dashboard">Request Model</Link>
+              <Link
+                href="/catalog"
+                prefetch={false}
+                aria-current={isCatalogPage ? 'page' : undefined}
+                onClick={(event) => {
+                  if (isCatalogPage) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                Request Model
+              </Link>
             </Button>
             {!isChatPage ? (
               session?.user ? (
