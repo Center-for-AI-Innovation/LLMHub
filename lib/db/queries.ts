@@ -755,3 +755,40 @@ export async function getAccessibleDeploymentsByUserId(
     throw error;
   }
 }
+
+/**
+ * Get the most recent active deployment a user can access
+ * (owner or shared via AuthorizedUsers).
+ */
+export async function getActiveAccessibleDeploymentByUserId(
+  userId: string,
+): Promise<ModelDeployment | null> {
+  try {
+    const [row] = await db
+      .select({ deployment: modelDeployment })
+      .from(authorizedUsers)
+      .innerJoin(
+        modelDeployment,
+        eq(authorizedUsers.deploymentId, modelDeployment.id),
+      )
+      .where(
+        and(
+          eq(authorizedUsers.userId, userId),
+          or(
+            eq(modelDeployment.status, 'ready'),
+            eq(modelDeployment.status, 'running'),
+          ),
+        ),
+      )
+      .orderBy(desc(modelDeployment.updatedAt), desc(modelDeployment.createdAt))
+      .limit(1);
+
+    return row?.deployment || null;
+  } catch (error) {
+    console.error(
+      'Failed to get active accessible deployment by user id from database',
+      error,
+    );
+    throw error;
+  }
+}
