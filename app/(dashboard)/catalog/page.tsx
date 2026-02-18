@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Navbar } from '@/components/navbar';
 import { Button } from '@/components/ui/button';
@@ -253,9 +252,9 @@ export default function CatalogPage() {
         const fallbackId = deployment.modelId || deployment.modelName;
         return {
           id: fallbackId,
-          name: deployment.modelName || fallbackId,
+          modelName: deployment.modelName || fallbackId,
           description: 'Active deployment',
-          status: 'WARM',
+          status: 'warm',
           type: 'Medium',
           family: fallbackId.split('-')[0] || 'custom',
           variant: fallbackId,
@@ -406,11 +405,7 @@ export default function CatalogPage() {
                   className="relative transition-colors duration-200 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 >
                   {activeTab === 'active' && (
-                    <motion.span
-                      layoutId="catalog-tab-active-bg"
-                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                      className="absolute inset-0 rounded-md bg-background shadow-sm"
-                    />
+                    <span className="absolute inset-0 rounded-md bg-background shadow-sm" />
                   )}
                   <span className="relative z-10 inline-flex items-center">
                     Active Models
@@ -426,11 +421,7 @@ export default function CatalogPage() {
                   className="relative transition-colors duration-200 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 >
                   {activeTab === 'available' && (
-                    <motion.span
-                      layoutId="catalog-tab-active-bg"
-                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                      className="absolute inset-0 rounded-md bg-background shadow-sm"
-                    />
+                    <span className="absolute inset-0 rounded-md bg-background shadow-sm" />
                   )}
                   <span className="relative z-10 inline-flex items-center">
                     Available Models

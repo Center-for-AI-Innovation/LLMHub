@@ -9,6 +9,7 @@ It is used when the user selects the "vLLM Local" model in the model selector.
 import {
   type Message,
   createDataStreamResponse,
+  generateText,
   smoothStream,
   streamText,
 } from 'ai';

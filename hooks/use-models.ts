@@ -63,6 +63,7 @@ export interface ModelSpecs {
 export interface ModelInfo {
   id: string;
   modelName: string;
+  name?: string;
   description: string;
   status: 'warm' | 'cold';
   type: 'Small' | 'Medium' | 'Large';
