@@ -1,16 +1,16 @@
 'use client';
 
-interface CodeBlockProps {
-  node: any;
-  inline: boolean;
-  className: string;
-  children: any;
-}
+import type { ComponentPropsWithoutRef } from 'react';
+
+type CodeBlockProps = ComponentPropsWithoutRef<'code'> & {
+  node?: unknown;
+  inline?: boolean;
+};
 
 export function CodeBlock({
   node,
-  inline,
-  className,
+  inline = false,
+  className = '',
   children,
   ...props
 }: CodeBlockProps) {

@@ -1,7 +1,7 @@
 import { PreviewMessage } from './message';
 import { useScrollToBottom } from './use-scroll-to-bottom';
 import type { Vote } from '@/lib/db/schema';
-import type { ChatRequestOptions, Message } from 'ai';
+import type { ChatRequestOptions, UIMessage } from 'ai';
 import { memo } from 'react';
 import equal from 'fast-deep-equal';
 import type { UIArtifact } from './artifact';
@@ -10,13 +10,14 @@ interface ArtifactMessagesProps {
   chatId: string;
   isLoading: boolean;
   votes: Array<Vote> | undefined;
-  messages: Array<Message>;
+  messages: Array<UIMessage>;
   setMessages: (
-    messages: Message[] | ((messages: Message[]) => Message[]),
+    messages: UIMessage[] | ((messages: UIMessage[]) => UIMessage[]),
   ) => void;
-  reload: (
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (
+    message?: any,
+    options?: ChatRequestOptions,
+  ) => Promise<void>;
   isReadonly: boolean;
   artifactStatus: UIArtifact['status'];
 }
@@ -27,7 +28,7 @@ function PureArtifactMessages({
   votes,
   messages,
   setMessages,
-  reload,
+  sendMessage,
   isReadonly,
 }: ArtifactMessagesProps) {
   const [messagesContainerRef, messagesEndRef] =
@@ -50,7 +51,7 @@ function PureArtifactMessages({
               : undefined
           }
           setMessages={setMessages}
-          reload={reload}
+          sendMessage={sendMessage}
           isReadonly={isReadonly}
         />
       ))}
