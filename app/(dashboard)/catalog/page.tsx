@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type ChangeEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Navbar } from '@/components/navbar';
 import { Button } from '@/components/ui/button';
@@ -108,8 +108,6 @@ function getStatusInfo(status: string) {
 }
 
 export default function CatalogPage() {
-  const router = useRouter();
-
   const [activeTab, setActiveTab] = useState<'active' | 'available'>(
     'available',
   );
@@ -297,12 +295,12 @@ export default function CatalogPage() {
       <div className="container mx-auto p-6">
         <div className="mb-4">
           <Button
+            asChild
             variant="default"
             size="sm"
             className="relative ml-3 h-9 overflow-visible rounded-l-none bg-[#ff5f05] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#e65404] before:absolute before:right-full before:top-0 before:size-0 before:border-y-[18px] before:border-r-[12px] before:border-y-transparent before:border-r-[#ff5f05] before:transition-colors before:content-[''] hover:before:border-r-[#e65404]"
-            onClick={() => router.push('/chat')}
           >
-            Back to chat
+            <Link href="/chat">Back to chat</Link>
           </Button>
         </div>
         <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
