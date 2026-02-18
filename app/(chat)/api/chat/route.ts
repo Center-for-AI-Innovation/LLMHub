@@ -50,6 +50,12 @@ export async function POST(request: Request) {
 
   const chat = await getChatById({ id });
 
+  if (chat && chat.userId !== session.user.id) {
+    return new Response('Unauthorized - You do not have access to this chat', {
+      status: 403,
+    });
+  }
+
   if (!chat) {
     const title = await generateTitleFromUserMessage({ message: userMessage });
     await saveChat({
@@ -94,6 +100,15 @@ export async function POST(request: Request) {
         onFinish: async ({ response, reasoning }) => {
           if (session.user?.id) {
             try {
+              const existingChat = await getChatById({ id });
+              if (!existingChat || existingChat.userId !== session.user.id) {
+                console.error(
+                  '[Chat API] Unauthorized attempt to save response to chat:',
+                  id,
+                );
+                return;
+              }
+
               const sanitizedResponseMessages = sanitizeResponseMessages({
                 messages: response.messages,
                 reasoning,

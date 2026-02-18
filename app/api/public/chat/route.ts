@@ -98,8 +98,16 @@ export async function POST(request: Request) {
     }
 
     if (userId && id) {
+      const existingChat = await getChatById({ id });
+
+      if (existingChat && existingChat.userId !== userId) {
+        return createErrorResponse(
+          'Unauthorized - You do not have access to this chat',
+          403,
+        );
+      }
+
       try {
-        const existingChat = await getChatById({ id });
         if (!existingChat) {
           const title = generateFallbackTitleFromMessage(userMessage);
           await saveChat({
@@ -144,6 +152,15 @@ export async function POST(request: Request) {
             }
 
             try {
+              const existingChat = await getChatById({ id });
+              if (!existingChat || existingChat.userId !== userId) {
+                console.error(
+                  '[Public Chat] Unauthorized attempt to save response to chat:',
+                  id,
+                );
+                return;
+              }
+
               const sanitizedResponseMessages = sanitizeResponseMessages({
                 messages: response.messages,
                 reasoning,
