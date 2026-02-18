@@ -5,7 +5,6 @@
  * It returns the job ID of the user's active deployment.
  */
 
-import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 const VLLM_JOB_QUERY_KEY = ['vllm-job'] as const;
@@ -85,9 +84,7 @@ export function useVllmJob(enabled = true) {
   const expiresAt = data?.expiresAt || null;
 
   // Function to refresh/revalidate the deployment info
-  const refreshJobId = useCallback(async () => {
-    return refreshJobMutation.mutateAsync();
-  }, [refreshJobMutation]);
+  const refreshJobId = async () => refreshJobMutation.mutateAsync();
 
   // Check if there's an active deployment
   const hasActiveDeployment =

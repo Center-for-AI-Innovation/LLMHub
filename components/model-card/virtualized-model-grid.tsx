@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import { VirtualizedModelCard } from './virtualized-model-card';
 
@@ -10,18 +10,15 @@ const VirtualizedModelGrid = ({ modelIds }: { modelIds: string[] }) => {
   // Initial render only shows first 8 models (or fewer if less available)
   const itemsToShow = Math.min(8, modelIds.length);
   
-  // Load more models when user scrolls
-  const loadMoreItems = useCallback(() => {
-    setVisibleStart(prev => Math.min(prev + 8, Math.max(0, modelIds.length - 8)));
-  }, [modelIds.length]);
-  
   // Set up intersection observer to load more items when user scrolls
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         const [entry] = entries;
         if (entry.isIntersecting && visibleStart + itemsToShow < modelIds.length) {
-          loadMoreItems();
+          setVisibleStart((prev) =>
+            Math.min(prev + 8, Math.max(0, modelIds.length - 8)),
+          );
         }
       },
       { threshold: 0.1 }
@@ -32,13 +29,10 @@ const VirtualizedModelGrid = ({ modelIds }: { modelIds: string[] }) => {
     }
     
     return () => observer.disconnect();
-  }, [visibleStart, itemsToShow, modelIds.length, loadMoreItems]);
+  }, [visibleStart, itemsToShow, modelIds.length]);
   
   // Get visible model IDs
-  const visibleModelIds = useMemo(() => 
-    modelIds.slice(0, visibleStart + itemsToShow),
-    [modelIds, visibleStart, itemsToShow]
-  );
+  const visibleModelIds = modelIds.slice(0, visibleStart + itemsToShow);
   
   return (
     <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

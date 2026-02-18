@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Sheet,
@@ -100,6 +100,8 @@ const statusConfig: Record<
   },
 };
 
+const EMPTY_LOGS: string[] = [];
+
 function StatusBadge({ status }: { status: DeploymentStatus }) {
   const config = statusConfig[status] || statusConfig.pending;
   const Icon = config.icon;
@@ -175,23 +177,18 @@ export function DeploymentLogsPanel({
 
   const status = (logsData?.deployment?.status ||
     'pending') as DeploymentStatus;
-  const logs = useMemo(
-    () => logsData?.logs?.[activeTab] ?? [],
-    [logsData, activeTab],
-  );
+  const logs = logsData?.logs?.[activeTab] ?? EMPTY_LOGS;
   const displayModelName =
     modelName || logsData?.deployment?.modelName || 'Model';
   const errorMessage = logsData?.deployment?.errorMessage;
-  const displayErrorMessage = useMemo(() => {
-    if (!errorMessage) return null;
-    if (errorMessage.toLowerCase().includes('slurm job failed')) {
-      return 'Failed to launch model';
-    }
-    return errorMessage;
-  }, [errorMessage]);
+  const displayErrorMessage = !errorMessage
+    ? null
+    : errorMessage.toLowerCase().includes('slurm job failed')
+      ? 'Failed to launch model'
+      : errorMessage;
 
   // Handle scroll to detect if user scrolled up
-  const handleScroll = useCallback(() => {
+  function handleScroll() {
     if (!logsContainerRef.current) return;
 
     const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
@@ -200,7 +197,7 @@ export function DeploymentLogsPanel({
     if (!isAtBottom && autoScroll) {
       setAutoScroll(false);
     }
-  }, [autoScroll]);
+  }
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
@@ -209,12 +206,12 @@ export function DeploymentLogsPanel({
     }
   }, [logs, autoScroll]);
 
-  const scrollToBottom = useCallback(() => {
+  function scrollToBottom() {
     setAutoScroll(true);
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+  }
 
-  const copyLogs = useCallback(async () => {
+  async function copyLogs() {
     const textToCopy = logs.join('\n');
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -223,7 +220,7 @@ export function DeploymentLogsPanel({
     } catch (err) {
       console.error('Failed to copy logs:', err);
     }
-  }, [logs]);
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>

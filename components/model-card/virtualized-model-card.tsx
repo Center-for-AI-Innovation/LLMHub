@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo } from 'react';
+import { useState, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Loader2, Calendar, ArrowRight } from 'lucide-react';
@@ -17,12 +17,9 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
   const [isModelLaunching, setIsModelLaunching] = useState(false);
 
   // Find model data in context
-  const model = useMemo(
-    () => models.find((m) => m.id === modelId),
-    [models, modelId],
-  );
+  const model = models.find((m) => m.id === modelId);
 
-  const handleLaunch = useCallback(async () => {
+  const handleLaunch = async () => {
     if (!model) return;
 
     setIsModelLaunching(true);
@@ -34,7 +31,7 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
     } finally {
       setIsModelLaunching(false);
     }
-  }, [model, launchModel]);
+  };
 
   if (!model || isLoadingModels) {
     return (
@@ -47,6 +44,10 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
   // Get icon and gradient
   const Icon = modelUtilFunctions.getModelIcon(model);
   const gradient = modelUtilFunctions.getModelGradient(model);
+  const displayModelName =
+    ((model as unknown as { name?: string }).name ??
+      model.modelName ??
+      model.id);
 
   return (
     <div
@@ -70,7 +71,7 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
       </div>
 
       <div className="mb-2">
-        <h3 className="text-xl font-semibold truncate">{model.name}</h3>
+        <h3 className="text-xl font-semibold truncate">{displayModelName}</h3>
       </div>
 
       <p className="text-muted-foreground line-clamp-2 mb-4">
