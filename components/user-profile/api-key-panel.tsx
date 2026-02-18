@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Copy, KeyRound, RotateCcw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -22,10 +22,9 @@ export function ApiKeyPanel({ hasApiKey, expiresAt }: ApiKeyPanelProps) {
 
   const generateApiKey = useGenerateApiKey();
 
-  const formattedExpiry = useMemo(() => {
-    if (!currentExpiresAt) return 'Not set';
-    return new Date(currentExpiresAt).toLocaleString();
-  }, [currentExpiresAt]);
+  const formattedExpiry = currentExpiresAt
+    ? new Date(currentExpiresAt).toLocaleString()
+    : 'Not set';
 
   // Handle generating a new API key
   // A toast notification is shown to the user for succcess or failure
