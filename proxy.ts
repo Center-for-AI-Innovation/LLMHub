@@ -2,7 +2,7 @@ import { auth } from '@/app/(auth)/auth';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export default auth(async (req: NextRequest) => {
+export default auth(async function proxy(req: NextRequest) {
   const session = await auth();
   const isLoggedIn = !!session?.user;
   const { nextUrl } = req;
