@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Braces, Copy, KeyRound, TerminalSquare } from 'lucide-react';
 
 import type { ModelDeployment } from '@/hooks/use-models';
@@ -57,11 +57,9 @@ export function PublicApiDialog({
   defaultApiKey,
   trigger,
 }: PublicApiDialogProps) {
-  const [hostOrigin, setHostOrigin] = useState('');
-  const [selectedDeploymentId, setSelectedDeploymentId] = useState('');
-  const [apiKeyValue, setApiKeyValue] = useState(
-    defaultApiKey || DEFAULT_API_KEY,
-  );
+  const [selectedDeploymentOverride, setSelectedDeploymentOverride] =
+    useState<string>('');
+  const [apiKeyOverride, setApiKeyOverride] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] =
     useState<SnippetLanguage>('curl');
 
@@ -72,59 +70,35 @@ export function PublicApiDialog({
     [deployments],
   );
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setHostOrigin(window.location.origin);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (defaultApiKey) {
-      setApiKeyValue(defaultApiKey);
-    }
-  }, [defaultApiKey]);
-
-  useEffect(() => {
-    if (activeDeployments.length === 0) {
-      setSelectedDeploymentId('');
-      return;
-    }
-
-    if (
-      defaultDeploymentId &&
-      activeDeployments.some(
-        (deployment) => deployment.id === defaultDeploymentId,
-      )
-    ) {
-      setSelectedDeploymentId(defaultDeploymentId);
-      return;
-    }
-
-    if (
-      selectedDeploymentId &&
-      activeDeployments.some(
-        (deployment) => deployment.id === selectedDeploymentId,
-      )
-    ) {
-      return;
-    }
-
-    setSelectedDeploymentId(activeDeployments[0].id);
-  }, [activeDeployments, defaultDeploymentId, selectedDeploymentId]);
-
   const selectedDeployment = useMemo(() => {
-    if (!selectedDeploymentId) {
-      return activeDeployments[0] ?? null;
+    if (activeDeployments.length === 0) {
+      return null;
     }
 
-    return (
-      activeDeployments.find(
-        (deployment) => deployment.id === selectedDeploymentId,
-      ) ?? activeDeployments[0] ?? null
-    );
-  }, [activeDeployments, selectedDeploymentId]);
+    if (selectedDeploymentOverride) {
+      const selected = activeDeployments.find(
+        (deployment) => deployment.id === selectedDeploymentOverride,
+      );
+      if (selected) {
+        return selected;
+      }
+    }
 
-  const resolvedOrigin = hostOrigin || DEFAULT_HOST;
+    if (defaultDeploymentId) {
+      const defaultSelected = activeDeployments.find(
+        (deployment) => deployment.id === defaultDeploymentId,
+      );
+      if (defaultSelected) {
+        return defaultSelected;
+      }
+    }
+
+    return activeDeployments[0];
+  }, [activeDeployments, defaultDeploymentId, selectedDeploymentOverride]);
+
+  const resolvedOrigin =
+    typeof window !== 'undefined' ? window.location.origin : DEFAULT_HOST;
+  const apiKeyValue = apiKeyOverride || defaultApiKey || DEFAULT_API_KEY;
   const baseUrl = selectedDeployment
     ? getPublicApiBaseUrl(resolvedOrigin, selectedDeployment)
     : '';
@@ -221,7 +195,7 @@ console.log(response.choices[0]?.message?.content);`,
                 <div className="text-sm font-medium">Deployment</div>
                 <Select
                   value={selectedDeployment?.id || ''}
-                  onValueChange={setSelectedDeploymentId}
+                  onValueChange={setSelectedDeploymentOverride}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select deployment" />
@@ -241,7 +215,7 @@ console.log(response.choices[0]?.message?.content);`,
                 <div className="flex gap-2">
                   <Input
                     value={apiKeyValue}
-                    onChange={(event) => setApiKeyValue(event.target.value)}
+                    onChange={(event) => setApiKeyOverride(event.target.value)}
                     placeholder={DEFAULT_API_KEY}
                     className="font-mono text-xs"
                   />
