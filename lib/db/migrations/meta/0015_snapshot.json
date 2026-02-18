@@ -1,6 +1,6 @@
 {
-  "id": "aabe9585-5a32-4d64-96e6-e29b520f3346",
-  "prevId": "77e08188-af12-4a67-a0fc-3d96f6a91837",
+  "id": "ebd1c314-485b-4cb9-ba75-c23902639898",
+  "prevId": "93ab5f4a-6b1a-46aa-91d9-5fe008d14011",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -15,15 +15,9 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "modelId": {
-          "name": "modelId",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "modelName": {
-          "name": "modelName",
-          "type": "varchar(255)",
+        "deploymentId": {
+          "name": "deploymentId",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
@@ -33,23 +27,17 @@
           "primaryKey": false,
           "notNull": true
         },
-        "ownerEmail": {
-          "name": "ownerEmail",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
         "allowedUserIds": {
           "name": "allowedUserIds",
           "type": "uuid[]",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "allowedUserEmails": {
           "name": "allowedUserEmails",
           "type": "varchar(255)[]",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "updatedAt": {
           "name": "updatedAt",
@@ -61,16 +49,29 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "AuthorizedUsers_modelId_ownerId_ModelDeployment_modelId_userId_fk": {
-          "name": "AuthorizedUsers_modelId_ownerId_ModelDeployment_modelId_userId_fk",
+        "AuthorizedUsers_deploymentId_ModelDeployment_id_fk": {
+          "name": "AuthorizedUsers_deploymentId_ModelDeployment_id_fk",
           "tableFrom": "AuthorizedUsers",
           "tableTo": "ModelDeployment",
           "columnsFrom": [
-            "modelId",
+            "deploymentId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "AuthorizedUsers_deploymentId_ownerId_ModelDeployment_id_userId_fk": {
+          "name": "AuthorizedUsers_deploymentId_ownerId_ModelDeployment_id_userId_fk",
+          "tableFrom": "AuthorizedUsers",
+          "tableTo": "ModelDeployment",
+          "columnsFrom": [
+            "deploymentId",
             "ownerId"
           ],
           "columnsTo": [
-            "modelId",
+            "id",
             "userId"
           ],
           "onDelete": "no action",
@@ -78,7 +79,15 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {}
+      "uniqueConstraints": {
+        "AuthorizedUsers_deploymentId_unique": {
+          "name": "AuthorizedUsers_deploymentId_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "deploymentId"
+          ]
+        }
+      }
     },
     "public.AvailableModel": {
       "name": "AvailableModel",
@@ -107,7 +116,7 @@
           "type": "varchar",
           "primaryKey": false,
           "notNull": true,
-          "default": "'WARM'"
+          "default": "'cold'"
         },
         "type": {
           "name": "type",
@@ -407,8 +416,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "tunnelUrl": {
-          "name": "tunnelUrl",
+        "proxyUrl": {
+          "name": "proxyUrl",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false

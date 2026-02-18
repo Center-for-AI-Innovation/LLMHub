@@ -2,6 +2,7 @@ import { randomInt } from 'node:crypto';
 
 import { auth } from '@/app/(auth)/auth';
 import {
+  addUserToDeployment,
   createModelDeployment,
   getAvailableModelById,
   getAvailableModelByName,
@@ -111,6 +112,19 @@ export async function POST(request: NextRequest) {
       endpointUrl: DEV_ENDPOINT_URL,
       resourceAllocation: { mode: 'local' },
     });
+
+    const authorizedUser = await addUserToDeployment({
+      deploymentId: deployment.id,
+      userId,
+      permission: 'owner',
+    });
+
+    if (!authorizedUser) {
+      return NextResponse.json(
+        { error: 'Failed to create authorized users.' },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json(deployment);
   } catch (error) {

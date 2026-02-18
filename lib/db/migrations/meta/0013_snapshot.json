@@ -1,6 +1,6 @@
 {
-  "id": "aabe9585-5a32-4d64-96e6-e29b520f3346",
-  "prevId": "77e08188-af12-4a67-a0fc-3d96f6a91837",
+  "id": "df55b1b8-c54a-45a9-9d87-ad92f8f81c46",
+  "prevId": "aabe9585-5a32-4d64-96e6-e29b520f3346",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -43,13 +43,13 @@
           "name": "allowedUserIds",
           "type": "uuid[]",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "allowedUserEmails": {
           "name": "allowedUserEmails",
           "type": "varchar(255)[]",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "updatedAt": {
           "name": "updatedAt",
