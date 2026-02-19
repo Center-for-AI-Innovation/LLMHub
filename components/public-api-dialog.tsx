@@ -495,21 +495,23 @@ if (${streamResponse ? 'true' : 'false'}) {
 
                   {/* Code */}
                   <div className="min-w-0 overflow-hidden bg-muted/40">
-                    <TabsContent value="curl" className="mt-0">
-                      <pre className="max-w-full overflow-x-auto p-4 text-[13px] leading-relaxed text-foreground">
-                        <code>{snippets.curl}</code>
-                      </pre>
-                    </TabsContent>
-                    <TabsContent value="python" className="mt-0">
-                      <pre className="max-w-full overflow-x-auto p-4 text-[13px] leading-relaxed text-foreground">
-                        <code>{snippets.python}</code>
-                      </pre>
-                    </TabsContent>
-                    <TabsContent value="javascript" className="mt-0">
-                      <pre className="max-w-full overflow-x-auto p-4 text-[13px] leading-relaxed text-foreground">
-                        <code>{snippets.javascript}</code>
-                      </pre>
-                    </TabsContent>
+                    <div className="h-[280px] overflow-auto">
+                      <TabsContent value="curl" className="mt-0">
+                        <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
+                          <code>{snippets.curl}</code>
+                        </pre>
+                      </TabsContent>
+                      <TabsContent value="python" className="mt-0">
+                        <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
+                          <code>{snippets.python}</code>
+                        </pre>
+                      </TabsContent>
+                      <TabsContent value="javascript" className="mt-0">
+                        <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
+                          <code>{snippets.javascript}</code>
+                        </pre>
+                      </TabsContent>
+                    </div>
                   </div>
                 </div>
               </Tabs>
