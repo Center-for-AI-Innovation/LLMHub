@@ -5,6 +5,7 @@ import { Loader2, Calendar, ArrowRight } from 'lucide-react';
 import { ModelContext } from './model-context';
 import * as React from 'react';
 import { modelUtilFunctions } from '@/lib/models/utils';
+import { useToast } from '@/components/ui/use-toast';
 
 // Stable class names for buttons
 const scheduleButtonClass = 'w-1/2 bg-white/50 dark:bg-white/5 border-0';
@@ -14,6 +15,7 @@ const actionButtonClass = 'w-1/2 group';
 const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
   const { models, isLoadingModels, launchModel, launchingModelId } =
     React.useContext(ModelContext);
+  const { toast } = useToast();
 
   // Find model data in context
   const model = models.find((m) => m.id === modelId);
@@ -30,6 +32,13 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
       console.error('Failed to launch model:', error);
     }
   };
+
+  function handleScheduleClick() {
+    toast({
+      title: 'Coming soon',
+      description: 'Scheduling model deployments will be available soon.',
+    });
+  }
 
   if (!model || isLoadingModels) {
     return (
@@ -90,7 +99,11 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
       </div>
 
       <div className="mt-auto flex justify-between w-full gap-3">
-        <Button variant="outline" className={scheduleButtonClass}>
+        <Button
+          variant="outline"
+          className={scheduleButtonClass}
+          onClick={handleScheduleClick}
+        >
           Schedule
           <Calendar className="ml-2 size-4" />
         </Button>
