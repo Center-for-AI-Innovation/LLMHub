@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { PublicApiDialog } from '@/components/public-api-dialog';
 import { cn } from '@/lib/utils';
@@ -37,13 +37,7 @@ function formatLocalDateTime(value: string) {
 }
 
 function LocalDateTime({ value }: { value: string }) {
-  const [formattedValue, setFormattedValue] = useState<string>('');
-
-  useEffect(() => {
-    setFormattedValue(formatLocalDateTime(value));
-  }, [value]);
-
-  return <span suppressHydrationWarning>{formattedValue || value}</span>;
+  return <span suppressHydrationWarning>{formatLocalDateTime(value)}</span>;
 }
 
 // Memoized Active Model Card component
