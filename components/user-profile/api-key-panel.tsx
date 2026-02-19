@@ -37,7 +37,7 @@ export function ApiKeyPanel({ hasApiKey, expiresAt }: ApiKeyPanelProps) {
   const handleGenerate = async () => {
     try {
       const result = await generateApiKey.mutateAsync();
-      setGeneratedKey("Bearer " + result.apiKey);
+      setGeneratedKey(result.apiKey);
       setCurrentExpiresAt(result.expiresAt);
       setCurrentHasKey(true);
       toast({
