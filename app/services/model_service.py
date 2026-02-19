@@ -348,7 +348,12 @@ class ModelService:
             return db_deployment
         if db_deployment.status == "failed":
             err = (db_deployment.errorMessage or "").lower()
-            transient_failure = "invalid job id specified" in err or "slurm_load_jobs" in err
+            transient_failure = (
+                "invalid job id specified" in err
+                or "slurm_load_jobs" in err
+                or "permission denied" in err
+                or "errno 13" in err
+            )
             if not transient_failure:
                 return db_deployment
 
@@ -377,7 +382,12 @@ class ModelService:
             err_msg = result.get("error", "Failed to get status")
             err_lower = str(err_msg).lower()
             age = datetime.utcnow() - db_deployment.createdAt
-            transient_lookup = "invalid job id specified" in err_lower or "slurm_load_jobs" in err_lower
+            transient_lookup = (
+                "invalid job id specified" in err_lower
+                or "slurm_load_jobs" in err_lower
+                or "permission denied" in err_lower
+                or "errno 13" in err_lower
+            )
 
             if transient_lookup:
                 slurm_state = self._get_slurm_state_from_sacct(db_deployment.slurmJobId)
