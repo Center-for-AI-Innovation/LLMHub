@@ -90,18 +90,111 @@ export function convertToUIMessages(
   });
 }
 
-export function getTextFromUIMessage(message: UIMessage): string {
-  return message.parts
+type ExtractedThinkSections = {
+  visibleText: string;
+  reasoningText: string;
+  hasStreamingThinkTag: boolean;
+};
+
+function extractThinkSections(text: string): ExtractedThinkSections {
+  if (!text) {
+    return {
+      visibleText: '',
+      reasoningText: '',
+      hasStreamingThinkTag: false,
+    };
+  }
+
+  const reasoningSegments: string[] = [];
+  const visibleSegments: string[] = [];
+  let cursor = 0;
+  let hasStreamingThinkTag = false;
+
+  const thinkBlockRegex = /<think>([\s\S]*?)(<\/think>|$)/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = thinkBlockRegex.exec(text)) !== null) {
+    const [rawMatch, reasoningSegment, closingTag] = match;
+    const start = match.index;
+    const end = start + rawMatch.length;
+
+    if (start > cursor) {
+      visibleSegments.push(text.slice(cursor, start));
+    }
+
+    if (reasoningSegment) {
+      reasoningSegments.push(reasoningSegment);
+    }
+
+    cursor = end;
+
+    if (closingTag !== '</think>') {
+      hasStreamingThinkTag = true;
+      break;
+    }
+  }
+
+  if (!hasStreamingThinkTag && cursor < text.length) {
+    visibleSegments.push(text.slice(cursor));
+  }
+
+  return {
+    visibleText: visibleSegments.join('').replace(/<\/think>/gi, '').trim(),
+    reasoningText: reasoningSegments
+      .join('\n\n')
+      .replace(/<\/?think>/gi, '')
+      .trim(),
+    hasStreamingThinkTag,
+  };
+}
+
+export type MessageDisplayContent = {
+  text: string;
+  reasoning: string;
+  hasStreamingThinkTag: boolean;
+};
+
+export function getDisplayContentFromUIMessage(
+  message: UIMessage,
+): MessageDisplayContent {
+  const textContent = message.parts
     .filter((part) => part.type === 'text')
     .map((part) => part.text)
     .join('');
+
+  const extractedThink =
+    message.role === 'assistant'
+      ? extractThinkSections(textContent)
+      : {
+          visibleText: textContent,
+          reasoningText: '',
+          hasStreamingThinkTag: false,
+        };
+
+  const reasoningContent = message.parts
+    .filter((part) => part.type === 'reasoning')
+    .map((part) => part.text)
+    .join('\n\n')
+    .trim();
+
+  const reasoning = [reasoningContent, extractedThink.reasoningText]
+    .filter((value) => value.length > 0)
+    .join('\n\n')
+    .trim();
+
+  return {
+    text: extractedThink.visibleText,
+    reasoning,
+    hasStreamingThinkTag: extractedThink.hasStreamingThinkTag,
+  };
+}
+
+export function getTextFromUIMessage(message: UIMessage): string {
+  return getDisplayContentFromUIMessage(message).text;
 }
 
 export function getReasoningFromUIMessage(message: UIMessage): string {
-  return message.parts
-    .filter((part) => part.type === 'reasoning')
-    .map((part) => part.text)
-    .join('');
+  return getDisplayContentFromUIMessage(message).reasoning;
 }
 
 export function getFilePartsFromUIMessage(message: UIMessage): Array<FileUIPart> {

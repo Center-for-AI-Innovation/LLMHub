@@ -15,9 +15,8 @@ import { PreviewAttachment } from './preview-attachment';
 import { Weather } from './weather';
 import {
   cn,
+  getDisplayContentFromUIMessage,
   getFilePartsFromUIMessage,
-  getReasoningFromUIMessage,
-  getTextFromUIMessage,
 } from '@/lib/utils';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
@@ -49,8 +48,25 @@ const PurePreviewMessage = ({
   isReadonly: boolean;
 }) => {
   const [mode, setMode] = useState<'view' | 'edit'>('view');
-  const messageText = getTextFromUIMessage(message);
-  const reasoningText = getReasoningFromUIMessage(message);
+  const {
+    text: messageText,
+    reasoning: reasoningText,
+    hasStreamingThinkTag,
+  } = getDisplayContentFromUIMessage(message);
+  const hasReasoningPart = message.parts.some((part) => part.type === 'reasoning');
+  const hasActiveReasoningPart = message.parts.some(
+    (part) => part.type === 'reasoning' && part.state !== 'done',
+  );
+  const isActiveAssistantMessage =
+    isLoading && message.role === 'assistant' && messageText.length === 0;
+  const isReasoningStreaming =
+    isLoading &&
+    (hasStreamingThinkTag ||
+      hasActiveReasoningPart ||
+      hasReasoningPart ||
+      isActiveAssistantMessage);
+  const shouldShowReasoning =
+    reasoningText.length > 0 || isReasoningStreaming;
   const fileParts = getFilePartsFromUIMessage(message);
   const toolParts = message.parts.filter(isToolOrDynamicToolUIPart);
 
@@ -97,14 +113,14 @@ const PurePreviewMessage = ({
               </div>
             )}
 
-            {reasoningText && (
+            {shouldShowReasoning && (
               <MessageReasoning
-                isLoading={isLoading}
+                isStreaming={isReasoningStreaming}
                 reasoning={reasoningText}
               />
             )}
 
-            {(messageText || reasoningText) && mode === 'view' && (
+            {messageText && mode === 'view' && (
               <div className="flex flex-row gap-2 items-start">
                 {message.role === 'user' && !isReadonly && (
                   <Tooltip>
@@ -249,35 +265,3 @@ const PurePreviewMessage = ({
 };
 
 export const PreviewMessage = PurePreviewMessage;
-
-export const ThinkingMessage = () => {
-  const role = 'assistant';
-
-  return (
-    <motion.div
-      className="w-full mx-auto max-w-3xl px-4 group/message "
-      initial={{ y: 5, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      data-role={role}
-    >
-      <div
-        className={cx(
-          'flex gap-4 group-data-[role=user]/message:px-3 w-full group-data-[role=user]/message:w-fit group-data-[role=user]/message:ml-auto group-data-[role=user]/message:max-w-2xl group-data-[role=user]/message:py-2 rounded-xl',
-          {
-            'group-data-[role=user]/message:bg-muted': true,
-          },
-        )}
-      >
-        <div className="size-8 flex items-center rounded-full justify-center ring-1 shrink-0 ring-border">
-          <SparklesIcon size={14} />
-        </div>
-
-        <div className="flex flex-col gap-2 w-full">
-          <div className="flex flex-col gap-4 text-muted-foreground">
-            Thinking...
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
