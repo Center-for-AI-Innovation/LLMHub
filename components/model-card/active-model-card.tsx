@@ -20,6 +20,18 @@ import type {
 const scheduleButtonClass = "w-1/2 bg-white/50 dark:bg-white/5 border-0";
 const actionButtonClass = "w-1/2 group";
 
+function formatLocalDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
 // Memoized Active Model Card component
 const ActiveModelCard = memo(({ 
   model, 
@@ -117,7 +129,7 @@ const ActiveModelCard = memo(({
         {deployment?.expiresAt && (
           <div className="col-span-2 flex items-center gap-1 text-amber-500">
             <Calendar className="size-3" />
-            <span>Expires: {new Date(deployment.expiresAt).toLocaleString()}</span>
+            <span>Expires (local): {formatLocalDateTime(deployment.expiresAt)}</span>
           </div>
         )}
       </div>
