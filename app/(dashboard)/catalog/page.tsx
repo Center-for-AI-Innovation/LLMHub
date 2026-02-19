@@ -77,6 +77,10 @@ export default function CatalogPage() {
   >(null);
   const [selectedModelName, setSelectedModelName] = useState<string>('');
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchingModelId, setLaunchingModelId] = useState<string | null>(null);
+  const [stoppingDeploymentId, setStoppingDeploymentId] = useState<
+    string | null
+  >(null);
 
   // Fetch models and deployments using React Query
   const {
@@ -95,10 +99,9 @@ export default function CatalogPage() {
 
   const { mutate: refreshModels, isPending: isRefreshing } = useRefreshModels();
 
-  const { mutateAsync: launchModelAsync, isPending: isLaunching } =
-    useLaunchModel();
+  const { mutateAsync: launchModelAsync } = useLaunchModel();
 
-  const { mutate: stopModel, isPending: isStopping } = useStopModel();
+  const { mutateAsync: stopModelAsync } = useStopModel();
 
   // Get model deployment if exists
   function getModelDeployment(model: ModelInfo) {
@@ -125,10 +128,13 @@ export default function CatalogPage() {
   }
 
   async function handleStopModel(deploymentId: string): Promise<void> {
+    setStoppingDeploymentId(deploymentId);
     try {
-      await stopModel(deploymentId);
+      await stopModelAsync(deploymentId);
     } catch (error) {
       console.error('Failed to stop model:', error);
+    } finally {
+      setStoppingDeploymentId(null);
     }
   }
 
@@ -137,6 +143,7 @@ export default function CatalogPage() {
     huggingfaceId?: string,
     family?: string,
   ) {
+    setLaunchingModelId(modelId);
     try {
       const deployment = await launchModelAsync({
         modelId,
@@ -159,6 +166,8 @@ export default function CatalogPage() {
         variant: 'destructive',
       });
       console.error('Failed to launch model:', error);
+    } finally {
+      setLaunchingModelId(null);
     }
   }
 
@@ -224,7 +233,7 @@ export default function CatalogPage() {
     models: availableModels,
     isLoadingModels,
     launchModel: stableLaunchModel,
-    isLaunching,
+    launchingModelId,
     openLogsPanel: handleOpenLogsPanel,
   };
 
@@ -364,14 +373,13 @@ export default function CatalogPage() {
                     <ActiveModelCard
                       key={model.id}
                       model={model}
-                      deployments={deployments}
                       getModelIcon={modelUtilFunctions.getModelIcon}
                       getModelGradient={modelUtilFunctions.getModelGradient}
                       getModelDeployment={getModelDeployment}
                       getStatusInfo={getDeploymentStatusInfo}
                       handleStopModel={handleStopModel}
                       openLogsPanel={handleOpenLogsPanel}
-                      isStopping={isStopping}
+                      stoppingDeploymentId={stoppingDeploymentId}
                     />
                   ))}
                 </div>

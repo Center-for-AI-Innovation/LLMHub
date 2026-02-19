@@ -23,31 +23,34 @@ const actionButtonClass = "w-1/2 group";
 // Memoized Active Model Card component
 const ActiveModelCard = memo(({ 
   model, 
-  deployments,
   getModelIcon, 
   getModelGradient, 
   getModelDeployment, 
   getStatusInfo,
   handleStopModel,
   openLogsPanel,
-  isStopping
+  stoppingDeploymentId,
 }: { 
   model: ModelInfo, 
-  deployments: ModelDeployment[],
   getModelIcon: (model: ModelInfo) => any, 
   getModelGradient: (model: ModelInfo) => string,
   getModelDeployment: (model: ModelInfo) => ModelDeployment | undefined, 
   getStatusInfo: (status: string) => DeploymentStatusInfo,
   handleStopModel: (deploymentId: string) => Promise<void>,
   openLogsPanel: (deploymentId: string, modelName: string) => void,
-  isStopping: boolean
+  stoppingDeploymentId: string | null
 }) => {
   const Icon = getModelIcon(model);
   const gradient = getModelGradient(model);
   const deployment = getModelDeployment(model);
   const statusInfo = deployment ? getStatusInfo(deployment.status) : null;
-  const activeDeployments = deployments.filter((item) =>
-    ['ready', 'running'].includes(item.status.toLowerCase()),
+  const isDeploymentApiReady = Boolean(
+    deployment &&
+      ['ready', 'running'].includes(deployment.status.toLowerCase()),
+  );
+  const apiDeployments = deployment && isDeploymentApiReady ? [deployment] : [];
+  const isStoppingCurrentDeployment = Boolean(
+    deployment?.id && stoppingDeploymentId === deployment.id,
   );
   const displayModelName =
     ((model as unknown as { name?: string }).name ??
@@ -129,9 +132,9 @@ const ActiveModelCard = memo(({
               void handleStopModel(deployment.id);
             }
           }}
-          disabled={isStopping || !deployment?.id}
+          disabled={Boolean(stoppingDeploymentId) || !deployment?.id}
         >
-          {isStopping ? (
+          {isStoppingCurrentDeployment ? (
             <Loader2 className="mr-2 size-4 animate-spin" />
           ) : (
             <Square className="mr-2 size-4" />
@@ -160,15 +163,15 @@ const ActiveModelCard = memo(({
 
       <div className="mt-3">
         <PublicApiDialog
-          deployments={activeDeployments}
-          defaultDeploymentId={deployment?.id}
+          deployments={apiDeployments}
+          defaultDeploymentId={isDeploymentApiReady ? deployment?.id : undefined}
           trigger={
             <Button
               type="button"
               variant="outline"
               className="w-full bg-white/50 dark:bg-white/5 border-0"
               onClick={(event) => event.stopPropagation()}
-              disabled={activeDeployments.length === 0}
+              disabled={!isDeploymentApiReady}
             >
               API
             </Button>

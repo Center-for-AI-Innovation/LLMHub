@@ -1,4 +1,4 @@
-import { useState, memo } from 'react';
+import { memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Loader2, Calendar, ArrowRight } from 'lucide-react';
@@ -12,24 +12,22 @@ const actionButtonClass = 'w-1/2 group';
 
 // Create an optimized card component that doesn't need props passed in
 const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
-  const { models, isLoadingModels, launchModel, isLaunching } =
+  const { models, isLoadingModels, launchModel, launchingModelId } =
     React.useContext(ModelContext);
-  const [isModelLaunching, setIsModelLaunching] = useState(false);
 
   // Find model data in context
   const model = models.find((m) => m.id === modelId);
 
+  const isModelLaunching = launchingModelId === modelId;
+
   const handleLaunch = async () => {
     if (!model) return;
 
-    setIsModelLaunching(true);
     try {
       // Pass modelId, huggingfaceId, and family for proper HF model path construction
       await launchModel(model.id, model.huggingfaceId, model.family);
     } catch (error) {
       console.error('Failed to launch model:', error);
-    } finally {
-      setIsModelLaunching(false);
     }
   };
 
@@ -99,9 +97,9 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
         <Button
           className={actionButtonClass}
           onClick={handleLaunch}
-          disabled={isModelLaunching || isLaunching}
+          disabled={Boolean(launchingModelId)}
         >
-          {isModelLaunching || isLaunching ? (
+          {isModelLaunching ? (
             <>
               <Loader2 className="mr-2 size-4 animate-spin" />
               Launching...
