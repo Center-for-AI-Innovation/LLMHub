@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { PublicApiDialog } from '@/components/public-api-dialog';
 import { cn } from '@/lib/utils';
@@ -21,7 +21,11 @@ const scheduleButtonClass = "w-1/2 bg-white/50 dark:bg-white/5 border-0";
 const actionButtonClass = "w-1/2 group";
 
 function formatLocalDateTime(value: string) {
-  const date = new Date(value);
+  const normalizedValue = /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value)
+    ? value
+    : `${value.replace(' ', 'T')}Z`;
+  const date = new Date(normalizedValue);
+
   if (Number.isNaN(date.getTime())) {
     return value;
   }
@@ -30,6 +34,16 @@ function formatLocalDateTime(value: string) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
+}
+
+function LocalDateTime({ value }: { value: string }) {
+  const [formattedValue, setFormattedValue] = useState<string>('');
+
+  useEffect(() => {
+    setFormattedValue(formatLocalDateTime(value));
+  }, [value]);
+
+  return <span suppressHydrationWarning>{formattedValue || value}</span>;
 }
 
 // Memoized Active Model Card component
@@ -129,7 +143,9 @@ const ActiveModelCard = memo(({
         {deployment?.expiresAt && (
           <div className="col-span-2 flex items-center gap-1 text-amber-500">
             <Calendar className="size-3" />
-            <span>Expires (local): {formatLocalDateTime(deployment.expiresAt)}</span>
+            <span>
+              Expires: <LocalDateTime value={deployment.expiresAt} />
+            </span>
           </div>
         )}
       </div>
