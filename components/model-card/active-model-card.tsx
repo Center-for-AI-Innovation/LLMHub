@@ -10,6 +10,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { setPreferredChatModel } from '@/lib/chat-navigation';
+import type { DeploymentStatusInfo } from '@/lib/models/deployment-status';
 import type { 
   ModelInfo,
   ModelDeployment,
@@ -36,7 +37,7 @@ const ActiveModelCard = memo(({
   getModelIcon: (model: ModelInfo) => any, 
   getModelGradient: (model: ModelInfo) => string,
   getModelDeployment: (model: ModelInfo) => ModelDeployment | undefined, 
-  getStatusInfo: (status: string) => { label: string, color: string, icon: any },
+  getStatusInfo: (status: string) => DeploymentStatusInfo,
   handleStopModel: (deploymentId: string) => Promise<void>,
   openLogsPanel: (deploymentId: string, modelName: string) => void,
   isStopping: boolean
@@ -45,7 +46,6 @@ const ActiveModelCard = memo(({
   const gradient = getModelGradient(model);
   const deployment = getModelDeployment(model);
   const statusInfo = deployment ? getStatusInfo(deployment.status) : null;
-  const deploymentStatus = deployment?.status?.toLowerCase();
   const activeDeployments = deployments.filter((item) =>
     ['ready', 'running'].includes(item.status.toLowerCase()),
   );
@@ -82,12 +82,10 @@ const ActiveModelCard = memo(({
     >
       {statusInfo && (
         <div className="absolute top-4 right-4">
-          <div className={cn("rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1", statusInfo.color)}>
-            {deploymentStatus === 'starting' || deploymentStatus === 'launching' || deploymentStatus === 'pending' ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <statusInfo.icon className="size-3" />
-            )}
+          <div className={cn("rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1", statusInfo.colorClass)}>
+            <statusInfo.icon
+              className={cn('size-3', statusInfo.iconClassName)}
+            />
             {statusInfo.label}
           </div>
         </div>
@@ -121,10 +119,6 @@ const ActiveModelCard = memo(({
         )}
       </div>
 
-      <p className="mb-3 text-xs text-muted-foreground">
-        Click anywhere on this card to view deployment logs.
-      </p>
-      
       <div className="mt-auto flex justify-between w-full gap-3">
         <Button
           variant="outline"
@@ -181,6 +175,10 @@ const ActiveModelCard = memo(({
           }
         />
       </div>
+
+      <p className="mt-3 text-center text-xs text-muted-foreground">
+        Click here to view logs
+      </p>
     </div>
   );
 });

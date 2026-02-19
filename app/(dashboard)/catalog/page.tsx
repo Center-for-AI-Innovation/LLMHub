@@ -10,10 +10,8 @@ import { RequestModelDialog } from '@/components/request-model-dialog';
 import {
   Loader2,
   RefreshCw,
-  CheckCircle2,
   Search,
   Server,
-  AlertCircle,
   ArrowRight,
 } from 'lucide-react';
 
@@ -41,12 +39,10 @@ import {
 } from '@/components/model-card';
 import { DeploymentLogsPanel } from '@/components/deployment-logs-panel';
 import { toast } from '@/components/ui/use-toast';
-
-function isActiveDeploymentStatus(status: string) {
-  return ['pending', 'launching', 'ready', 'running'].includes(
-    status.toLowerCase(),
-  );
-}
+import {
+  getDeploymentStatusInfo,
+  isActiveDeploymentStatus,
+} from '@/lib/models/deployment-status';
 
 function deploymentMatchesModel(deployment: ModelDeployment, model: ModelInfo) {
   const modelId = model.id.toLowerCase();
@@ -63,48 +59,6 @@ function parseLaunchError(error: unknown): string {
     return error.message.trim();
   }
   return 'Failed to launch model. Please try again.';
-}
-
-function getStatusInfo(status: string) {
-  switch (status.toLowerCase()) {
-    case 'running':
-    case 'ready':
-      return {
-        label: 'Active',
-        color:
-          'bg-emerald-500/10 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400',
-        icon: CheckCircle2,
-      };
-    case 'starting':
-    case 'launching':
-    case 'pending':
-      return {
-        label: 'Starting',
-        color:
-          'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400',
-        icon: Loader2,
-      };
-    case 'failed':
-      return {
-        label: 'Failed',
-        color: 'bg-destructive/10 text-destructive',
-        icon: AlertCircle,
-      };
-    case 'stopped':
-    case 'shutdown':
-    case 'completed':
-      return {
-        label: 'Stopped',
-        color: 'bg-muted text-muted-foreground',
-        icon: Server,
-      };
-    default:
-      return {
-        label: status,
-        color: 'bg-primary/10 text-primary',
-        icon: Server,
-      };
-  }
 }
 
 export default function CatalogPage() {
@@ -414,7 +368,7 @@ export default function CatalogPage() {
                       getModelIcon={modelUtilFunctions.getModelIcon}
                       getModelGradient={modelUtilFunctions.getModelGradient}
                       getModelDeployment={getModelDeployment}
-                      getStatusInfo={getStatusInfo}
+                      getStatusInfo={getDeploymentStatusInfo}
                       handleStopModel={handleStopModel}
                       openLogsPanel={handleOpenLogsPanel}
                       isStopping={isStopping}
