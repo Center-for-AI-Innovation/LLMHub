@@ -43,7 +43,8 @@ interface DeploymentLogsPanelProps {
   modelName?: string;
 }
 
-// Status configuration for Railway-style status indicators
+const EMPTY_LOGS: string[] = [];
+
 const statusConfig: Record<
   DeploymentStatus,
   {
@@ -99,8 +100,6 @@ const statusConfig: Record<
     bgColor: 'bg-[#5E6A71]/10',
   },
 };
-
-const EMPTY_LOGS: string[] = [];
 
 function StatusBadge({ status }: { status: DeploymentStatus }) {
   const config = statusConfig[status] || statusConfig.pending;
@@ -177,6 +176,7 @@ export function DeploymentLogsPanel({
 
   const status = (logsData?.deployment?.status ||
     'pending') as DeploymentStatus;
+  const statusKey = status.toLowerCase();
   const stdoutLogs = logsData?.logs?.stdout ?? EMPTY_LOGS;
   const stderrLogs = logsData?.logs?.stderr ?? EMPTY_LOGS;
   const logs = logsData?.logs?.[activeTab] ?? EMPTY_LOGS;
@@ -385,7 +385,7 @@ export function DeploymentLogsPanel({
             </div>
           ) : logs.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
-              {status === 'pending' || status === 'launching' ? (
+              {statusKey === 'pending' || statusKey === 'launching' ? (
                 <>
                   <div className="relative">
                     <Clock className="size-8 text-[#FF5F05]/60" />
