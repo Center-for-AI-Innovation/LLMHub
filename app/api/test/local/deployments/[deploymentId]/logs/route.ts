@@ -1,12 +1,6 @@
 import { getModelDeploymentById } from '@/lib/db/queries';
+import { isLocalTestEnabled } from '@/lib/utils';
 import { NextResponse } from 'next/server';
-
-function isLocalTestEnabled() {
-  return (
-    process.env.NODE_ENV === 'development' &&
-    process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true'
-  );
-}
 
 export async function GET(
   _: Request,

@@ -11,6 +11,7 @@ import {
   createDataStreamResponse,
   smoothStream,
   streamText,
+  generateText,
 } from 'ai';
 
 import { auth } from '@/app/(auth)/auth';
