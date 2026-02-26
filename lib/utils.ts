@@ -289,3 +289,16 @@ export function createErrorResponse(message: string, status: number): Response {
     }
   );
 }
+
+
+/**
+ * Check if local test deployments are enabled by checking the environment variables
+ * 
+ * @returns true if local test deployments are enabled
+ */
+export function isLocalTestEnabled() {
+  return (
+    process.env.NODE_ENV === 'development' &&
+    process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true'
+  );
+}
