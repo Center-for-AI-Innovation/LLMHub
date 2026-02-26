@@ -3,18 +3,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 const USE_LOCAL_TEST_DEPLOYMENTS =
   process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true';
 const DEPLOYMENTS_COLLECTION_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
-  ? '/api/test/local/deployments'
+  ? '/api/local/deployments'
   : '/api/models/deployments';
 const DEPLOYMENTS_LAUNCH_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
-  ? '/api/test/local/deployments'
+  ? '/api/local/deployments'
   : '/api/deployments';
 const deploymentItemEndpoint = (deploymentId: string) =>
   USE_LOCAL_TEST_DEPLOYMENTS
-    ? `/api/test/local/deployments/${deploymentId}`
+    ? `/api/local/deployments/${deploymentId}`
     : `/api/models/deployments/${deploymentId}`;
 const deploymentLogsEndpoint = (deploymentId: string, tail = 200) =>
   USE_LOCAL_TEST_DEPLOYMENTS
-    ? `/api/test/local/deployments/${deploymentId}/logs?tail=${tail}`
+    ? `/api/local/deployments/${deploymentId}/logs?tail=${tail}`
     : `/api/models/deployments/${deploymentId}/logs?tail=${tail}`;
 
 async function parseLaunchErrorResponse(response: Response): Promise<string> {
