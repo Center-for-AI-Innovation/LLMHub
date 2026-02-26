@@ -101,11 +101,12 @@ export default function CatalogPage() {
   const getModelDeployment = useCallback(
     (modelId: string) => {
       const targetId = modelId.toLowerCase();
-      return deployments.find((d) =>
-        [d.modelId, d.modelName].some(
-          (value) => value?.toLowerCase() === targetId,
-        ),
-       && (d.status === 'running' || d.status === 'launching'));
+      return deployments.find(
+        (d) =>
+          [d.modelId, d.modelName].some(
+            (value) => value?.toLowerCase() === targetId,
+          ) && (d.status === 'running' || d.status === 'launching'),
+      );
     },
     [deployments],
   );
