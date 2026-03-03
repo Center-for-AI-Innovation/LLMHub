@@ -6,7 +6,6 @@ import {
   createModelDeployment,
   getAccessibleDeploymentsByUserId,
   getAvailableModelById,
-  getAvailableModelByName,
 } from '@/lib/db/queries';
 import { type NextRequest, NextResponse } from 'next/server';
 
@@ -90,22 +89,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const [modelById] = await getAvailableModelById({ id: modelId });
-    const [modelByName] = modelById
-      ? [null]
-      : await getAvailableModelByName({ name: DEV_MODEL_NAME });
-    const model = modelById || modelByName;
+    const modelName = DEV_MODEL_NAME;
+    const modelIdForLookup = modelId;
+    const [model] = await getAvailableModelById({ id: modelIdForLookup });
 
     if (!model) {
       return NextResponse.json(
-        { error: `Model ${modelId} is not available.` },
+        { error: `Model ${modelName} is not available.` },
         { status: 404 },
       );
     }
 
     const deployment = await createModelDeployment({
       modelId: model.id,
-      modelName: model.name,
+      modelName,
       userId,
       slurmJobId: `test-${createSlurmJobId()}`,
       status: 'running',
