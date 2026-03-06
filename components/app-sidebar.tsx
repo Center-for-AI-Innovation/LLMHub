@@ -1,11 +1,11 @@
 'use client';
 
-import type { User } from 'next-auth';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { LogInIcon, PanelLeftIcon } from 'lucide-react';
 
+import type { AuthUser } from '@/lib/auth/types';
 import { PlusIcon } from '@/components/icons';
 import { SidebarHistory } from '@/components/sidebar-history';
 import { SidebarUserNav } from '@/components/sidebar-user-nav';
@@ -21,8 +21,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { ThemeToggle } from './theme-toggle';
 import { BrandMark } from './brand-mark';
 import { useNewChat } from '@/hooks/use-new-chat';
+import { getLoginPath } from '@/lib/auth/paths';
+import { navigateToLogin } from '@/lib/auth/navigation';
 
-export function AppSidebar({ user }: { user: User | undefined }) {
+export function AppSidebar({ user }: { user: AuthUser | undefined }) {
   const router = useRouter();
   const pathname = usePathname();
   const { setOpenMobile, open, toggleSidebar } = useSidebar();
@@ -131,8 +133,11 @@ export function AppSidebar({ user }: { user: User | undefined }) {
           <SidebarFooter className="flex flex-col gap-2 p-4">
             {isChatPage && <ThemeToggle />}
             {!user && isChatPage && (
-              <Button variant="outline" asChild>
-                <Link href="/login?redirectTo=%2Fchat">Login</Link>
+              <Button
+                variant="outline"
+                onClick={() => navigateToLogin(getLoginPath('/chat'))}
+              >
+                Login
               </Button>
             )}
             {user && <SidebarUserNav user={user} />}
@@ -147,12 +152,10 @@ export function AppSidebar({ user }: { user: User | undefined }) {
                 <Button
                   variant="outline"
                   size="icon"
-                  asChild
                   className="size-9 rounded-lg"
+                  onClick={() => navigateToLogin(getLoginPath('/chat'))}
                 >
-                  <Link href="/login?redirectTo=%2Fchat">
-                    <LogInIcon size={14} />
-                  </Link>
+                  <LogInIcon size={14} />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="right">Login</TooltipContent>
