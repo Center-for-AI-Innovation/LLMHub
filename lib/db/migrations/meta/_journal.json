@@ -113,6 +113,20 @@
       "when": 1771362454503,
       "tag": "0016_ambitious_rocket_racer",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1772753807430,
+      "tag": "0017_better_auth_add",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1772753819078,
+      "tag": "0018_better_auth_remove_password",
+      "breakpoints": true
     }
   ]
 }
