@@ -2,10 +2,10 @@
 import { ChevronUp } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
-import type { User } from 'next-auth';
-import { signOut } from 'next-auth/react';
 import { useTheme } from 'next-themes';
 
+import { authClient } from '@/lib/auth/client';
+import type { AuthUser } from '@/lib/auth/types';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +19,7 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-export function SidebarUserNav({ user }: { user: User }) {
+export function SidebarUserNav({ user }: { user: AuthUser }) {
   const { setTheme, theme } = useTheme();
 
   return (
@@ -60,10 +60,9 @@ export function SidebarUserNav({ user }: { user: User }) {
               <button
                 type="button"
                 className="w-full cursor-pointer"
-                onClick={() => {
-                  signOut({
-                    redirectTo: '/',
-                  });
+                onClick={async () => {
+                  await authClient.signOut();
+                  window.location.assign('/');
                 }}
               >
                 Sign out
