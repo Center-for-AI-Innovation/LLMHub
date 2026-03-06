@@ -1,15 +1,17 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Github } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useSession } from '@/hooks/use-chat';
-import { signOut } from 'next-auth/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { BrandMark } from '@/components/brand-mark';
+import { authClient } from '@/lib/auth/client';
+import { getLoginPath } from '@/lib/auth/paths';
+import { navigateToLogin } from '@/lib/auth/navigation';
+import Link from 'next/link';
 
 export function Navbar() {
   const pathname = usePathname();
@@ -61,9 +63,7 @@ export function Navbar() {
                   variant="outline"
                   size="sm"
                   onClick={async () => {
-                    await signOut({
-                      redirect: false,
-                    });
+                    await authClient.signOut();
                     queryClient.setQueryData(['session'], { user: null });
                     await queryClient.invalidateQueries({ queryKey: ['session'] });
                     router.push('/');
@@ -73,10 +73,12 @@ export function Navbar() {
                   Logout
                 </Button>
               ) : (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/login?redirectTo=${encodeURIComponent(pathname)}`}>
-                    Login
-                  </Link>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigateToLogin(getLoginPath(pathname))}
+                >
+                  Login
                 </Button>
               )
             ) : null}
