@@ -1,15 +1,15 @@
 import { generateUUID } from '@/lib/utils';
 import { type UIMessageStreamWriter, tool } from 'ai';
 import { z } from 'zod';
-import type { Session } from 'next-auth';
 import {
   artifactKinds,
   documentHandlersByArtifactKind,
 } from '@/lib/artifacts/server';
 import { writeStreamDelta } from '@/lib/ai/ui-data';
+import type { AuthSession } from '@/lib/auth/types';
 
 interface CreateDocumentProps {
-  session: Session;
+  session: AuthSession;
   writer: UIMessageStreamWriter;
 }
 
