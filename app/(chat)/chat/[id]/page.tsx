@@ -5,6 +5,8 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { Loader2 } from 'lucide-react';
 import { useSession, useChatContents } from '@/hooks/use-chat';
+import { getLoginPath } from '@/lib/auth/paths';
+import { navigateToLogin } from '@/lib/auth/navigation';
 
 export default function Page() {
   const router = useRouter();
@@ -41,7 +43,7 @@ export default function Page() {
         const redirectTo = query
           ? `/chat/${id}?query=${encodeURIComponent(query)}`
           : `/chat/${id}`;
-        router.push(`/login?redirectTo=${encodeURIComponent(redirectTo)}`);
+        navigateToLogin(getLoginPath(redirectTo));
         return;
       }
       
