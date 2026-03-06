@@ -10,6 +10,8 @@ import { useModelSelector } from '@/hooks/use-model-selector';
 import { useChatModels } from '@/hooks/use-models';
 import { consumePreferredChatModel } from '@/lib/chat-navigation';
 import { useNewChat } from '@/hooks/use-new-chat';
+import { getLoginPath } from '@/lib/auth/paths';
+import { navigateToLogin } from '@/lib/auth/navigation';
 
 export default function ChatPage() {
   const router = useRouter();
@@ -30,7 +32,7 @@ export default function ChatPage() {
 
   const handleGuestLimitReached = () => {
     toast.error('Guest chat limit reached. Please sign in to continue.');
-    router.push(`/login?redirectTo=${encodeURIComponent(currentPath)}`);
+    navigateToLogin(getLoginPath(currentPath));
   };
 
   useEffect(() => {
