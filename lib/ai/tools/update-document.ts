@@ -1,12 +1,12 @@
 import { type UIMessageStreamWriter, tool } from 'ai';
-import type { Session } from 'next-auth';
 import { z } from 'zod';
 import { getDocumentById, } from '@/lib/db/queries';
 import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
 import { writeStreamDelta } from '@/lib/ai/ui-data';
+import type { AuthSession } from '@/lib/auth/types';
 
 interface UpdateDocumentProps {
-  session: Session;
+  session: AuthSession;
   writer: UIMessageStreamWriter;
 }
 
