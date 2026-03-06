@@ -1,10 +1,10 @@
-import { auth } from '@/app/(auth)/auth';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { getSessionCookie } from 'better-auth/cookies';
+import { getLoginPath } from '@/lib/auth/paths';
 
-export default auth(async function proxy(req: NextRequest) {
-  const session = await auth();
-  const isLoggedIn = !!session?.user;
+export default async function proxy(req: NextRequest) {
+  const isLoggedIn = Boolean(getSessionCookie(req));
   const { nextUrl } = req;
 
   const isProtectedRoute = 
@@ -23,13 +23,12 @@ export default auth(async function proxy(req: NextRequest) {
       );
     }
     const redirectTo = `${nextUrl.pathname}${nextUrl.search}`;
-    const loginUrl = new URL('/login', nextUrl);
-    loginUrl.searchParams.set('redirectTo', redirectTo);
+    const loginUrl = new URL(getLoginPath(redirectTo), nextUrl);
     return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: [
