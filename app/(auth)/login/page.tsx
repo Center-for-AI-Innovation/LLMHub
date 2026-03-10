@@ -50,7 +50,7 @@ export default function Page() {
       void (async () => {
         await queryClient.invalidateQueries({ queryKey: ['session'] });
         await queryClient.refetchQueries({ queryKey: ['session'] });
-        router.push(redirectTo);
+        router.replace(redirectTo);
         router.refresh();
       })();
     }
