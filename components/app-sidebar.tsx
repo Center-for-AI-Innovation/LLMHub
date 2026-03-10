@@ -55,7 +55,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
         {open ? (
           <>
             <div className="flex items-center justify-between">
-              {isChatPage && <BrandMark />}
+              <BrandMark />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -81,20 +81,18 @@ export function AppSidebar({ user }: { user: User | undefined }) {
           </>
         ) : (
           <div className="flex flex-col items-center gap-2">
-            {isChatPage && (
-              <Link
-                href="/"
-                className="flex size-9 items-center justify-center rounded-lg hover:bg-sidebar-accent transition-colors"
-              >
-                <Image
-                  src="https://chat.illinois.edu/media/logo_illinois.png"
-                  alt="Illinois Logo"
-                  width={18}
-                  height={18}
-                  className="rounded-sm"
-                />
-              </Link>
-            )}
+            <Link
+              href="/"
+              className="flex size-9 items-center justify-center rounded-lg hover:bg-sidebar-accent transition-colors"
+            >
+              <Image
+                src="https://chat.illinois.edu/media/logo_illinois.png"
+                alt="Illinois Logo"
+                width={18}
+                height={18}
+                className="rounded-sm"
+              />
+            </Link>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

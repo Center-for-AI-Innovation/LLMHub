@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Sheet,
@@ -43,7 +43,8 @@ interface DeploymentLogsPanelProps {
   modelName?: string;
 }
 
-// Status configuration for Railway-style status indicators
+const EMPTY_LOGS: string[] = [];
+
 const statusConfig: Record<
   DeploymentStatus,
   {
@@ -160,7 +161,7 @@ export function DeploymentLogsPanel({
   deploymentId,
   modelName,
 }: DeploymentLogsPanelProps) {
-  const [activeTab, setActiveTab] = useState<'stderr' | 'stdout'>('stderr');
+  const [activeTab, setActiveTab] = useState<'stdout' | 'stderr'>('stdout');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copied, setCopied] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -175,23 +176,21 @@ export function DeploymentLogsPanel({
 
   const status = (logsData?.deployment?.status ||
     'pending') as DeploymentStatus;
-  const logs = useMemo(
-    () => logsData?.logs?.[activeTab] ?? [],
-    [logsData, activeTab],
-  );
+  const statusKey = status.toLowerCase();
+  const stdoutLogs = logsData?.logs?.stdout ?? EMPTY_LOGS;
+  const stderrLogs = logsData?.logs?.stderr ?? EMPTY_LOGS;
+  const logs = logsData?.logs?.[activeTab] ?? EMPTY_LOGS;
   const displayModelName =
     modelName || logsData?.deployment?.modelName || 'Model';
   const errorMessage = logsData?.deployment?.errorMessage;
-  const displayErrorMessage = useMemo(() => {
-    if (!errorMessage) return null;
-    if (errorMessage.toLowerCase().includes('slurm job failed')) {
-      return 'Failed to launch model';
-    }
-    return errorMessage;
-  }, [errorMessage]);
+  const displayErrorMessage = !errorMessage
+    ? null
+    : errorMessage.toLowerCase().includes('slurm job failed')
+      ? 'Failed to launch model'
+      : errorMessage;
 
   // Handle scroll to detect if user scrolled up
-  const handleScroll = useCallback(() => {
+  function handleScroll() {
     if (!logsContainerRef.current) return;
 
     const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
@@ -200,7 +199,7 @@ export function DeploymentLogsPanel({
     if (!isAtBottom && autoScroll) {
       setAutoScroll(false);
     }
-  }, [autoScroll]);
+  }
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
@@ -209,12 +208,19 @@ export function DeploymentLogsPanel({
     }
   }, [logs, autoScroll]);
 
-  const scrollToBottom = useCallback(() => {
+  // Default to stdout whenever the panel is opened for a deployment.
+  useEffect(() => {
+    if (open) {
+      setActiveTab('stdout');
+    }
+  }, [open, deploymentId]);
+
+  function scrollToBottom() {
     setAutoScroll(true);
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+  }
 
-  const copyLogs = useCallback(async () => {
+  async function copyLogs() {
     const textToCopy = logs.join('\n');
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -223,13 +229,13 @@ export function DeploymentLogsPanel({
     } catch (err) {
       console.error('Failed to copy logs:', err);
     }
-  }, [logs]);
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl p-0 flex flex-col bg-gradient-to-b from-[#F7F8FA] via-white to-[#F7F8FA] dark:from-[#0F1F3A] dark:via-[#13294B] dark:to-[#0F1F3A] border-[#13294B]/20 sm:inset-y-8 sm:h-auto sm:rounded-l-2xl sm:rounded-r-none sm:overflow-hidden"
+        className="w-full sm:max-w-2xl md:max-w-3xl lg:max-w-4xl xl:max-w-5xl p-0 flex flex-col bg-gradient-to-b from-[#F7F8FA] via-white to-[#F7F8FA] dark:from-[#0F1F3A] dark:via-[#13294B] dark:to-[#0F1F3A] border-[#13294B]/20 sm:inset-y-8 sm:h-auto sm:rounded-l-2xl sm:rounded-r-none sm:overflow-hidden [&>button]:size-10 [&>button]:rounded-md [&>button>svg]:size-5"
       >
         {/* Header */}
         <SheetHeader className="p-4 border-b border-[#13294B]/15 shrink-0 bg-white/70 dark:bg-[#13294B]/65 backdrop-blur-sm">
@@ -266,24 +272,24 @@ export function DeploymentLogsPanel({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setActiveTab('stderr')}
+            onClick={() => setActiveTab('stdout')}
             className={cn(
-              'relative h-9 px-1 text-xs font-semibold rounded-none -mb-2.5 hover:bg-transparent transition-colors duration-200',
-              activeTab === 'stderr'
+              'relative h-10 px-2 text-sm font-semibold rounded-none -mb-2.5 hover:bg-transparent transition-colors duration-200',
+              activeTab === 'stdout'
                 ? '!text-[#13294B] dark:!text-[#F7F8FA] hover:!text-[#13294B] dark:hover:!text-[#F7F8FA]'
                 : 'text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-[#F7F8FA]',
             )}
           >
             <span className="relative z-10 inline-flex items-center gap-1.5">
-              <FileText className="size-3" />
-              stderr
-              {logs.length > 0 && activeTab === 'stderr' && (
+              <Terminal className="size-4" />
+              stdout
+              {stdoutLogs.length > 0 && (
                 <span className="ml-1 text-zinc-500 dark:text-[#C8CDD0]">
-                  ({logs.length})
+                  ({stdoutLogs.length})
                 </span>
               )}
             </span>
-            {activeTab === 'stderr' && (
+            {activeTab === 'stdout' && (
               <motion.span
                 layoutId="logs-tab-underline"
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
@@ -294,19 +300,24 @@ export function DeploymentLogsPanel({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setActiveTab('stdout')}
+            onClick={() => setActiveTab('stderr')}
             className={cn(
-              'relative h-9 px-1 text-xs font-semibold rounded-none -mb-2.5 hover:bg-transparent transition-colors duration-200',
-              activeTab === 'stdout'
+              'relative h-10 px-2 text-sm font-semibold rounded-none -mb-2.5 hover:bg-transparent transition-colors duration-200',
+              activeTab === 'stderr'
                 ? '!text-[#13294B] dark:!text-[#F7F8FA] hover:!text-[#13294B] dark:hover:!text-[#F7F8FA]'
                 : 'text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-[#F7F8FA]',
             )}
           >
             <span className="relative z-10 inline-flex items-center gap-1.5">
-              <Terminal className="size-3" />
-              stdout
+              <FileText className="size-4" />
+              stderr
+              {stderrLogs.length > 0 && (
+                <span className="ml-1 text-zinc-500 dark:text-[#C8CDD0]">
+                  ({stderrLogs.length})
+                </span>
+              )}
             </span>
-            {activeTab === 'stdout' && (
+            {activeTab === 'stderr' && (
               <motion.span
                 layoutId="logs-tab-underline"
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
@@ -322,13 +333,13 @@ export function DeploymentLogsPanel({
             size="sm"
             onClick={copyLogs}
             disabled={logs.length === 0}
-            className="h-8 px-2.5 rounded-full text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white"
+            className="h-9 px-3 rounded-full text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white"
             title={`Copy ${activeTab} logs`}
           >
             {copied ? (
-              <Check className="size-3 text-[#009B77]" />
+              <Check className="size-4 text-[#009B77]" />
             ) : (
-              <Copy className="size-3" />
+              <Copy className="size-4" />
             )}
           </Button>
 
@@ -337,9 +348,9 @@ export function DeploymentLogsPanel({
             size="sm"
             onClick={() => refetch()}
             disabled={isLoading}
-            className="h-8 px-2.5 rounded-full text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white"
+            className="h-9 px-3 rounded-full text-[#5E6A71] dark:text-[#C8CDD0] hover:text-[#13294B] dark:hover:text-white"
           >
-            <RefreshCw className={cn('size-3', isLoading && 'animate-spin')} />
+            <RefreshCw className={cn('size-4', isLoading && 'animate-spin')} />
           </Button>
         </div>
 
@@ -374,7 +385,7 @@ export function DeploymentLogsPanel({
             </div>
           ) : logs.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
-              {status === 'pending' || status === 'launching' ? (
+              {statusKey === 'pending' || statusKey === 'launching' ? (
                 <>
                   <div className="relative">
                     <Clock className="size-8 text-[#FF5F05]/60" />

@@ -1,10 +1,11 @@
-import { useState, useMemo, useCallback, memo } from 'react';
+import { memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Loader2, Calendar, ArrowRight } from 'lucide-react';
 import { ModelContext } from './model-context';
 import * as React from 'react';
 import { modelUtilFunctions } from '@/lib/models/utils';
+import { useToast } from '@/components/ui/use-toast';
 
 // Stable class names for buttons
 const scheduleButtonClass = 'w-1/2 bg-white/50 dark:bg-white/5 border-0';
@@ -12,29 +13,32 @@ const actionButtonClass = 'w-1/2 group';
 
 // Create an optimized card component that doesn't need props passed in
 const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
-  const { models, isLoadingModels, launchModel, isLaunching } =
+  const { models, isLoadingModels, launchModel, launchingModelId } =
     React.useContext(ModelContext);
-  const [isModelLaunching, setIsModelLaunching] = useState(false);
+  const { toast } = useToast();
 
   // Find model data in context
-  const model = useMemo(
-    () => models.find((m) => m.id === modelId),
-    [models, modelId],
-  );
+  const model = models.find((m) => m.id === modelId);
 
-  const handleLaunch = useCallback(async () => {
+  const isModelLaunching = launchingModelId === modelId;
+
+  const handleLaunch = async () => {
     if (!model) return;
 
-    setIsModelLaunching(true);
     try {
       // Pass modelId, huggingfaceId, and family for proper HF model path construction
       await launchModel(model.id, model.huggingfaceId, model.family);
     } catch (error) {
       console.error('Failed to launch model:', error);
-    } finally {
-      setIsModelLaunching(false);
     }
-  }, [model, launchModel]);
+  };
+
+  function handleScheduleClick() {
+    toast({
+      title: 'Coming soon',
+      description: 'Scheduling model deployments will be available soon.',
+    });
+  }
 
   if (!model || isLoadingModels) {
     return (
@@ -47,6 +51,10 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
   // Get icon and gradient
   const Icon = modelUtilFunctions.getModelIcon(model);
   const gradient = modelUtilFunctions.getModelGradient(model);
+  const displayModelName =
+    ((model as unknown as { name?: string }).name ??
+      model.modelName ??
+      model.id);
 
   return (
     <div
@@ -70,7 +78,7 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
       </div>
 
       <div className="mb-2">
-        <h3 className="text-xl font-semibold truncate">{model.name}</h3>
+        <h3 className="text-xl font-semibold truncate">{displayModelName}</h3>
       </div>
 
       <p className="text-muted-foreground line-clamp-2 mb-4">
@@ -91,16 +99,20 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
       </div>
 
       <div className="mt-auto flex justify-between w-full gap-3">
-        <Button variant="outline" className={scheduleButtonClass}>
+        <Button
+          variant="outline"
+          className={scheduleButtonClass}
+          onClick={handleScheduleClick}
+        >
           Schedule
           <Calendar className="ml-2 size-4" />
         </Button>
         <Button
           className={actionButtonClass}
           onClick={handleLaunch}
-          disabled={isModelLaunching || isLaunching}
+          disabled={Boolean(launchingModelId)}
         >
-          {isModelLaunching || isLaunching ? (
+          {isModelLaunching ? (
             <>
               <Loader2 className="mr-2 size-4 animate-spin" />
               Launching...

@@ -3,7 +3,6 @@
 import { useEffect } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
-import { DataStreamHandler } from '@/components/data-stream-handler';
 import { Loader2 } from 'lucide-react';
 import { useSession, useChatContents } from '@/hooks/use-chat';
 
@@ -75,7 +74,6 @@ export default function Page() {
               selectedVisibilityType={chatContents.chat.visibility}
               isReadonly={session?.user?.id !== chatContents.chat.userId}
             />
-            <DataStreamHandler id={id} />
           </>
         )}
       </main>

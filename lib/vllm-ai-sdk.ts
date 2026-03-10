@@ -12,14 +12,17 @@
 
 import { createOpenAI } from '@ai-sdk/openai';
 import {
-  type Message,
-  createDataStreamResponse,
+  type UIMessage,
+  convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   smoothStream,
+  stepCountIs,
   streamText,
 } from 'ai';
 
 import { getChatById, saveChat, saveMessages } from '@/lib/db/queries';
-import { generateUUID, getMostRecentUserMessage, sanitizeResponseMessages, createErrorResponse } from '@/lib/utils';
+import { createErrorResponse, ensureUUID, generateUUID } from '@/lib/utils';
 import { systemPrompt } from '@/lib/ai/prompts';
 import type { ModelDeployment } from '@/hooks/use-models';
 
@@ -80,13 +83,13 @@ export async function handleChatCompletions(
     messages,
   }: {
     id?: string;
-    messages: Array<Message>;
+    messages: Array<UIMessage>;
   } = body;
 
   const chatId = id || generateUUID();
 
   // Get the user message
-  const userMessage = getMostRecentUserMessage(messages);
+  const userMessage = messages.filter((message) => message.role === 'user').at(-1);
   if (!userMessage) {
     return createErrorResponse('No user message found', 400);
   }
@@ -96,9 +99,12 @@ export async function handleChatCompletions(
     const existingChat = await getChatById({ id });
     if (!existingChat) {
       // Create new chat
-      const title = typeof userMessage.content === 'string'
-        ? userMessage.content.slice(0, 80)
-        : 'New Chat';
+      const rawTitle = userMessage.parts
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('')
+        .trim();
+
+      const title = rawTitle ? rawTitle.slice(0, 80) : 'New Chat';
       await saveChat({ id: chatId, userId, title, isBrowserChat: true });
     } else {
       // Verify the chat belongs to the current user
@@ -109,7 +115,15 @@ export async function handleChatCompletions(
 
     // Save the user message
     await saveMessages({
-      messages: [{ ...userMessage, createdAt: new Date(), chatId }],
+      messages: [
+        {
+          id: ensureUUID(userMessage.id),
+          chatId,
+          role: userMessage.role,
+          content: userMessage.parts,
+          createdAt: new Date(),
+        },
+      ],
     });
   }
 
@@ -117,61 +131,71 @@ export async function handleChatCompletions(
   const vllmProvider = createVllmProvider(deployment);
   const modelName = deployment.modelName ?? process.env.VLLM_MODEL;
 
-  return createDataStreamResponse({
-    execute: (dataStream) => {
+  const modelMessages = await convertToModelMessages(messages);
+  const stream = createUIMessageStream({
+    originalMessages: messages,
+    // Ensure assistant message IDs are UUIDs so Postgres persistence doesn't fail.
+    generateId: generateUUID,
+    execute: ({ writer }) => {
       const result = streamText({
-        model: vllmProvider(modelName),
+        // vLLM/OpenAI-compatible servers typically implement /v1/chat/completions, not /v1/responses.
+        model: vllmProvider.chat(modelName),
         system: systemPrompt({ selectedChatModel: 'vllm-model' }),
-        messages,
-        maxSteps: 5,
+        messages: modelMessages,
+        stopWhen: stepCountIs(5),
         experimental_transform: smoothStream({ chunking: 'word' }),
-        experimental_generateMessageId: generateUUID,
-        onFinish: async ({ response, reasoning }) => {
-          if (id) {
-            try {
-              // Verify ownership before saving response messages
-              const chat = await getChatById({ id });
-              if (!chat || chat.userId !== userId) {
-                console.error('[vLLM AI SDK] Unauthorized attempt to save response to chat:', id);
-                return;
-              }
-
-              const sanitizedResponseMessages = sanitizeResponseMessages({
-                messages: response.messages,
-                reasoning,
-              });
-
-              await saveMessages({
-                messages: sanitizedResponseMessages.map((message) => ({
-                  id: message.id,
-                  chatId,
-                  role: message.role,
-                  content: message.content,
-                  createdAt: new Date(),
-                })),
-              });
-            } catch (error) {
-              console.error('[vLLM AI SDK] Failed to save chat response:', {
-                error,
-                chatId,
-                userId,
-              });
-            }
-          }
-        },
         experimental_telemetry: {
           isEnabled: true,
           functionId: 'vllm-job-proxy-stream-text',
         },
       });
 
-      result.mergeIntoDataStream(dataStream, {
-        sendReasoning: true,
-      });
+      writer.merge(result.toUIMessageStream());
     },
     onError: (error: unknown) => {
       console.error('[vLLM AI SDK] Chat completions error:', error);
       return `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`;
     },
+    onFinish: async ({ responseMessage }) => {
+      if (!id) return;
+
+      try {
+        const chat = await getChatById({ id });
+        if (!chat || chat.userId !== userId) {
+          console.error(
+            '[vLLM AI SDK] Unauthorized attempt to save response to chat:',
+            id,
+          );
+          return;
+        }
+
+        const sanitized = {
+          ...responseMessage,
+          parts: responseMessage.parts.filter(
+            (part) => !part.type.startsWith('data-'),
+          ),
+        };
+
+        await saveMessages({
+          messages: [
+            {
+              id: ensureUUID(sanitized.id),
+              chatId,
+              role: sanitized.role,
+              content: sanitized.parts,
+              createdAt: new Date(),
+            },
+          ],
+        });
+      } catch (error) {
+        console.error('[vLLM AI SDK] Failed to save chat response:', {
+          error,
+          chatId,
+          userId,
+        });
+      }
+    },
   });
+
+  return createUIMessageStreamResponse({ stream });
 }

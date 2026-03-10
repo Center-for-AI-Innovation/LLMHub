@@ -1,13 +1,15 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Copy, KeyRound, RotateCcw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { PublicApiDialog } from '@/components/public-api-dialog';
 import { useToast } from '@/components/ui/use-toast';
 import { useGenerateApiKey } from '@/hooks/use-api-key';
+import { useModelDeployments } from '@/hooks/use-models';
 
 type ApiKeyPanelProps = {
   hasApiKey: boolean;
@@ -21,18 +23,21 @@ export function ApiKeyPanel({ hasApiKey, expiresAt }: ApiKeyPanelProps) {
   const { toast } = useToast();
 
   const generateApiKey = useGenerateApiKey();
+  const { data: deployments = [] } = useModelDeployments();
+  const activeDeployments = deployments.filter((deployment) =>
+    ['ready', 'running'].includes(deployment.status.toLowerCase()),
+  );
 
-  const formattedExpiry = useMemo(() => {
-    if (!currentExpiresAt) return 'Not set';
-    return new Date(currentExpiresAt).toLocaleString();
-  }, [currentExpiresAt]);
+  const formattedExpiry = currentExpiresAt
+    ? new Date(currentExpiresAt).toLocaleString()
+    : 'Not set';
 
   // Handle generating a new API key
   // A toast notification is shown to the user for succcess or failure
   const handleGenerate = async () => {
     try {
       const result = await generateApiKey.mutateAsync();
-      setGeneratedKey("Bearer " + result.apiKey);
+      setGeneratedKey(result.apiKey);
       setCurrentExpiresAt(result.expiresAt);
       setCurrentHasKey(true);
       toast({
@@ -114,6 +119,26 @@ export function ApiKeyPanel({ hasApiKey, expiresAt }: ApiKeyPanelProps) {
             </div>
           </div>
         )}
+
+        <div className="rounded-lg border bg-muted/40 px-4 py-3">
+          <div className="mb-2 text-sm font-medium">API examples</div>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Generate request snippets for your active deployments.
+          </p>
+          <PublicApiDialog
+            deployments={activeDeployments}
+            trigger={
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto"
+                disabled={activeDeployments.length === 0}
+              >
+                Open API Dialog
+              </Button>
+            }
+          />
+        </div>
       </CardContent>
     </Card>
   );

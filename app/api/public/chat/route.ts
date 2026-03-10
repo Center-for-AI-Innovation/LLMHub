@@ -1,7 +1,10 @@
 import {
-  type Message,
-  createDataStreamResponse,
+  type UIMessage,
+  convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   smoothStream,
+  stepCountIs,
   streamText,
 } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
@@ -17,9 +20,8 @@ import {
 } from '@/lib/guest-chat';
 import {
   createErrorResponse,
+  ensureUUID,
   generateUUID,
-  getMostRecentUserMessage,
-  sanitizeResponseMessages,
 } from '@/lib/utils';
 
 export const maxDuration = 60;
@@ -42,11 +44,11 @@ function isLikelyAuthenticatedRequest(cookieHeader: string | null): boolean {
   );
 }
 
-function generateFallbackTitleFromMessage(message: Message): string {
-  const rawContent =
-    typeof message.content === 'string'
-      ? message.content
-      : JSON.stringify(message.content);
+function generateFallbackTitleFromMessage(message: UIMessage): string {
+  const rawContent = message.parts
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join('')
+    .trim();
 
   const normalized = rawContent.replace(/\s+/g, ' ').trim();
   if (!normalized) return 'New Chat';
@@ -70,7 +72,7 @@ export async function POST(request: Request) {
       selectedChatModel,
     }: {
       id?: string;
-      messages?: Array<Message>;
+      messages?: Array<UIMessage>;
       selectedChatModel?: string;
     } = await request.json();
 
@@ -78,7 +80,7 @@ export async function POST(request: Request) {
       return createErrorResponse('No messages provided', 400);
     }
 
-    const userMessage = getMostRecentUserMessage(messages);
+    const userMessage = messages.filter((message) => message.role === 'user').at(-1);
     if (!userMessage) {
       return createErrorResponse('No user message found', 400);
     }
@@ -119,77 +121,93 @@ export async function POST(request: Request) {
         }
 
         await saveMessages({
-          messages: [{ ...userMessage, createdAt: new Date(), chatId: id }],
+          messages: [
+            {
+              id: ensureUUID(userMessage.id),
+              chatId: id,
+              role: userMessage.role,
+              content: userMessage.parts,
+              createdAt: new Date(),
+            },
+          ],
         });
       } catch (error) {
         console.error('Failed to persist always-on user message:', error);
       }
     }
 
-    const response = createDataStreamResponse({
-      execute: (dataStream) => {
+    const modelMessages = await convertToModelMessages(messages);
+    const stream = createUIMessageStream({
+      originalMessages: messages,
+      // Ensure assistant message IDs are UUIDs so Postgres persistence doesn't fail.
+      generateId: generateUUID,
+      execute: ({ writer }) => {
         const alwaysOnProvider = createOpenAI({
           baseURL: ALWAYS_ON_BASE_URL,
           apiKey: ALWAYS_ON_API_KEY || 'dummy-key',
         });
 
         const result = streamText({
-          model: alwaysOnProvider(ALWAYS_ON_MODEL),
+          // vLLM/OpenAI-compatible servers typically implement /v1/chat/completions, not /v1/responses.
+          model: alwaysOnProvider.chat(ALWAYS_ON_MODEL),
           system: systemPrompt({
             selectedChatModel: selectedChatModel ?? 'vllm-model',
           }),
-          messages,
-          maxSteps: 5,
+          messages: modelMessages,
+          stopWhen: stepCountIs(5),
           experimental_transform: smoothStream({ chunking: 'word' }),
-          experimental_generateMessageId: generateUUID,
           experimental_telemetry: {
             isEnabled: true,
             functionId: 'public-vllm-stream-text',
           },
-          onFinish: async ({ response, reasoning }) => {
-            if (!userId || !id) {
-              return;
-            }
-
-            try {
-              const existingChat = await getChatById({ id });
-              if (!existingChat || existingChat.userId !== userId) {
-                console.error(
-                  '[Public Chat] Unauthorized attempt to save response to chat:',
-                  id,
-                );
-                return;
-              }
-
-              const sanitizedResponseMessages = sanitizeResponseMessages({
-                messages: response.messages,
-                reasoning,
-              });
-
-              await saveMessages({
-                messages: sanitizedResponseMessages.map((message) => ({
-                  id: message.id,
-                  chatId: id,
-                  role: message.role,
-                  content: message.content,
-                  createdAt: new Date(),
-                })),
-              });
-            } catch (error) {
-              console.error('Failed to save always-on chat response:', error);
-            }
-          },
         });
 
-        result.mergeIntoDataStream(dataStream, {
-          sendReasoning: true,
-        });
+        writer.merge(result.toUIMessageStream());
       },
       onError: (error: unknown) => {
         console.error('Public chat API error:', error);
         return `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`;
       },
+      onFinish: async ({ responseMessage }) => {
+        if (!userId || !id) {
+          return;
+        }
+
+        try {
+          const existingChat = await getChatById({ id });
+          if (!existingChat || existingChat.userId !== userId) {
+            console.error(
+              '[Public Chat] Unauthorized attempt to save response to chat:',
+              id,
+            );
+            return;
+          }
+
+          const sanitized = {
+            ...responseMessage,
+            parts: responseMessage.parts.filter(
+              (part) => !part.type.startsWith('data-'),
+            ),
+          };
+
+          await saveMessages({
+            messages: [
+              {
+                id: ensureUUID(sanitized.id),
+                chatId: id,
+                role: sanitized.role,
+                content: sanitized.parts,
+                createdAt: new Date(),
+              },
+            ],
+          });
+        } catch (error) {
+          console.error('Failed to save always-on chat response:', error);
+        }
+      },
     });
+
+    const response = createUIMessageStreamResponse({ stream });
 
     if (!isLoggedIn) {
       const nextGuestMessageCount = safeGuestMessageCount + 1;

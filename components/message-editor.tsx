@@ -1,38 +1,34 @@
 'use client';
 
-import type { ChatRequestOptions, Message } from 'ai';
+import type { ChatRequestOptions, UIMessage } from 'ai';
 import { Button } from './ui/button';
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 import { Textarea } from './ui/textarea';
 import { deleteTrailingMessages } from '@/app/(chat)/actions';
+import { getTextFromUIMessage } from '@/lib/utils';
 
 export type MessageEditorProps = {
-  message: Message;
+  message: UIMessage;
   setMode: Dispatch<SetStateAction<'view' | 'edit'>>;
   setMessages: (
-    messages: Message[] | ((messages: Message[]) => Message[]),
+    messages: UIMessage[] | ((messages: UIMessage[]) => UIMessage[]),
   ) => void;
-  reload: (
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (
+    message?: any,
+    options?: ChatRequestOptions,
+  ) => Promise<void>;
 };
 
 export function MessageEditor({
   message,
   setMode,
   setMessages,
-  reload,
+  sendMessage,
 }: MessageEditorProps) {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const [draftContent, setDraftContent] = useState<string>(message.content);
+  const [draftContent, setDraftContent] = useState<string>(getTextFromUIMessage(message));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (textareaRef.current) {
-      adjustHeight();
-    }
-  }, []);
 
   const adjustHeight = () => {
     if (textareaRef.current) {
@@ -40,6 +36,12 @@ export function MessageEditor({
       textareaRef.current.style.height = `${textareaRef.current.scrollHeight + 2}px`;
     }
   };
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      adjustHeight();
+    }
+  }, []);
 
   const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     setDraftContent(event.target.value);
@@ -78,21 +80,31 @@ export function MessageEditor({
 
             setMessages((messages) => {
               const index = messages.findIndex((m) => m.id === message.id);
+              if (index === -1) return messages;
 
-              if (index !== -1) {
-                const updatedMessage = {
-                  ...message,
-                  content: draftContent,
-                };
+              const updatedMessage: UIMessage = {
+                ...message,
+                parts: [
+                  ...message.parts.filter((part) => part.type !== 'text'),
+                  { type: 'text', text: draftContent },
+                ],
+              };
 
-                return [...messages.slice(0, index), updatedMessage];
-              }
-
-              return messages;
+              return [...messages.slice(0, index), updatedMessage];
             });
 
             setMode('view');
-            reload();
+            await sendMessage(
+              {
+                role: 'user',
+                messageId: message.id,
+                parts: [
+                  ...message.parts.filter((part) => part.type !== 'text'),
+                  { type: 'text', text: draftContent },
+                ],
+              },
+              undefined,
+            );
           }}
         >
           {isSubmitting ? 'Sending...' : 'Send'}

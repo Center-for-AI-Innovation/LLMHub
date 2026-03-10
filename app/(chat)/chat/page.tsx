@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
-import { DataStreamHandler } from '@/components/data-stream-handler';
 import { Loader2 } from 'lucide-react';
 import { useSession } from '@/hooks/use-chat';
 import { toast } from 'sonner';
@@ -97,7 +96,6 @@ export default function ChatPage() {
           onGuestLimitReached={handleGuestLimitReached}
           initialPrompt={query || undefined}
         />
-        <DataStreamHandler id={activeChatId} />
       </main>
     </div>
   );

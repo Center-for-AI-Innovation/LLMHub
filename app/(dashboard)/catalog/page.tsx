@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, type ChangeEvent } from 'react';
+import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Navbar } from '@/components/navbar';
 import { Button } from '@/components/ui/button';
@@ -10,10 +10,8 @@ import { RequestModelDialog } from '@/components/request-model-dialog';
 import {
   Loader2,
   RefreshCw,
-  CheckCircle2,
   Search,
   Server,
-  AlertCircle,
   ArrowRight,
 } from 'lucide-react';
 
@@ -41,25 +39,29 @@ import {
 } from '@/components/model-card';
 import { DeploymentLogsPanel } from '@/components/deployment-logs-panel';
 import { toast } from '@/components/ui/use-toast';
+import {
+  getDeploymentStatusInfo,
+  isActiveDeploymentStatus,
+} from '@/lib/models/deployment-status';
+
+function deploymentMatchesModel(deployment: ModelDeployment, model: ModelInfo) {
+  const modelId = model.id.toLowerCase();
+  return [deployment.modelId, deployment.modelName].some(
+    (value) => value?.toLowerCase() === modelId,
+  );
+}
+
+function parseLaunchError(error: unknown): string {
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error.trim();
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message.trim();
+  }
+  return 'Failed to launch model. Please try again.';
+}
 
 export default function CatalogPage() {
-  const router = useRouter();
-  const isActiveDeploymentStatus = useCallback((status: string) => {
-    return ['pending', 'launching', 'ready', 'running'].includes(
-      status.toLowerCase(),
-    );
-  }, []);
-
-  const deploymentMatchesModel = useCallback(
-    (deployment: ModelDeployment, model: ModelInfo) => {
-      const modelId = model.id.toLowerCase();
-      return [deployment.modelId, deployment.modelName].some(
-        (value) => value?.toLowerCase() === modelId,
-      );
-    },
-    [],
-  );
-
   const [activeTab, setActiveTab] = useState<'active' | 'available'>(
     'available',
   );
@@ -75,6 +77,10 @@ export default function CatalogPage() {
   >(null);
   const [selectedModelName, setSelectedModelName] = useState<string>('');
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchingModelId, setLaunchingModelId] = useState<string | null>(null);
+  const [stoppingDeploymentId, setStoppingDeploymentId] = useState<
+    string | null
+  >(null);
 
   // Fetch models and deployments using React Query
   const {
@@ -93,154 +99,91 @@ export default function CatalogPage() {
 
   const { mutate: refreshModels, isPending: isRefreshing } = useRefreshModels();
 
-  const { mutateAsync: launchModelAsync, isPending: isLaunching } =
-    useLaunchModel();
+  const { mutateAsync: launchModelAsync } = useLaunchModel();
 
-  const { mutate: stopModel, isPending: isStopping } = useStopModel();
+  const { mutateAsync: stopModelAsync } = useStopModel();
 
-  // Get model deployment if exists - memoized
-  const getModelDeployment = useCallback(
-    (model: ModelInfo) => {
-      const modelName = (model as unknown as { name?: string }).name;
-      const targetIds = [
-        model.id,
-        model.modelName,
-        modelName,
-        model.variant,
-      ]
-        .filter((value): value is string => Boolean(value))
-        .map((value) => value.toLowerCase());
+  // Get model deployment if exists
+  function getModelDeployment(model: ModelInfo) {
+    const modelName = (model as unknown as { name?: string }).name;
+    const targetIds = [
+      model.id,
+      model.modelName,
+      modelName,
+      model.variant,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase());
 
-      return deployments.find((d) =>
+    return deployments.find(
+      (d) =>
         [d.modelId, d.modelName].some((value) => {
           if (!value) return false;
           return targetIds.includes(value.toLowerCase());
         }) &&
-          ['pending', 'launching', 'ready', 'running'].includes(
-            d.status.toLowerCase(),
-          ),
-      );
-    },
-    [deployments],
-  );
+        ['pending', 'launching', 'ready', 'running'].includes(
+          d.status.toLowerCase(),
+        ),
+    );
+  }
 
-  // Get deployment status label and color - memoized
-  const getStatusInfo = useCallback((status: string) => {
-    switch (status.toLowerCase()) {
-      case 'running':
-      case 'ready':
-        return {
-          label: 'Running',
-          color:
-            'bg-emerald-500/10 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400',
-          icon: CheckCircle2,
-        };
-      case 'launching':
-      case 'starting':
-        return {
-          label: 'Launching',
-          color:
-            'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400',
-          icon: Loader2,
-        };
-      case 'pending':
-        return {
-          label: 'Pending',
-          color:
-            'bg-amber-500/10 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400',
-          icon: Loader2,
-        };
-      case 'failed':
-        return {
-          label: 'Failed',
-          color: 'bg-destructive/10 text-destructive',
-          icon: AlertCircle,
-        };
-      case 'stopped':
-      case 'shutdown':
-      case 'completed':
-        return {
-          label: 'Stopped',
-          color: 'bg-muted text-muted-foreground',
-          icon: Server,
-        };
-      default:
-        return {
-          label: status,
-          color: 'bg-primary/10 text-primary',
-          icon: Server,
-        };
+  async function handleStopModel(deploymentId: string): Promise<void> {
+    setStoppingDeploymentId(deploymentId);
+    try {
+      await stopModelAsync(deploymentId);
+    } catch (error) {
+      console.error('Failed to stop model:', error);
+    } finally {
+      setStoppingDeploymentId(null);
     }
-  }, []);
+  }
 
-  // Handle stopping a model - memoized with proper Promise<void> return type
-  const handleStopModel = useCallback(
-    async (deploymentId: string): Promise<void> => {
-      try {
-        await stopModel(deploymentId);
-      } catch (error) {
-        console.error('Failed to stop model:', error);
+  async function stableLaunchModel(
+    modelId: string,
+    huggingfaceId?: string,
+    family?: string,
+  ) {
+    setLaunchingModelId(modelId);
+    try {
+      const deployment = await launchModelAsync({
+        modelId,
+        huggingfaceId,
+        family,
+      });
+      setLaunchError(null);
+      // If launch succeeds, open the logs panel with the new deployment
+      if (deployment?.id) {
+        setSelectedDeploymentId(deployment.id);
+        setSelectedModelName(deployment.modelName || modelId);
+        setLogsPanelOpen(true);
       }
-    },
-    [stopModel],
-  );
-
-  // Stabilized launch model function for context
-  const parseLaunchError = useCallback((error: unknown): string => {
-    if (typeof error === 'string' && error.trim().length > 0) {
-      return error.trim();
+    } catch (error) {
+      const message = parseLaunchError(error);
+      setLaunchError(message);
+      toast({
+        title: 'Model launch failed',
+        description: message,
+        variant: 'destructive',
+      });
+      console.error('Failed to launch model:', error);
+    } finally {
+      setLaunchingModelId(null);
     }
-    if (error instanceof Error && error.message.trim().length > 0) {
-      return error.message.trim();
-    }
-    return 'Failed to launch model. Please try again.';
-  }, []);
-
-  const stableLaunchModel = useCallback(
-    async (modelId: string, huggingfaceId?: string, family?: string) => {
-      try {
-        const deployment = await launchModelAsync({
-          modelId,
-          huggingfaceId,
-          family,
-        });
-        setLaunchError(null);
-        // If launch succeeds, open the logs panel with the new deployment
-        if (deployment?.id) {
-          setSelectedDeploymentId(deployment.id);
-          setSelectedModelName(deployment.modelName || modelId);
-          setLogsPanelOpen(true);
-        }
-      } catch (error) {
-        const message = parseLaunchError(error);
-        setLaunchError(message);
-        toast({
-          title: 'Model launch failed',
-          description: message,
-          variant: 'destructive',
-        });
-        console.error('Failed to launch model:', error);
-      }
-    },
-    [launchModelAsync, parseLaunchError],
-  );
+  }
 
   // Handler to open logs panel
-  const handleOpenLogsPanel = useCallback(
-    (deploymentId: string, modelName: string) => {
-      setSelectedDeploymentId(deploymentId);
-      setSelectedModelName(modelName);
-      setLogsPanelOpen(true);
-    },
-    [],
-  );
+  function handleOpenLogsPanel(deploymentId: string, modelName: string) {
+    setSelectedDeploymentId(deploymentId);
+    setSelectedModelName(modelName);
+    setLogsPanelOpen(true);
+  }
 
   // Combined loading and error states
   const isLoading = isLoadingModels || isLoadingDeployments;
   const error = modelsError || deploymentsError;
 
-  // Filter active models (those with deployments) - memoized
-  const activeModels = useMemo(() => {
+  // Filter active models (those with deployments)
+  const activeModels = (() => {
     const items = deployments
       .filter((deployment) => isActiveDeploymentStatus(deployment.status))
       .map((deployment) => {
@@ -249,91 +192,65 @@ export default function CatalogPage() {
         );
         if (matched) return matched;
 
-        const fallbackId = deployment.modelId || deployment.modelName;
-        return {
-          id: fallbackId,
-          modelName: deployment.modelName || fallbackId,
-          description: 'Active deployment',
-          status: 'warm',
-          type: 'Medium',
-          family: fallbackId.split('-')[0] || 'custom',
-          variant: fallbackId,
+	        const fallbackId = deployment.modelId || deployment.modelName;
+	        return {
+	          id: fallbackId,
+	          modelName: deployment.modelName || fallbackId,
+	          name: deployment.modelName || fallbackId,
+	          description: 'Active deployment',
+	          status: 'warm',
+	          type: 'Medium',
+	          family: fallbackId.split('-')[0] || 'custom',
+	          variant: fallbackId,
           specs: {
             gpus: 1,
             nodes: 1,
             contextLength: 4096,
             parallelism: false,
           },
-        } as ModelInfo;
+        } as unknown as ModelInfo;
       });
 
     const deduped = new Map(items.map((model) => [model.id, model]));
     return [...deduped.values()];
-  }, [
-    deployments,
-    models,
-    isActiveDeploymentStatus,
-    deploymentMatchesModel,
-  ]);
+  })();
 
-  // Filter available models (those without deployments or with failed/stopped deployments) - memoized
-  const availableModels = useMemo(
-    () =>
-      models.filter(
-        (model) =>
-          !deployments.some(
-            (d) =>
-              deploymentMatchesModel(d, model) &&
-              isActiveDeploymentStatus(d.status),
-          ),
+  // Filter available models (those without deployments or with failed/stopped deployments)
+  const availableModels = models.filter(
+    (model) =>
+      !deployments.some(
+        (d) =>
+          deploymentMatchesModel(d, model) &&
+          isActiveDeploymentStatus(d.status),
       ),
-    [models, deployments, deploymentMatchesModel, isActiveDeploymentStatus],
   );
 
   // Extract just the IDs for the virtualized components
-  const availableModelIds = useMemo(
-    () => availableModels.map((model) => model.id),
-    [availableModels],
-  );
+  const availableModelIds = availableModels.map((model) => model.id);
 
   // Create context value for available models
-  const modelContextValue = useMemo(
-    () => ({
-      models: availableModels,
-      isLoadingModels,
-      launchModel: stableLaunchModel,
-      isLaunching,
-      openLogsPanel: handleOpenLogsPanel,
-    }),
-    [
-      availableModels,
-      isLoadingModels,
-      stableLaunchModel,
-      isLaunching,
-      handleOpenLogsPanel,
-    ],
-  );
+  const modelContextValue = {
+    models: availableModels,
+    isLoadingModels,
+    launchModel: stableLaunchModel,
+    launchingModelId,
+    openLogsPanel: handleOpenLogsPanel,
+  };
 
-  // Memoize the tab change handler
-  const handleTabChange = useCallback((value: string) => {
+  function handleTabChange(value: string) {
     if (value === 'active' || value === 'available') {
       setActiveTab(value);
     }
-  }, []);
+  }
 
-  // Memoize the search handler
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setSearchQuery(e.target.value);
-    },
-    [],
-  );
+  function handleSearchChange(e: ChangeEvent<HTMLInputElement>) {
+    setSearchQuery(e.target.value);
+  }
 
-  // Memoize the refresh handler
-  const handleRefresh = useCallback(() => {
+  function handleRefresh() {
     setLaunchError(null);
     refreshModels();
-  }, [refreshModels]);
+  }
 
   return (
     <>
@@ -341,12 +258,12 @@ export default function CatalogPage() {
       <div className="container mx-auto p-6">
         <div className="mb-4">
           <Button
+            asChild
             variant="default"
             size="sm"
             className="relative ml-3 h-9 overflow-visible rounded-l-none bg-[#ff5f05] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#e65404] before:absolute before:right-full before:top-0 before:size-0 before:border-y-[18px] before:border-r-[12px] before:border-y-transparent before:border-r-[#ff5f05] before:transition-colors before:content-[''] hover:before:border-r-[#e65404]"
-            onClick={() => router.push('/chat')}
           >
-            Back to chat
+            <Link href="/chat">Back to chat</Link>
           </Button>
         </div>
         <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -459,10 +376,10 @@ export default function CatalogPage() {
                       getModelIcon={modelUtilFunctions.getModelIcon}
                       getModelGradient={modelUtilFunctions.getModelGradient}
                       getModelDeployment={getModelDeployment}
-                      getStatusInfo={getStatusInfo}
+                      getStatusInfo={getDeploymentStatusInfo}
                       handleStopModel={handleStopModel}
                       openLogsPanel={handleOpenLogsPanel}
-                      isStopping={isStopping}
+                      stoppingDeploymentId={stoppingDeploymentId}
                     />
                   ))}
                 </div>

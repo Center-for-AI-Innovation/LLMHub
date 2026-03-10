@@ -1,5 +1,5 @@
 import { auth } from '@/app/(auth)/auth';
-import { getActiveAccessibleDeploymentByUserId } from '@/lib/db/queries';
+import { getAccessibleDeploymentsByUserId } from '@/lib/db/queries';
 import { NextResponse } from 'next/server';
 
 const VLLM_MODEL = process.env.VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct';
@@ -10,9 +10,12 @@ interface SessionUser {
 }
 
 interface ModelDeployment {
+  id?: string;
   modelId?: string;
   modelName?: string;
+  slurmJobId?: string;
   status?: string | null;
+  updatedAt?: Date | string | null;
 }
 
 interface ChatModelOption {
@@ -35,32 +38,60 @@ function deploymentToChatOption(deployment: ModelDeployment): ChatModelOption {
   const deployedModelName =
     deployment.modelName || deployment.modelId || VLLM_MODEL;
   const status = deployment.status?.toLowerCase() || 'ready';
+  const slurmJobId = deployment.slurmJobId || deployment.id || deployedModelName;
 
   return {
-    id: 'vllm-model',
+    id: `vllm-job:${slurmJobId}`,
     name: deployedModelName,
     description: `Active deployment (${status})`,
   };
 }
 
-async function getActiveDeploymentOptionForUser(
+function isActiveDeploymentStatus(status?: string | null): boolean {
+  return status?.toLowerCase() === 'ready' || status?.toLowerCase() === 'running';
+}
+
+function toTimestamp(value?: Date | string | null): number {
+  if (!value) {
+    return 0;
+  }
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+async function getActiveDeploymentOptionsForUser(
   sessionUser?: SessionUser,
-): Promise<ChatModelOption | null> {
+): Promise<ChatModelOption[]> {
   const userId = sessionUser?.id;
 
   if (!userId) {
-    return null;
+    return [];
   }
 
   try {
-    const deployment = await getActiveAccessibleDeploymentByUserId(userId);
-    if (!deployment) {
-      return null;
+    const deployments = await getAccessibleDeploymentsByUserId(userId);
+    const activeDeployments = deployments
+      .filter((deployment) => isActiveDeploymentStatus(deployment.status))
+      .sort((left, right) => toTimestamp(right.updatedAt) - toTimestamp(left.updatedAt));
+
+    const seenJobIds = new Set<string>();
+    const options: ChatModelOption[] = [];
+
+    for (const deployment of activeDeployments) {
+      const jobId = deployment.slurmJobId;
+      if (!jobId || seenJobIds.has(jobId)) {
+        continue;
+      }
+      seenJobIds.add(jobId);
+      options.push(deploymentToChatOption(deployment));
     }
 
-    return deploymentToChatOption(deployment);
+    return options;
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -68,8 +99,8 @@ export async function GET() {
   const session = await auth();
   const sessionUser = session?.user as SessionUser | undefined;
 
-  const activeDeploymentOption =
-    await getActiveDeploymentOptionForUser(sessionUser);
+  const activeDeploymentOptions =
+    await getActiveDeploymentOptionsForUser(sessionUser);
   const alwaysOnOption = ALWAYS_ON_VLLM_MODEL
     ? {
         id: 'always-on-model',
@@ -82,16 +113,16 @@ export async function GET() {
   const models: ChatModelOption[] = [];
 
   // Priority order:
-  // 1) User's most recently active deployment
+  // 1) User's active deployments (ready/running)
   // 2) Always-on model
-  // 3) Development/default vLLM model
-  if (activeDeploymentOption) {
-    models.push(activeDeploymentOption);
+  // 3) Development/default vLLM model (only when no active and no always-on)
+  if (activeDeploymentOptions.length > 0) {
+    models.push(...activeDeploymentOptions);
     if (alwaysOnOption) {
       models.push(alwaysOnOption);
     }
   } else if (alwaysOnOption) {
-    models.push(alwaysOnOption, defaultVllmOption);
+    models.push(alwaysOnOption);
   } else {
     models.push(defaultVllmOption);
   }

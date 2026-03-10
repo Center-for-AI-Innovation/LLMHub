@@ -4,7 +4,7 @@ import { isAfter } from 'date-fns';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { useSWRConfig } from 'swr';
-import { useWindowSize } from 'usehooks-ts';
+import { useWindowSize } from '@/hooks/use-window-size';
 
 import type { Document } from '@/lib/db/schema';
 import { getDocumentTimestampByIndex } from '@/lib/utils';

@@ -40,7 +40,8 @@ export const myProvider = customProvider({
     // 'title-model': openai('gpt-4-turbo'),
     // 'artifact-model': openai('gpt-4o-mini'),
     // vLLM model - uses local vLLM server
-    'vllm-model': vllmProvider(VLLM_MODEL),
+    // vLLM/OpenAI-compatible servers typically implement /v1/chat/completions, not /v1/responses.
+    'vllm-model': vllmProvider.chat(VLLM_MODEL),
   }
 });
 

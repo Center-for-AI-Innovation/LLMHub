@@ -10,13 +10,13 @@ const ModelContext = React.createContext<{
     huggingfaceId?: string,
     family?: string,
   ) => Promise<void>;
-  isLaunching: boolean;
+  launchingModelId: string | null;
   openLogsPanel?: (deploymentId: string, modelName: string) => void;
 }>({
   models: [],
   isLoadingModels: false,
   launchModel: async () => {},
-  isLaunching: false,
+  launchingModelId: null,
   openLogsPanel: undefined,
 });
 
