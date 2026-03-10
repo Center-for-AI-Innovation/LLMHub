@@ -28,7 +28,9 @@ export default function Page() {
 
   const requestedRedirect = searchParams?.get('redirectTo');
   const redirectTo =
-    requestedRedirect && requestedRedirect.startsWith('/')
+    requestedRedirect &&
+    requestedRedirect.startsWith('/') &&
+    !requestedRedirect.startsWith('//')
       ? requestedRedirect
       : '/chat';
 
