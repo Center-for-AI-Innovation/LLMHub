@@ -23,7 +23,10 @@ export default auth(async (req: NextRequest) => {
         { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
     }
-    return NextResponse.redirect(new URL('/login', nextUrl));
+    const redirectTo = `${nextUrl.pathname}${nextUrl.search}`;
+    const loginUrl = new URL('/login', nextUrl);
+    loginUrl.searchParams.set('redirectTo', redirectTo);
+    return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
