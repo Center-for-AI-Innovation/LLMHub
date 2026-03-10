@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Navbar } from '@/components/navbar';
 import { Button } from '@/components/ui/button';
@@ -56,7 +57,9 @@ export default function CatalogPage() {
     [],
   );
 
-  const [activeTab, setActiveTab] = useState<string>('available');
+  const [activeTab, setActiveTab] = useState<'active' | 'available'>(
+    'available',
+  );
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Use debounce for search
@@ -90,22 +93,27 @@ export default function CatalogPage() {
 
   const { mutate: stopModel, isPending: isStopping } = useStopModel();
 
-  // Effect to change to active tab if we have deployments
-  useEffect(() => {
-    if (deployments.length > 0 && activeTab === 'available') {
-      setActiveTab('active');
-    }
-  }, [deployments, activeTab]);
-
   // Get model deployment if exists - memoized
   const getModelDeployment = useCallback(
-    (modelId: string) => {
-      const targetId = modelId.toLowerCase();
-      return deployments.find(
-        (d) =>
-          [d.modelId, d.modelName].some(
-            (value) => value?.toLowerCase() === targetId,
-          ) && (d.status === 'running' || d.status === 'launching'),
+    (model: ModelInfo) => {
+      const modelName = (model as unknown as { name?: string }).name;
+      const targetIds = [
+        model.id,
+        model.modelName,
+        modelName,
+        model.variant,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toLowerCase());
+
+      return deployments.find((d) =>
+        [d.modelId, d.modelName].some((value) => {
+          if (!value) return false;
+          return targetIds.includes(value.toLowerCase());
+        }) &&
+          ['pending', 'launching', 'ready', 'running'].includes(
+            d.status.toLowerCase(),
+          ),
       );
     },
     [deployments],
@@ -279,7 +287,9 @@ export default function CatalogPage() {
 
   // Memoize the tab change handler
   const handleTabChange = useCallback((value: string) => {
-    setActiveTab(value);
+    if (value === 'active' || value === 'available') {
+      setActiveTab(value);
+    }
   }, []);
 
   // Memoize the search handler
@@ -338,27 +348,51 @@ export default function CatalogPage() {
           </div>
         ) : models.length > 0 ? (
           <Tabs
-            defaultValue={activeTab}
+            value={activeTab}
             onValueChange={handleTabChange}
             className="w-full"
           >
             <div className="flex items-center mb-6">
               <TabsList className="mr-2">
-                <TabsTrigger value="active" className="relative">
-                  Active Models
-                  {activeModels.length > 0 && (
-                    <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium">
-                      {activeModels.length}
-                    </span>
+                <TabsTrigger
+                  value="active"
+                  className="relative transition-colors duration-200 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                >
+                  {activeTab === 'active' && (
+                    <motion.span
+                      layoutId="catalog-tab-active-bg"
+                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                      className="absolute inset-0 rounded-md bg-background shadow-sm"
+                    />
                   )}
+                  <span className="relative z-10 inline-flex items-center">
+                    Active Models
+                    {activeModels.length > 0 && (
+                      <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium">
+                        {activeModels.length}
+                      </span>
+                    )}
+                  </span>
                 </TabsTrigger>
-                <TabsTrigger value="available">
-                  Available Models
-                  {availableModels.length > 0 && (
-                    <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium">
-                      {availableModels.length}
-                    </span>
+                <TabsTrigger
+                  value="available"
+                  className="relative transition-colors duration-200 data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                >
+                  {activeTab === 'available' && (
+                    <motion.span
+                      layoutId="catalog-tab-active-bg"
+                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                      className="absolute inset-0 rounded-md bg-background shadow-sm"
+                    />
                   )}
+                  <span className="relative z-10 inline-flex items-center">
+                    Available Models
+                    {availableModels.length > 0 && (
+                      <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium">
+                        {availableModels.length}
+                      </span>
+                    )}
+                  </span>
                 </TabsTrigger>
               </TabsList>
               <Button
