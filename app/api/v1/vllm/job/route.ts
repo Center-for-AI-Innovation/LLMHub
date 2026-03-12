@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server';
 import { auth } from '@/app/(auth)/auth';
-import { getActiveModelDeploymentByUserId } from '@/lib/db/queries';
+import { getActiveAccessibleDeploymentByUserId } from '@/lib/db/queries';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -32,9 +32,9 @@ export async function GET() {
 
     const userId = session.user.id;
 
-    // Get active deployment from ModelDeployment table
+    // Get active deployment the user can access (owner/shared)
     try {
-      const activeDeployment = await getActiveModelDeploymentByUserId(userId);
+      const activeDeployment = await getActiveAccessibleDeploymentByUserId(userId);
       
       if (activeDeployment) {
         // Found an active deployment in ModelDeployment table
@@ -92,9 +92,9 @@ export async function POST() {
 
     const userId = session.user.id;
 
-    // Get the latest active deployment from ModelDeployment table
+    // Get the latest active deployment the user can access (owner/shared)
     try {
-      const activeDeployment = await getActiveModelDeploymentByUserId(userId);
+      const activeDeployment = await getActiveAccessibleDeploymentByUserId(userId);
       
       if (activeDeployment) {
         return NextResponse.json({
@@ -128,4 +128,3 @@ export async function POST() {
     );
   }
 }
-

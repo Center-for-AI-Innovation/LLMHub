@@ -2,10 +2,11 @@ import { smoothStream, streamText } from 'ai';
 import { myProvider } from '@/lib/ai/models';
 import { createDocumentHandler } from '@/lib/artifacts/server';
 import { updateDocumentPrompt } from '@/lib/ai/prompts';
+import { writeStreamDelta } from '@/lib/ai/ui-data';
 
 export const textDocumentHandler = createDocumentHandler<'text'>({
   kind: 'text',
-  onCreateDocument: async ({ title, dataStream }) => {
+  onCreateDocument: async ({ title, writer }) => {
     let draftContent = '';
 
     const { fullStream } = streamText({
@@ -20,20 +21,17 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
       const { type } = delta;
 
       if (type === 'text-delta') {
-        const { textDelta } = delta;
+        const { text } = delta;
 
-        draftContent += textDelta;
+        draftContent += text;
 
-        dataStream.writeData({
-          type: 'text-delta',
-          content: textDelta,
-        });
+        writeStreamDelta(writer, 'text-delta', text);
       }
     }
 
     return draftContent;
   },
-  onUpdateDocument: async ({ document, description, dataStream }) => {
+  onUpdateDocument: async ({ document, description, writer }) => {
     let draftContent = '';
 
     const { fullStream } = streamText({
@@ -41,27 +39,16 @@ export const textDocumentHandler = createDocumentHandler<'text'>({
       system: updateDocumentPrompt(document.content, 'text'),
       experimental_transform: smoothStream({ chunking: 'word' }),
       prompt: description,
-      experimental_providerMetadata: {
-        openai: {
-          prediction: {
-            type: 'content',
-            content: document.content,
-          },
-        },
-      },
     });
 
     for await (const delta of fullStream) {
       const { type } = delta;
 
       if (type === 'text-delta') {
-        const { textDelta } = delta;
+        const { text } = delta;
 
-        draftContent += textDelta;
-        dataStream.writeData({
-          type: 'text-delta',
-          content: textDelta,
-        });
+        draftContent += text;
+        writeStreamDelta(writer, 'text-delta', text);
       }
     }
 

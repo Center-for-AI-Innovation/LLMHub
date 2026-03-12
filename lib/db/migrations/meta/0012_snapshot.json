@@ -1,9 +1,85 @@
 {
-  "id": "4f9aa873-2614-42ed-a4aa-119747d9ffcd",
+  "id": "aabe9585-5a32-4d64-96e6-e29b520f3346",
   "prevId": "77e08188-af12-4a67-a0fc-3d96f6a91837",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.AuthorizedUsers": {
+      "name": "AuthorizedUsers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "modelId": {
+          "name": "modelId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "modelName": {
+          "name": "modelName",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ownerId": {
+          "name": "ownerId",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ownerEmail": {
+          "name": "ownerEmail",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "allowedUserIds": {
+          "name": "allowedUserIds",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "allowedUserEmails": {
+          "name": "allowedUserEmails",
+          "type": "varchar(255)[]",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "AuthorizedUsers_modelId_ownerId_ModelDeployment_modelId_userId_fk": {
+          "name": "AuthorizedUsers_modelId_ownerId_ModelDeployment_modelId_userId_fk",
+          "tableFrom": "AuthorizedUsers",
+          "tableTo": "ModelDeployment",
+          "columnsFrom": [
+            "modelId",
+            "ownerId"
+          ],
+          "columnsTo": [
+            "modelId",
+            "userId"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
     "public.AvailableModel": {
       "name": "AvailableModel",
       "schema": "",
@@ -31,7 +107,7 @@
           "type": "varchar",
           "primaryKey": false,
           "notNull": true,
-          "default": "'warm'"
+          "default": "'WARM'"
         },
         "type": {
           "name": "type",
@@ -331,8 +407,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "proxyUrl": {
-          "name": "proxyUrl",
+        "tunnelUrl": {
+          "name": "tunnelUrl",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false
@@ -400,7 +476,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {}
+      "uniqueConstraints": {
+        "ModelDeployment_modelId_userId_unique": {
+          "name": "ModelDeployment_modelId_userId_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "modelId",
+            "userId"
+          ]
+        }
+      }
     },
     "public.ModelRequest": {
       "name": "ModelRequest",

@@ -1,11 +1,10 @@
 /**
  * Hook for managing vLLM job ID for the proxy
- * 
+ *
  * This hook fetches the vLLM job ID from the ModelDeployment table.
  * It returns the job ID of the user's active deployment.
  */
 
-import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 const VLLM_JOB_QUERY_KEY = ['vllm-job'] as const;
@@ -37,12 +36,12 @@ interface VllmJobResponse {
 
 /**
  * Hook for managing the vLLM job ID
- * 
+ *
  * Fetches the job ID from the user's active ModelDeployment.
- * 
+ *
  * @returns Object with jobId, deployment info, refresh function, and loading state
  */
-export function useVllmJob() {
+export function useVllmJob(enabled = true) {
   const queryClient = useQueryClient();
   const { data, error, isLoading } = useQuery({
     queryKey: VLLM_JOB_QUERY_KEY,
@@ -54,6 +53,7 @@ export function useVllmJob() {
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     retry: 1,
+    enabled,
   });
 
   const refreshJobMutation = useMutation({
@@ -84,12 +84,11 @@ export function useVllmJob() {
   const expiresAt = data?.expiresAt || null;
 
   // Function to refresh/revalidate the deployment info
-  const refreshJobId = useCallback(async () => {
-    return refreshJobMutation.mutateAsync();
-  }, [refreshJobMutation]);
+  const refreshJobId = async () => refreshJobMutation.mutateAsync();
 
   // Check if there's an active deployment
-  const hasActiveDeployment = jobId !== null && (status === 'ready' || status === 'running');
+  const hasActiveDeployment =
+    jobId !== null && (status === 'ready' || status === 'running');
 
   return {
     jobId,
@@ -110,7 +109,7 @@ export function useVllmJob() {
 
 /**
  * Get the API endpoint for vLLM chat based on the job ID
- * 
+ *
  * @param jobId - The Slurm job ID
  * @returns The API endpoint URL
  */
@@ -120,7 +119,7 @@ export function getVllmChatEndpoint(jobId: string): string {
 
 /**
  * Get the API endpoint for vLLM models based on the job ID
- * 
+ *
  * @param jobId - The Slurm job ID
  * @returns The API endpoint URL
  */

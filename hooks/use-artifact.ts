@@ -2,7 +2,6 @@
 
 import useSWR from 'swr';
 import type { UIArtifact } from '@/components/artifact';
-import { useCallback, useMemo } from 'react';
 
 export const initialArtifactData: UIArtifact = {
   documentId: 'init',
@@ -26,12 +25,7 @@ export function useArtifactSelector<Selected>(selector: Selector<Selected>) {
     fallbackData: initialArtifactData,
   });
 
-  const selectedValue = useMemo(() => {
-    if (!localArtifact) return selector(initialArtifactData);
-    return selector(localArtifact);
-  }, [localArtifact, selector]);
-
-  return selectedValue;
+  return selector(localArtifact ?? initialArtifactData);
 }
 
 export function useArtifact() {
@@ -43,25 +37,21 @@ export function useArtifact() {
     },
   );
 
-  const artifact = useMemo(() => {
-    if (!localArtifact) return initialArtifactData;
-    return localArtifact;
-  }, [localArtifact]);
+  const artifact = localArtifact ?? initialArtifactData;
 
-  const setArtifact = useCallback(
-    (updaterFn: UIArtifact | ((currentArtifact: UIArtifact) => UIArtifact)) => {
-      setLocalArtifact((currentArtifact) => {
-        const artifactToUpdate = currentArtifact || initialArtifactData;
+  const setArtifact = (
+    updaterFn: UIArtifact | ((currentArtifact: UIArtifact) => UIArtifact),
+  ) => {
+    setLocalArtifact((currentArtifact) => {
+      const artifactToUpdate = currentArtifact || initialArtifactData;
 
-        if (typeof updaterFn === 'function') {
-          return updaterFn(artifactToUpdate);
-        }
+      if (typeof updaterFn === 'function') {
+        return updaterFn(artifactToUpdate);
+      }
 
-        return updaterFn;
-      });
-    },
-    [setLocalArtifact],
-  );
+      return updaterFn;
+    });
+  };
 
   const { data: localArtifactMetadata, mutate: setLocalArtifactMetadata } =
     useSWR<any>(
@@ -73,13 +63,10 @@ export function useArtifact() {
       },
     );
 
-  return useMemo(
-    () => ({
-      artifact,
-      setArtifact,
-      metadata: localArtifactMetadata,
-      setMetadata: setLocalArtifactMetadata,
-    }),
-    [artifact, setArtifact, localArtifactMetadata, setLocalArtifactMetadata],
-  );
+  return {
+    artifact,
+    setArtifact,
+    metadata: localArtifactMetadata,
+    setMetadata: setLocalArtifactMetadata,
+  };
 }

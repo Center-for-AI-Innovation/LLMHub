@@ -2,8 +2,7 @@ import 'server-only';
 
 import { genSaltSync, hashSync } from 'bcrypt-ts';
 import { and, asc, desc, eq, gt, gte, inArray, or, ilike, sql } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { db } from '@/lib/db';
 
 import {
   user,
@@ -18,16 +17,14 @@ import {
   availableModel,
   modelDeployment,
   type ModelDeployment,
+  authorizedUsers,
+  type AuthorizedUsers,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
 // https://authjs.dev/reference/adapter/drizzle
-
-// biome-ignore lint: Forbidden non-null assertion.
-const client = postgres(process.env.POSTGRES_URL!);
-const db = drizzle(client);
 
 // User Utility Functions
 // ==========================================
@@ -540,6 +537,7 @@ export async function createModelDeployment({
   slurmJobId,
   status = 'pending',
   endpointUrl,
+  proxyUrl,
   errorMessage,
   resourceAllocation,
   expiresAt,
@@ -550,6 +548,7 @@ export async function createModelDeployment({
   slurmJobId: string;
   status?: ModelDeployment['status'];
   endpointUrl?: string | null;
+  proxyUrl?: string | null;
   errorMessage?: string | null;
   resourceAllocation?: Record<string, unknown> | null;
   expiresAt?: Date | null;
@@ -564,6 +563,7 @@ export async function createModelDeployment({
         slurmJobId,
         status,
         endpointUrl,
+        proxyUrl,
         errorMessage,
         resourceAllocation,
         expiresAt,
@@ -657,6 +657,133 @@ export async function shutdownModelDeploymentById(id: string): Promise<void> {
     await db.update(modelDeployment).set({ status: 'shutdown' }).where(eq(modelDeployment.id, id));
   } catch (error) {
     console.error('Failed to shutdown model deployment by id from database', error);
+    throw error;
+  }
+}
+
+// ==========================================
+// Authorized Users Utility Functions
+// ==========================================
+
+/**
+ * Add a user to a deployment.
+ */
+export async function addUserToDeployment({
+  deploymentId,
+  userId,
+  permission = 'user',
+}: {
+  deploymentId: string;
+  userId: string;
+  permission?: 'owner' | 'user';
+}): Promise<AuthorizedUsers | null> {
+  try {
+    const [row] = await db
+      .insert(authorizedUsers)
+      .values({ deploymentId, userId, permission })
+      .returning();
+    return row;
+  } catch (error) {
+    console.error('Failed to add user to deployment in database', error);
+    throw error;
+  }
+}
+
+/**
+ * Revoke a user's access to a deployment.
+ */
+export async function removeUserFromDeployment({
+  deploymentId,
+  userId,
+}: {
+  deploymentId: string;
+  userId: string;
+}): Promise<void> {
+  try {
+    await db
+      .delete(authorizedUsers)
+      .where(
+        and(
+          eq(authorizedUsers.deploymentId, deploymentId),
+          eq(authorizedUsers.userId, userId),
+        ),
+      );
+  } catch (error) {
+    console.error('Failed to remove user from deployment in database', error);
+    throw error;
+  }
+}
+
+/**
+ * Return all access rows for a given deployment (owner + shared users).
+ */
+export async function getAuthorizedUsersByDeploymentId(
+  deploymentId: string,
+): Promise<AuthorizedUsers[]> {
+  try {
+    return await db
+      .select()
+      .from(authorizedUsers)
+      .where(eq(authorizedUsers.deploymentId, deploymentId));
+  } catch (error) {
+    console.error('Failed to get authorized users by deployment id from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Return all ModelDeployment rows that a given user has any access to
+ * (either as owner or as a shared user).
+ */
+export async function getAccessibleDeploymentsByUserId(
+  userId: string,
+): Promise<ModelDeployment[]> {
+  try {
+    const rows = await db
+      .select({ deployment: modelDeployment })
+      .from(authorizedUsers)
+      .innerJoin(modelDeployment, eq(authorizedUsers.deploymentId, modelDeployment.id))
+      .where(eq(authorizedUsers.userId, userId));
+    return rows.map((r) => r.deployment);
+  } catch (error) {
+    console.error('Failed to get accessible deployments by user id from database', error);
+    throw error;
+  }
+}
+
+/**
+ * Get the most recent active deployment a user can access
+ * (owner or shared via AuthorizedUsers).
+ */
+export async function getActiveAccessibleDeploymentByUserId(
+  userId: string,
+): Promise<ModelDeployment | null> {
+  try {
+    const [row] = await db
+      .select({ deployment: modelDeployment })
+      .from(authorizedUsers)
+      .innerJoin(
+        modelDeployment,
+        eq(authorizedUsers.deploymentId, modelDeployment.id),
+      )
+      .where(
+        and(
+          eq(authorizedUsers.userId, userId),
+          or(
+            eq(modelDeployment.status, 'ready'),
+            eq(modelDeployment.status, 'running'),
+          ),
+        ),
+      )
+      .orderBy(desc(modelDeployment.updatedAt), desc(modelDeployment.createdAt))
+      .limit(1);
+
+    return row?.deployment || null;
+  } catch (error) {
+    console.error(
+      'Failed to get active accessible deployment by user id from database',
+      error,
+    );
     throw error;
   }
 }

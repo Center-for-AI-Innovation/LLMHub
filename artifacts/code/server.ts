@@ -3,10 +3,11 @@ import { streamObject } from 'ai';
 import { myProvider } from '@/lib/ai/models';
 import { codePrompt, updateDocumentPrompt } from '@/lib/ai/prompts';
 import { createDocumentHandler } from '@/lib/artifacts/server';
+import { writeStreamDelta } from '@/lib/ai/ui-data';
 
 export const codeDocumentHandler = createDocumentHandler<'code'>({
   kind: 'code',
-  onCreateDocument: async ({ title, dataStream }) => {
+  onCreateDocument: async ({ title, writer }) => {
     let draftContent = '';
 
     const { fullStream } = streamObject({
@@ -26,10 +27,7 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
         const { code } = object;
 
         if (code) {
-          dataStream.writeData({
-            type: 'code-delta',
-            content: code ?? '',
-          });
+          writeStreamDelta(writer, 'code-delta', code ?? '');
 
           draftContent = code;
         }
@@ -38,11 +36,11 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
 
     return draftContent;
   },
-  onUpdateDocument: async ({ document, description, dataStream }) => {
+  onUpdateDocument: async ({ document, description, writer }) => {
     let draftContent = '';
 
     const { fullStream } = streamObject({
-      model: myProvider.languageModel('artifacts-model'),
+      model: myProvider.languageModel('artifact-model'),
       system: updateDocumentPrompt(document.content, 'code'),
       prompt: description,
       schema: z.object({
@@ -58,10 +56,7 @@ export const codeDocumentHandler = createDocumentHandler<'code'>({
         const { code } = object;
 
         if (code) {
-          dataStream.writeData({
-            type: 'code-delta',
-            content: code ?? '',
-          });
+          writeStreamDelta(writer, 'code-delta', code ?? '');
 
           draftContent = code;
         }

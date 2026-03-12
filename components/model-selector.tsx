@@ -1,23 +1,26 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { chatModels } from '@/lib/ai/models';
 import { cn } from '@/lib/utils';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { CheckCircleFillIcon, ChevronDownIcon } from './icons';
+import { useChatModels } from '@/hooks/use-models';
 
 export function ModelSelector({
   className,
 }: React.ComponentProps<typeof Button>) {
   const [open, setOpen] = useState(false);
   const { selectedModel, setSelectedModel } = useModelSelector();
+  const { data: chatModels = [] } = useChatModels();
 
   const selectedChatModel = chatModels.find((chatModel) => chatModel.id === selectedModel);
 
@@ -36,7 +39,7 @@ export function ModelSelector({
         )}
       >
         <Button variant="outline" className="md:h-[34px] md:px-2 bg-background dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] dark:hover:bg-muted">
-          {selectedChatModel?.name}
+          {selectedChatModel?.name || 'Select model'}
           <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
@@ -64,6 +67,10 @@ export function ModelSelector({
             </DropdownMenuItem>
           );
         })}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild className="cursor-pointer font-medium">
+          <Link href="/catalog" prefetch={false}>Request Model</Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

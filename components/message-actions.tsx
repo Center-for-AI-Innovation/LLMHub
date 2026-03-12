@@ -1,7 +1,6 @@
-import type { Message } from 'ai';
+import type { UIMessage } from 'ai';
 import { toast } from 'sonner';
 import { useSWRConfig } from 'swr';
-import { useCopyToClipboard } from 'usehooks-ts';
 
 import type { Vote } from '@/lib/db/schema';
 
@@ -15,6 +14,7 @@ import {
 } from './ui/tooltip';
 import { memo } from 'react';
 import equal from 'fast-deep-equal';
+import { getTextFromUIMessage } from '@/lib/utils';
 
 export function PureMessageActions({
   chatId,
@@ -23,16 +23,15 @@ export function PureMessageActions({
   isLoading,
 }: {
   chatId: string;
-  message: Message;
+  message: UIMessage;
   vote: Vote | undefined;
   isLoading: boolean;
 }) {
   const { mutate } = useSWRConfig();
-  const [_, copyToClipboard] = useCopyToClipboard();
 
   if (isLoading) return null;
   if (message.role === 'user') return null;
-  if (message.toolInvocations && message.toolInvocations.length > 0)
+  if (message.parts.some((part) => part.type.startsWith('tool-') || part.type === 'dynamic-tool'))
     return null;
 
   return (
@@ -44,7 +43,7 @@ export function PureMessageActions({
               className="py-1 px-2 h-fit text-muted-foreground"
               variant="outline"
               onClick={async () => {
-                await copyToClipboard(message.content as string);
+                await navigator.clipboard.writeText(getTextFromUIMessage(message));
                 toast.success('Copied to clipboard!');
               }}
             >

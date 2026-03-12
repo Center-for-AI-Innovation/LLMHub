@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Message } from 'ai';
+import type { UIMessage } from 'ai';
 import { convertToUIMessages } from '@/lib/utils';
 import type { VisibilityType } from '@/components/visibility-selector';
 import type { Chat, Vote, Document } from '@/lib/db/schema';
@@ -25,7 +25,7 @@ export interface SessionData {
 // Types for the combined chat contents data
 export interface ChatContentsData {
   chat: ChatData;
-  messages: Message[];
+  messages: UIMessage[];
   votes: Vote[];
   documents: Document[];
 }
@@ -64,7 +64,7 @@ export function useChat(id: string) {
 export function useChatMessages(id: string) {
   return useQuery({
     queryKey: ['chat', id, 'messages'],
-    queryFn: async (): Promise<Message[]> => {
+    queryFn: async (): Promise<UIMessage[]> => {
       const res = await fetch(`/api/chat/${id}/messages`);
       if (!res.ok) {
         throw new Error('Failed to fetch messages');

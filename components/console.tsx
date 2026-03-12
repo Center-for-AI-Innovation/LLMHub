@@ -3,7 +3,6 @@ import { Button } from './ui/button';
 import {
   type Dispatch,
   type SetStateAction,
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -30,6 +29,7 @@ interface ConsoleProps {
 export function Console({ consoleOutputs, setConsoleOutputs }: ConsoleProps) {
   const [height, setHeight] = useState<number>(300);
   const [isResizing, setIsResizing] = useState(false);
+  const isResizingRef = useRef(false);
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
@@ -37,34 +37,31 @@ export function Console({ consoleOutputs, setConsoleOutputs }: ConsoleProps) {
   const minHeight = 100;
   const maxHeight = 800;
 
-  const startResizing = useCallback(() => {
-    setIsResizing(true);
-  }, []);
-
-  const stopResizing = useCallback(() => {
-    setIsResizing(false);
-  }, []);
-
-  const resize = useCallback(
-    (e: MouseEvent) => {
-      if (isResizing) {
-        const newHeight = window.innerHeight - e.clientY;
-        if (newHeight >= minHeight && newHeight <= maxHeight) {
-          setHeight(newHeight);
-        }
-      }
-    },
-    [isResizing],
-  );
+  useEffect(() => {
+    isResizingRef.current = isResizing;
+  }, [isResizing]);
 
   useEffect(() => {
-    window.addEventListener('mousemove', resize);
-    window.addEventListener('mouseup', stopResizing);
-    return () => {
-      window.removeEventListener('mousemove', resize);
-      window.removeEventListener('mouseup', stopResizing);
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+
+      const newHeight = window.innerHeight - e.clientY;
+      if (newHeight >= minHeight && newHeight <= maxHeight) {
+        setHeight(newHeight);
+      }
     };
-  }, [resize, stopResizing]);
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -80,7 +77,7 @@ export function Console({ consoleOutputs, setConsoleOutputs }: ConsoleProps) {
     <>
       <div
         className="h-2 w-full fixed cursor-ns-resize z-50"
-        onMouseDown={startResizing}
+        onMouseDown={() => setIsResizing(true)}
         style={{ bottom: height - 4 }}
         role="slider"
         aria-valuenow={minHeight}

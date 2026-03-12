@@ -3,19 +3,54 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 const USE_LOCAL_TEST_DEPLOYMENTS =
   process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true';
 const DEPLOYMENTS_COLLECTION_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
-  ? '/api/test/local/deployments'
+  ? '/api/local/deployments'
   : '/api/models/deployments';
 const DEPLOYMENTS_LAUNCH_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
-  ? '/api/test/local/deployments'
+  ? '/api/local/deployments'
   : '/api/deployments';
 const deploymentItemEndpoint = (deploymentId: string) =>
   USE_LOCAL_TEST_DEPLOYMENTS
-    ? `/api/test/local/deployments/${deploymentId}`
+    ? `/api/local/deployments/${deploymentId}`
     : `/api/models/deployments/${deploymentId}`;
 const deploymentLogsEndpoint = (deploymentId: string, tail = 200) =>
   USE_LOCAL_TEST_DEPLOYMENTS
-    ? `/api/test/local/deployments/${deploymentId}/logs?tail=${tail}`
+    ? `/api/local/deployments/${deploymentId}/logs?tail=${tail}`
     : `/api/models/deployments/${deploymentId}/logs?tail=${tail}`;
+
+async function parseLaunchErrorResponse(response: Response): Promise<string> {
+  const fallbackMessage = `Failed to launch model (${response.status})`;
+  const errorText = await response.text().catch(() => '');
+
+  if (!errorText) {
+    return fallbackMessage;
+  }
+
+  let parsedMessage = errorText;
+  try {
+    const parsed = JSON.parse(errorText) as
+      | {
+          error?: unknown;
+          detail?: unknown;
+          message?: unknown;
+        }
+      | undefined;
+    const candidate =
+      (typeof parsed?.error === 'string' && parsed.error) ||
+      (typeof parsed?.detail === 'string' && parsed.detail) ||
+      (typeof parsed?.message === 'string' && parsed.message);
+    if (candidate) {
+      parsedMessage = candidate;
+    }
+  } catch {
+    // Keep raw text when response is not JSON.
+  }
+
+  if (parsedMessage.toLowerCase().includes('slurm job failed')) {
+    return 'Failed to launch model';
+  }
+
+  return parsedMessage || fallbackMessage;
+}
 
 // Types for models
 export interface ModelSpecs {
@@ -28,6 +63,7 @@ export interface ModelSpecs {
 export interface ModelInfo {
   id: string;
   modelName: string;
+  name?: string;
   description: string;
   status: 'warm' | 'cold';
   type: 'Small' | 'Medium' | 'Large';
@@ -58,6 +94,12 @@ export interface ModelDeployment {
   createdAt: string;
   updatedAt: string;
   expiresAt: string | null;
+}
+
+export interface ChatModelOption {
+  id: string;
+  name: string;
+  description: string;
 }
 
 // Fetch all models
@@ -211,6 +253,23 @@ export function useModelDeployments() {
   });
 }
 
+export function useChatModels() {
+  return useQuery({
+    queryKey: ['chat-models'],
+    queryFn: async (): Promise<ChatModelOption[]> => {
+      const res = await fetch('/api/chat/models');
+      if (!res.ok) {
+        throw new Error('Failed to fetch chat models');
+      }
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
+    staleTime: 0,
+    gcTime: 300_000,
+    refetchOnMount: 'always',
+  });
+}
+
 // Launch a model
 export function useLaunchModel() {
   const queryClient = useQueryClient();
@@ -263,7 +322,7 @@ export function useLaunchModel() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to launch model');
+        throw new Error(await parseLaunchErrorResponse(res));
       }
 
       return res.json();
@@ -271,6 +330,7 @@ export function useLaunchModel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
+      queryClient.invalidateQueries({ queryKey: ['chat-models'] });
     },
   });
 }
@@ -292,6 +352,7 @@ export function useStopModel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
+      queryClient.invalidateQueries({ queryKey: ['chat-models'] });
     },
   });
 }
