@@ -1,6 +1,6 @@
 'use server';
 
-import { generateText, type Message } from 'ai';
+import { generateText, type UIMessage } from 'ai';
 import { cookies } from 'next/headers';
 import { auth } from '@/app/(auth)/auth';
 import { randomUUID } from 'node:crypto';
@@ -39,8 +39,13 @@ export async function saveChatModelAsCookie(model: string) {
 export async function generateTitleFromUserMessage({
   message,
 }: {
-  message: Message;
+  message: UIMessage;
 }) {
+  const messageText = message.parts
+    .map((part) => (part.type === 'text' ? part.text : ''))
+    .join('')
+    .trim();
+
   const { text: title } = await generateText({
     model: myProvider.languageModel('title-model'),
     system: `\n
@@ -48,7 +53,7 @@ export async function generateTitleFromUserMessage({
     - ensure it is not more than 80 characters long
     - the title should be a summary of the user's message
     - do not use quotes or colons`,
-    prompt: JSON.stringify(message),
+    prompt: messageText || 'New chat',
   });
 
   return title;

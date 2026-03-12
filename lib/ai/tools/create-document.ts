@@ -1,47 +1,33 @@
 import { generateUUID } from '@/lib/utils';
-import { type DataStreamWriter, tool } from 'ai';
+import { type UIMessageStreamWriter, tool } from 'ai';
 import { z } from 'zod';
 import type { Session } from 'next-auth';
 import {
   artifactKinds,
   documentHandlersByArtifactKind,
 } from '@/lib/artifacts/server';
+import { writeStreamDelta } from '@/lib/ai/ui-data';
 
 interface CreateDocumentProps {
   session: Session;
-  dataStream: DataStreamWriter;
+  writer: UIMessageStreamWriter;
 }
 
-export const createDocument = ({ session, dataStream }: CreateDocumentProps) =>
+export const createDocument = ({ session, writer }: CreateDocumentProps) =>
   tool({
     description:
       'Create a document for a writing or content creation activities. This tool will call other functions that will generate the contents of the document based on the title and kind.',
-    parameters: z.object({
+    inputSchema: z.object({
       title: z.string(),
       kind: z.enum(artifactKinds),
     }),
     execute: async ({ title, kind }) => {
       const id = generateUUID();
 
-      dataStream.writeData({
-        type: 'kind',
-        content: kind,
-      });
-
-      dataStream.writeData({
-        type: 'id',
-        content: id,
-      });
-
-      dataStream.writeData({
-        type: 'title',
-        content: title,
-      });
-
-      dataStream.writeData({
-        type: 'clear',
-        content: '',
-      });
+      writeStreamDelta(writer, 'kind', kind);
+      writeStreamDelta(writer, 'id', id);
+      writeStreamDelta(writer, 'title', title);
+      writeStreamDelta(writer, 'clear', '');
 
       const documentHandler = documentHandlersByArtifactKind.find(
         (documentHandlerByArtifactKind) =>
@@ -55,11 +41,11 @@ export const createDocument = ({ session, dataStream }: CreateDocumentProps) =>
       await documentHandler.onCreateDocument({
         id,
         title,
-        dataStream,
+        writer,
         session,
       });
 
-      dataStream.writeData({ type: 'finish', content: '' });
+      writeStreamDelta(writer, 'finish', '');
 
       return {
         id,

@@ -2,11 +2,12 @@ import { randomInt } from 'node:crypto';
 
 import { auth } from '@/app/(auth)/auth';
 import {
+  addUserToDeployment,
   createModelDeployment,
+  getAccessibleDeploymentsByUserId,
   getAvailableModelById,
-  getAvailableModelByName,
-  getModelDeploymentsByUserId,
 } from '@/lib/db/queries';
+import { isLocalTestEnabled } from '@/lib/utils';
 import { type NextRequest, NextResponse } from 'next/server';
 
 const DEV_ENDPOINT_URL =
@@ -20,13 +21,9 @@ const createSlurmJobId = () =>
     .toString()
     .padStart(SLURM_JOB_ID_LENGTH, '0');
 
-function isDevelopment() {
-  return process.env.NODE_ENV === 'development';
-}
-
 export async function GET() {
   try {
-    if (!isDevelopment()) {
+    if (!isLocalTestEnabled()) {
       return NextResponse.json(
         {
           error:
@@ -46,7 +43,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const deployments = await getModelDeploymentsByUserId(userId);
+    const deployments = await getAccessibleDeploymentsByUserId(userId);
     return NextResponse.json(deployments);
   } catch (error) {
     console.error('Error fetching local test deployments:', error);
@@ -56,7 +53,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!isDevelopment()) {
+    if (!isLocalTestEnabled()) {
       return NextResponse.json(
         {
           error:
@@ -86,22 +83,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const [modelById] = await getAvailableModelById({ id: modelId });
-    const [modelByName] = modelById
-      ? [null]
-      : await getAvailableModelByName({ name: DEV_MODEL_NAME });
-    const model = modelById || modelByName;
+    const modelName = DEV_MODEL_NAME;
+    const modelIdForLookup = modelId;
+    const [model] = await getAvailableModelById({ id: modelIdForLookup });
 
     if (!model) {
       return NextResponse.json(
-        { error: `Model ${modelId} is not available.` },
+        { error: `Model ${modelName} is not available.` },
         { status: 404 },
       );
     }
 
     const deployment = await createModelDeployment({
       modelId: model.id,
-      modelName: model.name,
+      modelName,
       userId,
       slurmJobId: `test-${createSlurmJobId()}`,
       status: 'running',
@@ -109,6 +104,19 @@ export async function POST(request: NextRequest) {
       proxyUrl: '/api/vllm/chat',
       resourceAllocation: { mode: 'local' },
     });
+
+    const authorizedUser = await addUserToDeployment({
+      deploymentId: deployment.id,
+      userId,
+      permission: 'owner',
+    });
+
+    if (!authorizedUser) {
+      return NextResponse.json(
+        { error: 'Failed to create authorized users.' },
+        { status: 500 },
+      );
+    }
 
     return NextResponse.json(deployment);
   } catch (error) {

@@ -1,6 +1,8 @@
-import { put } from '@vercel/blob';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import crypto from 'node:crypto';
 
 import { auth } from '@/app/(auth)/auth';
 
@@ -16,6 +18,33 @@ const FileSchema = z.object({
       message: 'File type should be JPEG or PNG',
     }),
 });
+
+function getEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is not set`);
+  }
+  return value;
+}
+
+function createS3Client() {
+  const endpoint = process.env.S3_ENDPOINT;
+  const forcePathStyle = process.env.S3_FORCE_PATH_STYLE === 'true';
+
+  return new S3Client({
+    region: getEnv('S3_REGION'),
+    endpoint,
+    forcePathStyle: endpoint ? forcePathStyle : undefined,
+    credentials: {
+      accessKeyId: getEnv('S3_ACCESS_KEY_ID'),
+      secretAccessKey: getEnv('S3_SECRET_ACCESS_KEY'),
+    },
+  });
+}
+
+function sanitizeFilename(filename: string): string {
+  return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -39,24 +68,49 @@ export async function POST(request: Request) {
     const validatedFile = FileSchema.safeParse({ file });
 
     if (!validatedFile.success) {
-      const errorMessage = validatedFile.error.errors
+      const errorMessage = validatedFile.error.issues
         .map((error) => error.message)
         .join(', ');
 
       return NextResponse.json({ error: errorMessage }, { status: 400 });
     }
 
-    // Get filename from formData since Blob doesn't have name property
-    const filename = (formData.get('file') as File).name;
-    const fileBuffer = await file.arrayBuffer();
-
     try {
-      const data = await put(`${filename}`, fileBuffer, {
-        access: 'public',
-      });
+      const filename = (formData.get('file') as File).name;
+      const contentType = file.type || 'application/octet-stream';
+      const fileBuffer = Buffer.from(await file.arrayBuffer());
 
-      return NextResponse.json(data);
+      const bucket = getEnv('S3_BUCKET');
+      const safeName = sanitizeFilename(filename || 'upload');
+      const key = `uploads/${session.user?.id ?? 'unknown'}/${crypto.randomUUID()}-${safeName}`;
+
+      const s3 = createS3Client();
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: fileBuffer,
+          ContentType: contentType,
+        }),
+      );
+
+      const ttlSeconds = Number(process.env.S3_SIGNED_URL_TTL_SECONDS ?? '900');
+      const url = await getSignedUrl(
+        s3,
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: key,
+        }),
+        { expiresIn: Number.isFinite(ttlSeconds) ? ttlSeconds : 900 },
+      );
+
+      return NextResponse.json({
+        url,
+        pathname: key,
+        contentType,
+      });
     } catch (error) {
+      console.error('[Upload] Failed to upload file', error);
       return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
     }
   } catch (error) {

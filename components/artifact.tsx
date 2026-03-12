@@ -1,22 +1,16 @@
-import type {
-  Attachment,
-  ChatRequestOptions,
-  CreateMessage,
-  Message,
-} from 'ai';
+import type { ChatRequestOptions, UIMessage } from 'ai';
 import { formatDistance } from 'date-fns';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   type Dispatch,
   memo,
   type SetStateAction,
-  useCallback,
   useEffect,
   useState,
-  useMemo,
 } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
-import { useDebounceCallback, useWindowSize } from 'usehooks-ts';
+import { useWindowSize } from '@/hooks/use-window-size';
+import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
 import type { Document, Vote } from '@/lib/db/schema';
 import { fetcher } from '@/lib/utils';
 import { MultimodalInput } from './multimodal-input';
@@ -33,6 +27,7 @@ import { sheetArtifact } from '@/artifacts/sheet/client';
 import { textArtifact } from '@/artifacts/text/client';
 import equal from 'fast-deep-equal';
 import { useDocumentCache } from '@/hooks/use-document-cache';
+import type { UploadedAttachment } from '@/lib/chat-attachments';
 
 export const artifactDefinitions = [
   textArtifact,
@@ -41,6 +36,8 @@ export const artifactDefinitions = [
   sheetArtifact,
 ];
 export type ArtifactKind = (typeof artifactDefinitions)[number]['kind'];
+
+const EMPTY_DOCUMENTS: Array<Document> = [];
 
 export interface UIArtifact {
   title: string;
@@ -61,15 +58,13 @@ function PureArtifact({
   chatId,
   input,
   setInput,
-  handleSubmit,
   isLoading,
   stop,
   attachments,
   setAttachments,
-  append,
   messages,
   setMessages,
-  reload,
+  sendMessage,
   votes,
   isReadonly,
   initialDocuments,
@@ -79,25 +74,13 @@ function PureArtifact({
   setInput: (input: string) => void;
   isLoading: boolean;
   stop: () => void;
-  attachments: Array<Attachment>;
-  setAttachments: Dispatch<SetStateAction<Array<Attachment>>>;
-  messages: Array<Message>;
-  setMessages: Dispatch<SetStateAction<Array<Message>>>;
+  attachments: Array<UploadedAttachment>;
+  setAttachments: Dispatch<SetStateAction<Array<UploadedAttachment>>>;
+  messages: Array<UIMessage>;
+  setMessages: Dispatch<SetStateAction<Array<UIMessage>>>;
   votes: Array<Vote> | undefined;
   initialDocuments?: Array<Document>;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
-  handleSubmit: (
-    event?: {
-      preventDefault?: () => void;
-    },
-    chatRequestOptions?: ChatRequestOptions,
-  ) => void;
-  reload: (
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
   isReadonly: boolean;
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
@@ -148,10 +131,7 @@ function PureArtifact({
   );
   
   // Use cached documents if available, otherwise use fetched ones
-  const documents = useMemo(
-    () => cachedDocuments || fetchedDocuments || [],
-    [cachedDocuments, fetchedDocuments]
-  );
+  const documents = cachedDocuments || fetchedDocuments || EMPTY_DOCUMENTS;
 
   const [mode, setMode] = useState<'edit' | 'diff'>('edit');
   const [document, setDocument] = useState<Document | null>(null);
@@ -181,69 +161,61 @@ function PureArtifact({
   const { mutate } = useSWRConfig();
   const [isContentDirty, setIsContentDirty] = useState(false);
 
-  const handleContentChange = useCallback(
-    (updatedContent: string) => {
-      if (!artifact) return;
+  function handleContentChange(updatedContent: string) {
+    mutate<Array<Document>>(
+      `/api/document?id=${artifact.documentId}`,
+      async (currentDocuments) => {
+        if (!currentDocuments) return undefined;
 
-      mutate<Array<Document>>(
-        `/api/document?id=${artifact.documentId}`,
-        async (currentDocuments) => {
-          if (!currentDocuments) return undefined;
+        const currentDocument = currentDocuments.at(-1);
 
-          const currentDocument = currentDocuments.at(-1);
-
-          if (!currentDocument || !currentDocument.content) {
-            setIsContentDirty(false);
-            return currentDocuments;
-          }
-
-          if (currentDocument.content !== updatedContent) {
-            await fetch(`/api/document?id=${artifact.documentId}`, {
-              method: 'POST',
-              body: JSON.stringify({
-                title: artifact.title,
-                content: updatedContent,
-                kind: artifact.kind,
-              }),
-            });
-
-            setIsContentDirty(false);
-
-            const newDocument = {
-              ...currentDocument,
-              content: updatedContent,
-              createdAt: new Date(),
-            };
-
-            return [...currentDocuments, newDocument];
-          }
+        if (!currentDocument || !currentDocument.content) {
+          setIsContentDirty(false);
           return currentDocuments;
-        },
-        { revalidate: false },
-      );
-    },
-    [artifact, mutate],
-  );
+        }
 
-  const debouncedHandleContentChange = useDebounceCallback(
+        if (currentDocument.content !== updatedContent) {
+          await fetch(`/api/document?id=${artifact.documentId}`, {
+            method: 'POST',
+            body: JSON.stringify({
+              title: artifact.title,
+              content: updatedContent,
+              kind: artifact.kind,
+            }),
+          });
+
+          setIsContentDirty(false);
+
+          const newDocument = {
+            ...currentDocument,
+            content: updatedContent,
+            createdAt: new Date(),
+          };
+
+          return [...currentDocuments, newDocument];
+        }
+        return currentDocuments;
+      },
+      { revalidate: false },
+    );
+  }
+
+  const debouncedHandleContentChange = useDebouncedCallback(
     handleContentChange,
     2000,
   );
 
-  const saveContent = useCallback(
-    (updatedContent: string, debounce: boolean) => {
-      if (document && updatedContent !== document.content) {
-        setIsContentDirty(true);
+  function saveContent(updatedContent: string, debounce: boolean) {
+    if (document && updatedContent !== document.content) {
+      setIsContentDirty(true);
 
-        if (debounce) {
-          debouncedHandleContentChange(updatedContent);
-        } else {
-          handleContentChange(updatedContent);
-        }
+      if (debounce) {
+        debouncedHandleContentChange(updatedContent);
+      } else {
+        handleContentChange(updatedContent);
       }
-    },
-    [document, debouncedHandleContentChange, handleContentChange],
-  );
+    }
+  }
 
   function getDocumentContentById(index: number) {
     if (!documents) return '';
@@ -373,23 +345,21 @@ function PureArtifact({
                   votes={votes}
                   messages={messages}
                   setMessages={setMessages}
-                  reload={reload}
+                  sendMessage={sendMessage}
                   isReadonly={isReadonly}
                   artifactStatus={artifact.status}
                 />
 
                 <form className="flex flex-row gap-2 relative items-end w-full px-4 pb-4">
                   <MultimodalInput
-                    chatId={chatId}
                     input={input}
                     setInput={setInput}
-                    handleSubmit={handleSubmit}
                     isLoading={isLoading}
                     stop={stop}
                     attachments={attachments}
                     setAttachments={setAttachments}
                     messages={messages}
-                    append={append}
+                    sendMessage={sendMessage}
                     className="bg-background dark:bg-muted"
                     setMessages={setMessages}
                   />
@@ -529,7 +499,7 @@ function PureArtifact({
                   <Toolbar
                     isToolbarVisible={isToolbarVisible}
                     setIsToolbarVisible={setIsToolbarVisible}
-                    append={append}
+                    sendMessage={sendMessage}
                     isLoading={isLoading}
                     stop={stop}
                     setMessages={setMessages}
@@ -559,7 +529,7 @@ export const Artifact = memo(PureArtifact, (prevProps, nextProps) => {
   if (prevProps.isLoading !== nextProps.isLoading) return false;
   if (!equal(prevProps.votes, nextProps.votes)) return false;
   if (prevProps.input !== nextProps.input) return false;
-  if (!equal(prevProps.messages, nextProps.messages.length)) return false;
+  if (!equal(prevProps.messages, nextProps.messages)) return false;
 
   return true;
 });

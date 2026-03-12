@@ -1,18 +1,19 @@
-import { type DataStreamWriter, tool } from 'ai';
+import { type UIMessageStreamWriter, tool } from 'ai';
 import type { Session } from 'next-auth';
 import { z } from 'zod';
 import { getDocumentById, } from '@/lib/db/queries';
 import { documentHandlersByArtifactKind } from '@/lib/artifacts/server';
+import { writeStreamDelta } from '@/lib/ai/ui-data';
 
 interface UpdateDocumentProps {
   session: Session;
-  dataStream: DataStreamWriter;
+  writer: UIMessageStreamWriter;
 }
 
-export const updateDocument = ({ session, dataStream }: UpdateDocumentProps) =>
+export const updateDocument = ({ session, writer }: UpdateDocumentProps) =>
   tool({
     description: 'Update a document with the given description.',
-    parameters: z.object({
+    inputSchema: z.object({
       id: z.string().describe('The ID of the document to update'),
       description: z
         .string()
@@ -27,10 +28,7 @@ export const updateDocument = ({ session, dataStream }: UpdateDocumentProps) =>
         };
       }
 
-      dataStream.writeData({
-        type: 'clear',
-        content: document.title,
-      });
+      writeStreamDelta(writer, 'clear', document.title);
 
       const documentHandler = documentHandlersByArtifactKind.find(
         (documentHandlerByArtifactKind) =>
@@ -44,11 +42,11 @@ export const updateDocument = ({ session, dataStream }: UpdateDocumentProps) =>
       await documentHandler.onUpdateDocument({
         document,
         description,
-        dataStream,
+        writer,
         session,
       });
 
-      dataStream.writeData({ type: 'finish', content: '' });
+      writeStreamDelta(writer, 'finish', '');
 
       return {
         id,
