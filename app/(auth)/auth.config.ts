@@ -17,7 +17,9 @@ export const authConfig = {
       const isOnLogin = nextUrl.pathname.startsWith('/login');
       const redirectTo = nextUrl.searchParams.get('redirectTo');
       const safeRedirectTo =
-        redirectTo && redirectTo.startsWith('/') ? redirectTo : '/';
+  redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')
+    ? redirectTo
+    : '/';
 
       if (isLoggedIn && (isOnLogin || isOnRegister)) {
         return Response.redirect(new URL(safeRedirectTo, nextUrl as unknown as URL));

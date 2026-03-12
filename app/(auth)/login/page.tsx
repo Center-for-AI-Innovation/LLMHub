@@ -40,7 +40,9 @@ function LoginPageContent() {
 
   const requestedRedirect = searchParams?.get('redirectTo');
   const redirectTo =
-    requestedRedirect && requestedRedirect.startsWith('/')
+    requestedRedirect &&
+    requestedRedirect.startsWith('/') &&
+    !requestedRedirect.startsWith('//')
       ? requestedRedirect
       : '/chat';
 
@@ -60,7 +62,7 @@ function LoginPageContent() {
       void (async () => {
         await queryClient.invalidateQueries({ queryKey: ['session'] });
         await queryClient.refetchQueries({ queryKey: ['session'] });
-        router.push(redirectTo);
+        router.replace(redirectTo);
         router.refresh();
       })();
     }

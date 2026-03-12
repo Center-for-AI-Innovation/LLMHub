@@ -7,6 +7,7 @@ import {
   getAccessibleDeploymentsByUserId,
   getAvailableModelById,
 } from '@/lib/db/queries';
+import { isLocalTestEnabled } from '@/lib/utils';
 import { type NextRequest, NextResponse } from 'next/server';
 
 const DEV_ENDPOINT_URL =
@@ -19,13 +20,6 @@ const createSlurmJobId = () =>
   randomInt(0, 10 ** SLURM_JOB_ID_LENGTH)
     .toString()
     .padStart(SLURM_JOB_ID_LENGTH, '0');
-
-function isLocalTestEnabled() {
-  return (
-    process.env.NODE_ENV === 'development' &&
-    process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true'
-  );
-}
 
 export async function GET() {
   try {
