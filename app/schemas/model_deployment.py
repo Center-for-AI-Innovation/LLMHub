@@ -23,6 +23,8 @@ class ModelDeploymentCreate(ModelDeploymentBase):
     qos: Optional[str] = None
     time: Optional[str] = None
     data_type: Optional[str] = None
+    resource_type: Optional[str] = None  # GPU type (e.g., "l40s", "h100", "A100", "H200")
+    work_dir: Optional[str] = None  # Optional working directory for vec-inf jobs
     enable_cloudflare_tunnel: Optional[bool] = False  # Added flag for enabling Cloudflare tunnel
 
 
