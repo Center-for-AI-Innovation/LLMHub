@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 
+from app.schemas._base import ORMBaseModel
+
 
 class ModelSpecs(BaseModel):
     """Model specifications."""
@@ -55,7 +57,4 @@ class AvailableModelResponse(AvailableModelBase):
     createdAt: datetime
     updatedAt: datetime
 
-    class Config:
-        """Pydantic config."""
-
-        orm_mode = True 
+    model_config = ORMBaseModel.model_config

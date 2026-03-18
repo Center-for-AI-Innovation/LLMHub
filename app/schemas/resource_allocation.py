@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+from app.schemas._base import ORMBaseModel
 
 
 class ResourceAllocationBase(BaseModel):
@@ -34,23 +36,13 @@ class ResourceAllocationInDB(ResourceAllocationBase):
     createdAt: datetime
     updatedAt: datetime
     
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ORMBaseModel.model_config
 
 
 class ResourceAllocationResponse(ResourceAllocationInDB):
     """Schema for a resource allocation response."""
     
-    availableCount: int
-    
-    @classmethod
-    def from_orm(cls, obj):
-        """Create a response from an ORM object."""
-        # Create a standard response
-        response = super().from_orm(obj)
-        
-        # Add computed fields
-        response.availableCount = obj.totalCount - obj.allocatedCount
-        
-        return response 
+    @computed_field  # included in model_dump()/JSON output
+    def availableCount(self) -> int:
+        """Computed available count."""
+        return self.totalCount - self.allocatedCount

@@ -69,7 +69,7 @@ class ResourceService:
         if not db_resource:
             return None
         
-        update_data = resource_update.dict(exclude_unset=True)
+        update_data = resource_update.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(db_resource, key, value)
         
@@ -92,7 +92,7 @@ class ResourceService:
             .filter(
                 ResourceAllocation.resourceType == resource_type,
                 ResourceAllocation.resourceName == resource_name,
-                ResourceAllocation.isActive == True
+                ResourceAllocation.isActive.is_(True)
             )
             .first()
         )
@@ -137,7 +137,7 @@ class ResourceService:
             .filter(
                 ResourceAllocation.resourceType == resource_type,
                 ResourceAllocation.resourceName == resource_name,
-                ResourceAllocation.isActive == True
+                ResourceAllocation.isActive.is_(True)
             )
             .first()
         )

@@ -3,6 +3,8 @@ from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
 
+from app.schemas._base import ORMBaseModel
+
 
 class ModelRequestBase(BaseModel):
     """Base model request schema."""
@@ -38,9 +40,7 @@ class ModelRequestInDB(ModelRequestBase):
     createdAt: datetime
     updatedAt: datetime
     
-    class Config:
-        orm_mode = True
-        from_attributes = True
+    model_config = ORMBaseModel.model_config
 
 
 class ModelRequestResponse(ModelRequestInDB):

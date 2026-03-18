@@ -93,13 +93,27 @@ def update_model_request(
 
 
 # Model Deployment Endpoints
-@router.post("/launch", response_model=ModelDeploymentResponse, status_code=status.HTTP_201_CREATED)
-def launch_model(
+def _launch_model(
     deployment: ModelDeploymentCreate,
     db: Session = Depends(get_db),
 ) -> Any:
     """Launch a model."""
-    return model_service.launch_model(db=db, deployment=deployment)
+    db_deployment = model_service.launch_model(db=db, deployment=deployment)
+    if getattr(db_deployment, "status", None) == "failed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=getattr(db_deployment, "errorMessage", None) or "Failed to launch model",
+        )
+    return db_deployment
+
+
+@router.post("/deployments", response_model=ModelDeploymentResponse, status_code=status.HTTP_201_CREATED)
+def create_deployment(
+    deployment: ModelDeploymentCreate,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Create (launch) a model deployment."""
+    return _launch_model(deployment=deployment, db=db)
 
 
 @router.get("/deployments", response_model=List[ModelDeploymentResponse])
@@ -149,6 +163,27 @@ def get_deployment_metrics(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=result.get("error", "Failed to get metrics"),
+        )
+    return result
+
+
+@router.get("/deployments/{deployment_id}/logs", response_model=Dict[str, Any])
+def get_deployment_logs(
+    deployment_id: UUID,
+    tail: int = 100,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Get logs for a specific model deployment.
+    
+    Args:
+        deployment_id: UUID of the deployment
+        tail: Number of lines to return from the end (default 100, 0 for all)
+    """
+    result = model_service.get_deployment_logs(db=db, deployment_id=deployment_id, tail=tail)
+    if not result.get("success", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Failed to get logs"),
         )
     return result
 

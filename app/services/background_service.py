@@ -9,7 +9,7 @@ from typing import List
 from sqlalchemy.orm import Session
 
 from app.models.model_deployment import ModelDeployment
-from app.repositories.session import get_db
+from app.repositories.session import SessionLocal
 from app.services.model_service import ModelService
 from app.config.config import settings
 
@@ -47,13 +47,13 @@ class BackgroundService:
         
         # Sync models on startup
         try:
-            db = next(get_db())
-            logger.info("Syncing models on startup")
-            result = self.model_service.sync_available_models(db)
-            if result.get("success"):
-                logger.info(f"Successfully synced {result.get('count', 0)} models on startup")
-            else:
-                logger.error(f"Failed to sync models on startup: {result.get('error', 'Unknown error')}")
+            with SessionLocal() as db:
+                logger.info("Syncing models on startup")
+                result = self.model_service.sync_available_models(db)
+                if result.get("success"):
+                    logger.info(f"Successfully synced {result.get('count', 0)} models on startup")
+                else:
+                    logger.error(f"Failed to sync models on startup: {result.get('error', 'Unknown error')}")
         except Exception as e:
             logger.error(f"Error syncing models on startup: {e}")
         
@@ -113,13 +113,13 @@ class BackgroundService:
     async def _sync_models(self):
         """Synchronize available models with the database."""
         try:
-            db = next(get_db())
-            logger.info("Syncing available models")
-            result = self.model_service.sync_available_models(db)
-            if result.get("success"):
-                logger.info(f"Successfully synced {result.get('count', 0)} models")
-            else:
-                logger.error(f"Failed to sync models: {result.get('error', 'Unknown error')}")
+            with SessionLocal() as db:
+                logger.info("Syncing available models")
+                result = self.model_service.sync_available_models(db)
+                if result.get("success"):
+                    logger.info(f"Successfully synced {result.get('count', 0)} models")
+                else:
+                    logger.error(f"Failed to sync models: {result.get('error', 'Unknown error')}")
         except Exception as e:
             logger.error(f"Error syncing models: {e}")
             raise  # Re-raise to trigger backoff
@@ -127,27 +127,27 @@ class BackgroundService:
     async def _sync_deployment_statuses(self):
         """Synchronize deployment statuses."""
         try:
-            db = next(get_db())
-            active_deployments = self._get_active_deployments(db)
+            with SessionLocal() as db:
+                active_deployments = self._get_active_deployments(db)
             
-            # Apply rate limiting
-            if len(active_deployments) > self.max_deployments_per_cycle:
-                logger.warning(
-                    f"Rate limiting: Processing {self.max_deployments_per_cycle} out of {len(active_deployments)} deployments"
-                )
-                # Prioritize older deployments that haven't been updated recently
-                active_deployments.sort(key=lambda d: d.updatedAt)
-                active_deployments = active_deployments[:self.max_deployments_per_cycle]
+                # Apply rate limiting
+                if len(active_deployments) > self.max_deployments_per_cycle:
+                    logger.warning(
+                        f"Rate limiting: Processing {self.max_deployments_per_cycle} out of {len(active_deployments)} deployments"
+                    )
+                    # Prioritize older deployments that haven't been updated recently
+                    active_deployments.sort(key=lambda d: d.updatedAt)
+                    active_deployments = active_deployments[:self.max_deployments_per_cycle]
             
-            logger.info(f"Syncing status for {len(active_deployments)} active deployments")
+                logger.info(f"Syncing status for {len(active_deployments)} active deployments")
             
-            for deployment in active_deployments:
-                try:
-                    self.model_service.update_deployment_status(db, deployment.id)
-                    # Add a small delay between updates to avoid overwhelming the system
-                    await asyncio.sleep(0.5)
-                except Exception as e:
-                    logger.error(f"Error updating status for deployment {deployment.id}: {e}")
+                for deployment in active_deployments:
+                    try:
+                        self.model_service.update_deployment_status(db, deployment.id)
+                        # Add a small delay between updates to avoid overwhelming the system
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        logger.error(f"Error updating status for deployment {deployment.id}: {e}")
         except Exception as e:
             logger.error(f"Error in deployment status synchronization: {e}")
             raise  # Re-raise to trigger backoff
@@ -155,40 +155,40 @@ class BackgroundService:
     async def _check_expired_deployments(self):
         """Check for expired deployments and shut them down."""
         try:
-            db = next(get_db())
-            now = datetime.utcnow()
+            with SessionLocal() as db:
+                now = datetime.utcnow()
             
-            # Get deployments that have expired but are still active
-            expired_deployments = (
-                db.query(ModelDeployment)
-                .filter(
-                    ModelDeployment.status.in_(["launching", "ready"]),
-                    ModelDeployment.expirationTime.isnot(None),
-                    ModelDeployment.expirationTime <= now
+                # Get deployments that have expired but are still active
+                expired_deployments = (
+                    db.query(ModelDeployment)
+                    .filter(
+                        ModelDeployment.status.in_(["running", "ready"]),
+                        ModelDeployment.expiresAt.isnot(None),
+                        ModelDeployment.expiresAt <= now
+                    )
+                    .all()
                 )
-                .all()
-            )
             
-            # Apply rate limiting
-            if len(expired_deployments) > self.max_deployments_per_cycle:
-                logger.warning(
-                    f"Rate limiting: Processing {self.max_deployments_per_cycle} out of {len(expired_deployments)} expired deployments"
-                )
-                # Prioritize deployments that expired the longest time ago
-                expired_deployments.sort(key=lambda d: d.expirationTime)
-                expired_deployments = expired_deployments[:self.max_deployments_per_cycle]
+                # Apply rate limiting
+                if len(expired_deployments) > self.max_deployments_per_cycle:
+                    logger.warning(
+                        f"Rate limiting: Processing {self.max_deployments_per_cycle} out of {len(expired_deployments)} expired deployments"
+                    )
+                    # Prioritize deployments that expired the longest time ago
+                    expired_deployments.sort(key=lambda d: d.expiresAt)
+                    expired_deployments = expired_deployments[:self.max_deployments_per_cycle]
             
-            logger.info(f"Found {len(expired_deployments)} expired deployments to shut down")
+                logger.info(f"Found {len(expired_deployments)} expired deployments to shut down")
             
-            for deployment in expired_deployments:
-                try:
-                    logger.info(f"Shutting down expired deployment {deployment.id}")
-                    # Use the model service to shut down the deployment, which will also release resources
-                    self.model_service.shutdown_deployment(db, deployment.id)
-                    # Add a small delay between shutdowns to avoid overwhelming the system
-                    await asyncio.sleep(1)
-                except Exception as e:
-                    logger.error(f"Error shutting down expired deployment {deployment.id}: {e}")
+                for deployment in expired_deployments:
+                    try:
+                        logger.info(f"Shutting down expired deployment {deployment.id}")
+                        # Use the model service to shut down the deployment, which will also release resources
+                        self.model_service.shutdown_deployment(db, deployment.id)
+                        # Add a small delay between shutdowns to avoid overwhelming the system
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        logger.error(f"Error shutting down expired deployment {deployment.id}: {e}")
         except Exception as e:
             logger.error(f"Error in expired deployment check: {e}")
             raise  # Re-raise to trigger backoff
@@ -197,7 +197,7 @@ class BackgroundService:
         """Get active deployments that need status updates."""
         return (
             db.query(ModelDeployment)
-            .filter(ModelDeployment.status.in_(["launching", "ready"]))
+            .filter(ModelDeployment.status.in_(["pending", "launching", "running", "ready"]))
             .all()
         )
 

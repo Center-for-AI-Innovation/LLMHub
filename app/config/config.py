@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 import os
 
@@ -24,16 +24,15 @@ class Settings(BaseSettings):
     VEC_INF_CONFIG_DIR: Optional[str] = None  # Directory containing environment.yaml and models.yaml for vec-inf
     VEC_INF_ACCOUNT: Optional[str] = None  # SLURM account for vec-inf (can override SLURM_ACCOUNT)
     VEC_INF_WORK_DIR: Optional[str] = None  # Working directory for vec-inf jobs
-    
+    VEC_INF_ENV: Optional[str] = None  # Environment variables for container jobs (comma-separated KEY=VALUE pairs)
+
     # Background service settings
     SYNC_INTERVAL: int = int(os.getenv("SYNC_INTERVAL", "60"))  # deployment sync interval in seconds
     EXPIRY_CHECK_INTERVAL: int = int(os.getenv("EXPIRY_CHECK_INTERVAL", "300"))  # expiry check interval in seconds
     MAX_DEPLOYMENTS_PER_CYCLE: int = int(os.getenv("MAX_DEPLOYMENTS_PER_CYCLE", "10"))  # max deployments to process per cycle
     MODEL_SYNC_INTERVAL: int = int(os.getenv("MODEL_SYNC_INTERVAL", "3600"))  # seconds (default: 1 hour)
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 
 settings = Settings() 
