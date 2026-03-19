@@ -657,10 +657,10 @@ class ModelService:
             job_name = parts[-1]
             # The family folder seems to be derived from the job name prefix
             # e.g., "Qwen3-8B" -> "Qwen3"
-            model_family = job_name.rsplit("-", 1)[0] if "-" in job_name else job_name
+            model_family = job_name.split("-", 1)[0] if "-" in job_name else job_name
         else:
             job_name = model_name
-            model_family = job_name.rsplit("-", 1)[0] if "-" in job_name else job_name
+            model_family = job_name.split("-", 1)[0] if "-" in job_name else job_name
         
         # Log file structure: {log_dir}/{family}/{job_name}.{job_id}/{job_name}.{job_id}.{ext}
         job_dir = Path(log_dir) / model_family / f"{job_name}.{slurm_job_id}"
