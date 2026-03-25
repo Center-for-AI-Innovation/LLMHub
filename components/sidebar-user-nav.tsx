@@ -49,11 +49,10 @@ export function SidebarUserNav({ user }: { user: User }) {
                 Profile
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer"
-              onSelect={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            >
-              {`Toggle ${theme === 'light' ? 'dark' : 'light'} mode`}
+            <DropdownMenuItem asChild>
+              <Link href="/catalog" className="cursor-pointer">
+                Model Catalog
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
