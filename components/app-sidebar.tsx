@@ -129,7 +129,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
             <SidebarHistory user={user} />
           </SidebarContent>
           <SidebarFooter className="flex flex-col gap-2 p-4">
-            {isChatPage && <ThemeToggle />}
+            <ThemeToggle />
             {!user && isChatPage && (
               <Button variant="outline" asChild>
                 <Link href="/login?redirectTo=%2Fchat">Login</Link>
@@ -140,7 +140,7 @@ export function AppSidebar({ user }: { user: User | undefined }) {
         </>
       ) : (
         <SidebarFooter className="mt-auto p-2 flex flex-col items-center gap-2">
-          {isChatPage && <ThemeToggle />}
+          <ThemeToggle />
           {!user && isChatPage && (
             <Tooltip>
               <TooltipTrigger asChild>
