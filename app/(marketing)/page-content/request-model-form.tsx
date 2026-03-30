@@ -37,9 +37,10 @@ const formSchema = z.object({
   department: z.string().min(2, {
     message: 'Please enter your department.',
   }),
-  modelType: z.enum(['custom', 'finetuned', 'existing'], {
-    required_error: 'Please select a model type.',
-  }),
+  modelType: z.enum(
+    ['custom', 'finetuned', 'existing'],
+    'Please select a model type.',
+  ),
   purpose: z.string().min(50, {
     message: 'Please provide a detailed description of your use case (minimum 50 characters).',
   }),

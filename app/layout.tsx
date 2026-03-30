@@ -6,7 +6,7 @@ import { ReactScan } from '@/components/react-scan';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://chat.vercel.ai'),
-  title: 'UIUC LLM Service Platform',
+  title: 'LLM Hub',
   description: 'Access and deploy state-of-the-art language models for your research and applications.',
 };
 
@@ -49,6 +49,7 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        <link rel="stylesheet" href="https://cdn.brand.illinois.edu/illinois.css" />
         <script
           dangerouslySetInnerHTML={{
             __html: THEME_COLOR_SCRIPT,

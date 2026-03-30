@@ -3,7 +3,6 @@
 import { updateChatVisibility } from '@/app/(chat)/actions';
 import type { VisibilityType } from '@/components/visibility-selector';
 import type { Chat } from '@/lib/db/schema';
-import { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export function useChatVisibility({
@@ -16,18 +15,18 @@ export function useChatVisibility({
   const queryClient = useQueryClient();
   const history = queryClient.getQueryData<Chat[]>(['chatHistory']);
 
-  const { data: localVisibility, refetch: refreshLocalVisibility } = useQuery({
+  const { data: localVisibility } = useQuery({
     queryKey: [`${chatId}-visibility`],
     queryFn: () => Promise.resolve(initialVisibility),
     initialData: initialVisibility,
   });
 
-  const visibilityType = useMemo(() => {
+  const visibilityType = (() => {
     if (!history) return localVisibility;
     const chat = history.find((chat) => chat.id === chatId);
     if (!chat) return 'private';
     return chat.visibility;
-  }, [history, chatId, localVisibility]);
+  })();
 
   const setVisibilityType = (updatedVisibilityType: VisibilityType) => {
     // Update local visibility state

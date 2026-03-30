@@ -2,8 +2,7 @@ import 'server-only';
 
 import { genSaltSync, hashSync } from 'bcrypt-ts';
 import { and, asc, desc, eq, gt, gte, inArray, or, ilike, sql } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { db } from '@/lib/db';
 
 import {
   user,
@@ -26,10 +25,6 @@ import type { ArtifactKind } from '@/components/artifact';
 // Optionally, if not using email/pass login, you can
 // use the Drizzle adapter for Auth.js / NextAuth
 // https://authjs.dev/reference/adapter/drizzle
-
-// biome-ignore lint: Forbidden non-null assertion.
-const client = postgres(process.env.POSTGRES_URL!);
-const db = drizzle(client);
 
 // User Utility Functions
 // ==========================================
@@ -611,6 +606,20 @@ export async function getModelDeploymentsByUserId(userId: string): Promise<Model
   }
 }
 
+export async function getModelDeploymentById(id: string): Promise<ModelDeployment | null> {
+  try {
+    const [deployment] = await db
+      .select()
+      .from(modelDeployment)
+      .where(eq(modelDeployment.id, id))
+      .limit(1);
+    return deployment || null;
+  } catch (error) {
+    console.error('Failed to get model deployment by id from database', error);
+    throw error;
+  }
+}
+
 /**
  * Get the active/running model deployment for a user
  * Returns the most recent deployment where the user has access and status is 'ready' or 'running'
@@ -655,7 +664,6 @@ export async function shutdownModelDeploymentById(id: string): Promise<void> {
 // ==========================================
 // Authorized Users Utility Functions
 // ==========================================
-
 
 /**
  * Add a user to a deployment.
@@ -743,3 +751,39 @@ export async function getAccessibleDeploymentsByUserId(
   }
 }
 
+/**
+ * Get the most recent active deployment a user can access
+ * (owner or shared via AuthorizedUsers).
+ */
+export async function getActiveAccessibleDeploymentByUserId(
+  userId: string,
+): Promise<ModelDeployment | null> {
+  try {
+    const [row] = await db
+      .select({ deployment: modelDeployment })
+      .from(authorizedUsers)
+      .innerJoin(
+        modelDeployment,
+        eq(authorizedUsers.deploymentId, modelDeployment.id),
+      )
+      .where(
+        and(
+          eq(authorizedUsers.userId, userId),
+          or(
+            eq(modelDeployment.status, 'ready'),
+            eq(modelDeployment.status, 'running'),
+          ),
+        ),
+      )
+      .orderBy(desc(modelDeployment.updatedAt), desc(modelDeployment.createdAt))
+      .limit(1);
+
+    return row?.deployment || null;
+  } catch (error) {
+    console.error(
+      'Failed to get active accessible deployment by user id from database',
+      error,
+    );
+    throw error;
+  }
+}

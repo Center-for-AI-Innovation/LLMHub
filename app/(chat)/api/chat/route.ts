@@ -1,7 +1,10 @@
 import {
-  type Message,
-  createDataStreamResponse,
+  type UIMessage,
+  convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   smoothStream,
+  stepCountIs,
   streamText,
 } from 'ai';
 
@@ -14,11 +17,7 @@ import {
   saveChat,
   saveMessages,
 } from '@/lib/db/queries';
-import {
-  generateUUID,
-  getMostRecentUserMessage,
-  sanitizeResponseMessages,
-} from '@/lib/utils';
+import { ensureUUID, generateUUID } from '@/lib/utils';
 
 import { generateTitleFromUserMessage } from '../../actions';
 import { createDocument } from '@/lib/ai/tools/create-document';
@@ -28,12 +27,19 @@ import { getWeather } from '@/lib/ai/tools/get-weather';
 
 export const maxDuration = 60;
 
+function stripDataParts(message: UIMessage): UIMessage {
+  return {
+    ...message,
+    parts: message.parts.filter((part) => !part.type.startsWith('data-')),
+  };
+}
+
 export async function POST(request: Request) {
   const {
     id,
     messages,
     selectedChatModel,
-  }: { id: string; messages: Array<Message>; selectedChatModel: string } =
+  }: { id: string; messages: Array<UIMessage>; selectedChatModel: string } =
     await request.json();
 
   const session = await auth();
@@ -41,8 +47,9 @@ export async function POST(request: Request) {
   if (!session || !session.user || !session.user.id) {
     return new Response('Unauthorized', { status: 401 });
   }
+  const userId = session.user.id;
 
-  const userMessage = getMostRecentUserMessage(messages);
+  const userMessage = messages.filter((message) => message.role === 'user').at(-1);
 
   if (!userMessage) {
     return new Response('No user message found', { status: 400 });
@@ -50,28 +57,53 @@ export async function POST(request: Request) {
 
   const chat = await getChatById({ id });
 
+  if (chat && chat.userId !== userId) {
+    return new Response('Unauthorized - You do not have access to this chat', {
+      status: 403,
+    });
+  }
+
   if (!chat) {
-    const title = await generateTitleFromUserMessage({ message: userMessage });
+    const title = await generateTitleFromUserMessage({
+      message: {
+        id: userMessage.id,
+        role: userMessage.role,
+        parts: userMessage.parts,
+      } as any,
+    });
     await saveChat({
       id,
-      userId: session.user.id,
+      userId,
       title,
       isBrowserChat: true,
     });
   }
 
   await saveMessages({
-    messages: [{ ...userMessage, createdAt: new Date(), chatId: id }],
+    messages: [
+      {
+        id: ensureUUID(userMessage.id),
+        chatId: id,
+        role: userMessage.role,
+        content: userMessage.parts,
+        createdAt: new Date(),
+      },
+    ],
   });
 
-  return createDataStreamResponse({
-    execute: (dataStream) => {
+  const modelMessages = await convertToModelMessages(messages);
+
+  const stream = createUIMessageStream({
+    originalMessages: messages,
+    // Ensure assistant message IDs are UUIDs so Postgres persistence doesn't fail.
+    generateId: generateUUID,
+    execute: ({ writer }) => {
       const result = streamText({
         model: myProvider.languageModel(selectedChatModel),
         system: systemPrompt({ selectedChatModel }),
-        messages,
-        maxSteps: 5,
-        experimental_activeTools:
+        messages: modelMessages,
+        stopWhen: stepCountIs(5),
+        activeTools:
           selectedChatModel === 'chat-model-reasoning'
             ? []
             : [
@@ -81,39 +113,14 @@ export async function POST(request: Request) {
                 'requestSuggestions',
               ],
         experimental_transform: smoothStream({ chunking: 'word' }),
-        experimental_generateMessageId: generateUUID,
         tools: {
           getWeather,
-          createDocument: createDocument({ session, dataStream }),
-          updateDocument: updateDocument({ session, dataStream }),
+          createDocument: createDocument({ session, writer }),
+          updateDocument: updateDocument({ session, writer }),
           requestSuggestions: requestSuggestions({
             session,
-            dataStream,
+            writer,
           }),
-        },
-        onFinish: async ({ response, reasoning }) => {
-          if (session.user?.id) {
-            try {
-              const sanitizedResponseMessages = sanitizeResponseMessages({
-                messages: response.messages,
-                reasoning,
-              });
-
-              await saveMessages({
-                messages: sanitizedResponseMessages.map((message) => {
-                  return {
-                    id: message.id,
-                    chatId: id,
-                    role: message.role,
-                    content: message.content,
-                    createdAt: new Date(),
-                  };
-                }),
-              });
-            } catch (error) {
-              console.error('Failed to save chat');
-            }
-          }
         },
         experimental_telemetry: {
           isEnabled: true,
@@ -121,15 +128,42 @@ export async function POST(request: Request) {
         },
       });
 
-      result.mergeIntoDataStream(dataStream, {
-        sendReasoning: true,
-      });
+      writer.merge(result.toUIMessageStream());
     },
     onError: (error: unknown) => {
       console.error('Chat API error:', error);
       return `Error: ${error instanceof Error ? error.message : 'An unknown error occurred'}`;
     },
+    onFinish: async ({ responseMessage }) => {
+      try {
+        const existingChat = await getChatById({ id });
+        if (!existingChat || existingChat.userId !== userId) {
+          console.error(
+            '[Chat API] Unauthorized attempt to save response to chat:',
+            id,
+          );
+          return;
+        }
+
+        const sanitized = stripDataParts(responseMessage);
+        await saveMessages({
+          messages: [
+            {
+              id: ensureUUID(sanitized.id),
+              chatId: id,
+              role: sanitized.role,
+              content: sanitized.parts,
+              createdAt: new Date(),
+            },
+          ],
+        });
+      } catch (error) {
+        console.error('Failed to save chat response', error);
+      }
+    },
   });
+
+  return createUIMessageStreamResponse({ stream });
 }
 
 export async function DELETE(request: Request) {

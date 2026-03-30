@@ -2,14 +2,13 @@ import { auth } from '@/app/(auth)/auth';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export default auth(async (req: NextRequest) => {
+export default auth(async function proxy(req: NextRequest) {
   const session = await auth();
   const isLoggedIn = !!session?.user;
   const { nextUrl } = req;
 
   const isProtectedRoute = 
     nextUrl.pathname.startsWith('/dashboard') ||
-    nextUrl.pathname.startsWith('/chat') ||
     nextUrl.pathname.startsWith('/api/chat') ||
     nextUrl.pathname.startsWith('/api/models') ||
     nextUrl.pathname.startsWith('/api/v1/job') ||
@@ -23,7 +22,10 @@ export default auth(async (req: NextRequest) => {
         { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
     }
-    return NextResponse.redirect(new URL('/login', nextUrl));
+    const redirectTo = `${nextUrl.pathname}${nextUrl.search}`;
+    const loginUrl = new URL('/login', nextUrl);
+    loginUrl.searchParams.set('redirectTo', redirectTo);
+    return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
@@ -32,7 +34,6 @@ export default auth(async (req: NextRequest) => {
 export const config = {
   matcher: [
     '/dashboard/:path*',
-    '/chat/:path*',
     '/api/chat/:path*',
     '/api/models/:path*',
     '/api/v1/job/:path*',

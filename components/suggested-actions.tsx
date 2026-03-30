@@ -2,19 +2,24 @@
 
 import { motion } from 'framer-motion';
 import { Button } from './ui/button';
-import type { ChatRequestOptions, CreateMessage, Message } from 'ai';
+import type { ChatRequestOptions } from 'ai';
 import { memo } from 'react';
-import { generateUUID } from '@/lib/utils';
+import { toast } from '@/components/ui/use-toast';
+import { extractErrorMessage } from '@/lib/chat-client-errors';
 
 interface SuggestedActionsProps {
-  chatId: string;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
 }
 
-function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
+const showErrorToast = (message: string) => {
+  toast({
+    title: 'Request failed',
+    description: message,
+    variant: 'destructive',
+  });
+};
+
+function PureSuggestedActions({ sendMessage }: SuggestedActionsProps) {
   const suggestedActions = [
     {
       title: 'What are the advantages',
@@ -51,15 +56,13 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
         >
           <Button
             variant="outline"
-            onClick={async () => {
-              window.history.replaceState({}, '', `/chat/${chatId}`);
-
-              append({
-                id: generateUUID(),
-                role: 'user',
-                content: suggestedAction.action,
-                createdAt: new Date(),
-              });
+            onClick={() => {
+              void sendMessage({ text: suggestedAction.action })
+                .catch((error) => {
+                  showErrorToast(
+                    extractErrorMessage(error, 'Failed to send message'),
+                  );
+                });
             }}
             className="text-left bg-background dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] dark:hover:bg-muted rounded-xl px-4 py-3.5 text-sm flex-1 gap-1 sm:flex-col w-full h-auto justify-start items-start"
           >
@@ -74,4 +77,4 @@ function PureSuggestedActions({ chatId, append }: SuggestedActionsProps) {
   );
 }
 
-export const SuggestedActions = memo(PureSuggestedActions, () => true);
+export const SuggestedActions = memo(PureSuggestedActions);

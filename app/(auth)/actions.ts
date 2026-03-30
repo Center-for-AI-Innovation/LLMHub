@@ -1,5 +1,6 @@
 'use server';
 
+import { AuthError } from 'next-auth';
 import { z } from 'zod';
 
 import { createUser, getUser } from '@/lib/db/queries';
@@ -13,6 +14,7 @@ const authFormSchema = z.object({
 
 export interface LoginActionState {
   status: 'idle' | 'in_progress' | 'success' | 'failed' | 'invalid_data';
+  error?: string;
 }
 
 export const login = async (
@@ -34,10 +36,14 @@ export const login = async (
     return { status: 'success' };
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return { status: 'invalid_data' };
+      return { status: 'invalid_data', error: 'Please provide a valid email and password.' };
     }
 
-    return { status: 'failed' };
+    if (error instanceof AuthError) {
+      return { status: 'failed', error: 'Invalid email or password.' };
+    }
+
+    return { status: 'failed', error: 'Unable to sign in right now. Please try again.' };
   }
 };
 
@@ -49,6 +55,7 @@ export interface RegisterActionState {
     | 'failed'
     | 'user_exists'
     | 'invalid_data';
+  error?: string;
 }
 
 export const register = async (
@@ -56,54 +63,35 @@ export const register = async (
   formData: FormData,
 ): Promise<RegisterActionState> => {
   try {
-    console.log('Registration attempt - Raw form data:', {
-      email: formData.get('email'),
-      password: formData.get('password')?.toString().length, // Log only length for security
-    });
-
     const validatedData = authFormSchema.parse({
       email: formData.get('email'),
       password: formData.get('password'),
     });
 
-    console.log('Validation successful for email:', validatedData.email);
-
     const [user] = await getUser(validatedData.email);
 
     if (user) {
-      console.log('User already exists with email:', validatedData.email);
-      return { status: 'user_exists' } as RegisterActionState;
+      return { status: 'user_exists', error: 'An account already exists for this email.' };
     }
 
-    console.log('Creating new user with email:', validatedData.email);
     await createUser(validatedData.email, validatedData.password);
-    
-    console.log('User created successfully, attempting sign in');
+
     await signIn('credentials', {
       email: validatedData.email,
       password: validatedData.password,
       redirect: false,
     });
 
-    console.log('Sign in successful');
     return { status: 'success' };
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.error('Zod validation error:', {
-        errors: error.errors.map(err => ({
-          path: err.path,
-          message: err.message,
-          code: err.code
-        })),
-        formData: {
-          email: formData.get('email'),
-          passwordLength: formData.get('password')?.toString().length
-        }
-      });
-      return { status: 'invalid_data' };
+      return { status: 'invalid_data', error: 'Please provide a valid email and password (minimum 6 characters).' };
     }
 
-    console.error('Registration failed with error:', error instanceof Error ? error.message : error);
-    return { status: 'failed' };
+    if (error instanceof AuthError) {
+      return { status: 'failed', error: 'Account created, but auto-login failed. Please sign in.' };
+    }
+
+    return { status: 'failed', error: 'Unable to create account right now. Please try again.' };
   }
 };

@@ -3,8 +3,6 @@
 import { useEffect } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
-import { DataStreamHandler } from '@/components/data-stream-handler';
-import { Navbar } from '@/components/navbar';
 import { Loader2 } from 'lucide-react';
 import { useSession, useChatContents } from '@/hooks/use-chat';
 
@@ -40,7 +38,10 @@ export default function Page() {
   useEffect(() => {
     if (!isLoading && chatContents && chatContents.chat.visibility === 'private') {
       if (!session || !session.user) {
-        router.push('/login');
+        const redirectTo = query
+          ? `/chat/${id}?query=${encodeURIComponent(query)}`
+          : `/chat/${id}`;
+        router.push(`/login?redirectTo=${encodeURIComponent(redirectTo)}`);
         return;
       }
       
@@ -49,7 +50,7 @@ export default function Page() {
         return;
       }
     }
-  }, [chatContents, isLoading, router, session]);
+  }, [chatContents, id, isLoading, query, router, session]);
 
   return (
       <div className="flex flex-col min-h-screen  bg-gradient-to-b from-background via-primary/5 to-background rounded-xl">
@@ -73,7 +74,6 @@ export default function Page() {
               selectedVisibilityType={chatContents.chat.visibility}
               isReadonly={session?.user?.id !== chatContents.chat.userId}
             />
-            <DataStreamHandler id={id} />
           </>
         )}
       </main>

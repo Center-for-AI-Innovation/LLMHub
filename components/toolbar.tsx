@@ -1,6 +1,6 @@
 'use client';
 
-import type { ChatRequestOptions, CreateMessage, Message } from 'ai';
+import type { ChatRequestOptions, UIMessage } from 'ai';
 import cx from 'classnames';
 import {
   AnimatePresence,
@@ -11,13 +11,14 @@ import {
 import {
   type Dispatch,
   memo,
+  type RefObject,
   type ReactNode,
   type SetStateAction,
   useEffect,
   useRef,
   useState,
 } from 'react';
-import { useOnClickOutside } from 'usehooks-ts';
+import { useOnClickOutside } from '@/hooks/use-on-click-outside';
 import { nanoid } from 'nanoid';
 import {
   Tooltip,
@@ -34,7 +35,6 @@ import {
 } from './icons';
 import { artifactDefinitions, type ArtifactKind } from './artifact';
 import type { ArtifactToolbarItem } from './create-artifact';
-import type { UseChatHelpers } from 'ai/react';
 
 type ToolProps = {
   description: string;
@@ -44,14 +44,11 @@ type ToolProps = {
   isToolbarVisible?: boolean;
   setIsToolbarVisible?: Dispatch<SetStateAction<boolean>>;
   isAnimating: boolean;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
   onClick: ({
-    appendMessage,
+    sendMessage,
   }: {
-    appendMessage: UseChatHelpers['append'];
+    sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
   }) => void;
 };
 
@@ -63,7 +60,7 @@ const Tool = ({
   isToolbarVisible,
   setIsToolbarVisible,
   isAnimating,
-  append,
+  sendMessage,
   onClick,
 }: ToolProps) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -90,7 +87,7 @@ const Tool = ({
       setSelectedTool(description);
     } else {
       setSelectedTool(null);
-      onClick({ appendMessage: append });
+      onClick({ sendMessage });
     }
   };
 
@@ -143,15 +140,12 @@ const randomArr = [...Array(6)].map((x) => nanoid(5));
 
 const ReadingLevelSelector = ({
   setSelectedTool,
-  append,
+  sendMessage,
   isAnimating,
 }: {
   setSelectedTool: Dispatch<SetStateAction<string | null>>;
   isAnimating: boolean;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
 }) => {
   const LEVELS = [
     'Elementary',
@@ -225,9 +219,8 @@ const ReadingLevelSelector = ({
               }}
               onClick={() => {
                 if (currentLevel !== 2 && hasUserSelectedLevel) {
-                  append({
-                    role: 'user',
-                    content: `Please adjust the reading level to ${LEVELS[currentLevel]} level.`,
+                  void sendMessage({
+                    text: `Please adjust the reading level to ${LEVELS[currentLevel]} level.`,
                   });
 
                   setSelectedTool(null);
@@ -254,7 +247,7 @@ export const Tools = ({
   isToolbarVisible,
   selectedTool,
   setSelectedTool,
-  append,
+  sendMessage,
   isAnimating,
   setIsToolbarVisible,
   tools,
@@ -262,10 +255,7 @@ export const Tools = ({
   isToolbarVisible: boolean;
   selectedTool: string | null;
   setSelectedTool: Dispatch<SetStateAction<string | null>>;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
   isAnimating: boolean;
   setIsToolbarVisible: Dispatch<SetStateAction<boolean>>;
   tools: Array<ArtifactToolbarItem>;
@@ -288,7 +278,7 @@ export const Tools = ({
               icon={secondaryTool.icon}
               selectedTool={selectedTool}
               setSelectedTool={setSelectedTool}
-              append={append}
+              sendMessage={sendMessage}
               isAnimating={isAnimating}
               onClick={secondaryTool.onClick}
             />
@@ -302,7 +292,7 @@ export const Tools = ({
         setSelectedTool={setSelectedTool}
         isToolbarVisible={isToolbarVisible}
         setIsToolbarVisible={setIsToolbarVisible}
-        append={append}
+        sendMessage={sendMessage}
         isAnimating={isAnimating}
         onClick={primaryTool.onClick}
       />
@@ -313,7 +303,7 @@ export const Tools = ({
 const PureToolbar = ({
   isToolbarVisible,
   setIsToolbarVisible,
-  append,
+  sendMessage,
   isLoading,
   stop,
   setMessages,
@@ -322,21 +312,18 @@ const PureToolbar = ({
   isToolbarVisible: boolean;
   setIsToolbarVisible: Dispatch<SetStateAction<boolean>>;
   isLoading: boolean;
-  append: (
-    message: Message | CreateMessage,
-    chatRequestOptions?: ChatRequestOptions,
-  ) => Promise<string | null | undefined>;
+  sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
   stop: () => void;
-  setMessages: Dispatch<SetStateAction<Message[]>>;
+  setMessages: Dispatch<SetStateAction<UIMessage[]>>;
   artifactKind: ArtifactKind;
 }) => {
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [selectedTool, setSelectedTool] = useState<string | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
 
-  useOnClickOutside(toolbarRef, () => {
+  useOnClickOutside(toolbarRef as RefObject<HTMLElement>, () => {
     setIsToolbarVisible(false);
     setSelectedTool(null);
   });
@@ -448,14 +435,14 @@ const PureToolbar = ({
         ) : selectedTool === 'adjust-reading-level' ? (
           <ReadingLevelSelector
             key="reading-level-selector"
-            append={append}
+            sendMessage={sendMessage}
             setSelectedTool={setSelectedTool}
             isAnimating={isAnimating}
           />
         ) : (
           <Tools
             key="tools"
-            append={append}
+            sendMessage={sendMessage}
             isAnimating={isAnimating}
             isToolbarVisible={isToolbarVisible}
             selectedTool={selectedTool}

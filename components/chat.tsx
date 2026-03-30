@@ -1,35 +1,182 @@
 'use client';
 
-import type { Attachment, Message, ChatRequestOptions } from 'ai';
-import { useChat } from 'ai/react';
-import { useState, useEffect } from 'react';
+import type { ChatRequestOptions, UIMessage } from 'ai';
+import { DefaultChatTransport } from 'ai';
+import { useChat } from '@ai-sdk/react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import useSWR from 'swr';
 import { useQueryClient } from '@tanstack/react-query';
 
 import type { Vote, Document } from '@/lib/db/schema';
 import { fetcher, generateUUID } from '@/lib/utils';
+import type { UploadedAttachment } from '@/lib/chat-attachments';
 
-import { Artifact } from './artifact';
+import { Artifact, artifactDefinitions, type ArtifactKind } from './artifact';
 import { MultimodalInput } from './multimodal-input';
 import { Messages } from './messages';
 import type { VisibilityType } from './visibility-selector';
-import { useArtifactSelector } from '@/hooks/use-artifact';
-import { toast } from 'sonner';
+import { useArtifact, useArtifactSelector, initialArtifactData } from '@/hooks/use-artifact';
+import { toast } from '@/components/ui/use-toast';
+import {
+  isGuestLimitErrorMessage,
+  normalizeChatRequestError,
+} from '@/lib/chat-client-errors';
+import {
+  GUEST_CHAT_MAX_MESSAGES,
+  getGuestMessageCount,
+} from '@/lib/guest-chat';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useDocumentCache } from '@/hooks/use-document-cache';
 import { useVllmJob, getVllmChatEndpoint } from '@/hooks/use-vllm-job';
+import { useNewChat } from '@/hooks/use-new-chat';
+import type { DataStreamDelta } from '@/lib/ai/data-stream';
+
+const VLLM_JOB_MODEL_PREFIX = 'vllm-job:';
+
+function getSelectedVllmJobId(model: string): string | null {
+  if (!model.startsWith(VLLM_JOB_MODEL_PREFIX)) {
+    return null;
+  }
+
+  const jobId = model.slice(VLLM_JOB_MODEL_PREFIX.length).trim();
+  return jobId.length > 0 ? jobId : null;
+}
+
+function isSlurmBackedModel(model: string): boolean {
+  return model === 'vllm-model' || model.startsWith(VLLM_JOB_MODEL_PREFIX);
+}
 
 // Helper to determine API endpoint based on model and job ID
 const getApiEndpoint = (model: string, vllmJobId: string | null) => {
+  if (model === 'guest-vllm-model' || model === 'always-on-model') {
+    return '/api/public/chat';
+  }
+
+  const selectedJobId = getSelectedVllmJobId(model);
+  if (selectedJobId) {
+    return getVllmChatEndpoint(selectedJobId);
+  }
+
   if (model === 'vllm-model') {
-    // Use job-based proxy if job ID is available, otherwise fallback to static proxy
-    return vllmJobId ? getVllmChatEndpoint(vllmJobId) : '/api/vllm/chat';
+    // Slurm-backed model route only. No fallback to legacy static vLLM route.
+    return vllmJobId
+      ? getVllmChatEndpoint(vllmJobId)
+      : '/api/v1/job/__missing__/chat/completions';
   }
   return '/api/chat';
 };
 
-// Inner component that handles the actual chat logic
-// Using a key on this component forces complete re-mount when API endpoint changes
+const showErrorToast = (message: string) => {
+  toast({
+    title: 'Request failed',
+    description: message,
+    variant: 'destructive',
+  });
+};
+
+const areMessagesEquivalent = (left: UIMessage, right: UIMessage): boolean => {
+  if (left.id === right.id) {
+    return true;
+  }
+
+  return left.role === right.role && JSON.stringify(left.parts) === JSON.stringify(right.parts);
+};
+
+const isPrefixOf = (candidate: UIMessage[], full: UIMessage[]): boolean => {
+  if (candidate.length > full.length) {
+    return false;
+  }
+
+  return candidate.every((message, index) => {
+    const target = full[index];
+    return target ? areMessagesEquivalent(message, target) : false;
+  });
+};
+
+function toStreamDelta(dataPart: any): DataStreamDelta | null {
+  if (!dataPart || typeof dataPart.type !== 'string') return null;
+  if (!dataPart.type.startsWith('data-')) return null;
+
+  const type = dataPart.type.slice('data-'.length) as DataStreamDelta['type'];
+
+  const supportedTypes: Array<DataStreamDelta['type']> = [
+    'text-delta',
+    'code-delta',
+    'sheet-delta',
+    'image-delta',
+    'title',
+    'id',
+    'suggestion',
+    'clear',
+    'finish',
+    'kind',
+  ];
+
+  if (!supportedTypes.includes(type)) return null;
+
+  return {
+    type,
+    content: dataPart.data,
+  };
+}
+
+function getGuestMessageCountFromCookie(): number {
+  if (typeof document === 'undefined') {
+    return 0;
+  }
+  return getGuestMessageCount(document.cookie);
+}
+
+function ensureModelReadyForSend({
+  isGuestMode,
+  selectedModel,
+  vllmJobId,
+}: {
+  isGuestMode: boolean;
+  selectedModel: string;
+  vllmJobId: string | null;
+}): boolean {
+  if (isGuestMode) {
+    return true;
+  }
+
+  if (!isSlurmBackedModel(selectedModel)) {
+    return true;
+  }
+
+  // Deployment-specific options include the job ID directly.
+  if (getSelectedVllmJobId(selectedModel)) {
+    return true;
+  }
+
+  if (vllmJobId) {
+    return true;
+  }
+
+  showErrorToast(
+    'Model deployment is still initializing. Please wait a few seconds and try again.',
+  );
+  return false;
+}
+
+function handleChatRequestError({
+  error,
+  isGuestMode,
+  onGuestLimitReached,
+}: {
+  error: unknown;
+  isGuestMode: boolean;
+  onGuestLimitReached?: () => void;
+}) {
+  const errorMessage = normalizeChatRequestError(error);
+  if (isGuestMode && isGuestLimitErrorMessage(errorMessage)) {
+    onGuestLimitReached?.();
+    return;
+  }
+  showErrorToast(errorMessage);
+}
+
+// Inner component that handles the actual chat logic.
 function ChatInner({
   chatId,
   apiEndpoint,
@@ -40,91 +187,288 @@ function ChatInner({
   initialVotes,
   isTemporaryChat,
   isReadonly,
+  isGuestMode,
+  onGuestLimitReached,
+  initialPrompt,
 }: {
   chatId: string;
   apiEndpoint: string;
   selectedModel: string;
   vllmJobId: string | null;
-  initialMessages: Array<Message>;
+  initialMessages: Array<UIMessage>;
   initialDocuments?: Array<Document>;
   initialVotes?: Array<Vote>;
   isTemporaryChat: boolean;
   isReadonly: boolean;
+  isGuestMode: boolean;
+  onGuestLimitReached?: () => void;
+  initialPrompt?: string;
 }) {
   const queryClient = useQueryClient();
   const [votes, setVotes] = useState<Array<Vote>>(initialVotes || []);
-  const [attachments, setAttachments] = useState<Array<Attachment>>([]);
+  const [attachments, setAttachments] = useState<Array<UploadedAttachment>>([]);
+  const [input, setInput] = useState('');
+  const hasAutoSentInitialPrompt = useRef(false);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
-  
+  const setHasDraftMessages = useNewChat((state) => state.setHasDraftMessages);
+
+  const { artifact, setArtifact, setMetadata } = useArtifact();
+
   // Initialize document cache with initialDocuments
   const { addDocuments } = useDocumentCache();
-  
+
   useEffect(() => {
     if (initialDocuments?.length) {
-      const documentsByIds = initialDocuments.reduce((acc, doc) => {
-        if (!acc[doc.id]) {
-          acc[doc.id] = [];
-        }
-        acc[doc.id].push(doc);
-        return acc;
-      }, {} as Record<string, Document[]>);
-      
+      const documentsByIds = initialDocuments.reduce(
+        (acc, doc) => {
+          if (!acc[doc.id]) {
+            acc[doc.id] = [];
+          }
+          acc[doc.id].push(doc);
+          return acc;
+        },
+        {} as Record<string, Document[]>,
+      );
+
       Object.entries(documentsByIds).forEach(([docId, docs]) => {
         addDocuments(docId, docs);
       });
     }
   }, [initialDocuments, addDocuments]);
 
-  // Log when using vLLM job-based proxy
-  useEffect(() => {
-    if (selectedModel === 'vllm-model' && vllmJobId) {
-      console.log(`[Chat] Using vLLM job-based proxy with job ID: ${vllmJobId}`);
-      console.log(`[Chat] API endpoint: ${apiEndpoint}`);
-    }
-  }, [selectedModel, vllmJobId, apiEndpoint]);
+  const routeAwareChatId = useMemo(
+    () => `${chatId}:${selectedModel}:${apiEndpoint}`,
+    [chatId, selectedModel, apiEndpoint],
+  );
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: apiEndpoint,
+        headers: {
+          // This header specifies that the API should return the response in the streaming format
+          'x-response-format': 'ai-sdk',
+        },
+        prepareSendMessagesRequest: ({
+          messages,
+          trigger,
+          messageId,
+          body,
+          headers,
+          credentials,
+        }) => {
+          return {
+            api: apiEndpoint,
+            headers,
+            credentials,
+            body: {
+              ...body,
+              id: chatId,
+              messages,
+              trigger,
+              messageId,
+              selectedChatModel: selectedModel,
+              ...(isSlurmBackedModel(selectedModel) && vllmJobId
+                ? { vllmJobId }
+                : {}),
+            },
+          };
+        },
+      }),
+    [apiEndpoint, chatId, selectedModel, vllmJobId],
+  );
 
   const {
     messages,
     setMessages,
-    handleSubmit,
-    input,
-    setInput,
-    append,
-    isLoading,
+    sendMessage,
     stop,
-    reload,
+    status,
   } = useChat({
-    id: chatId,
-    api: apiEndpoint,
-    headers: {
-      // This header specifies that the API should return the response in the streaming format
-      'x-response-format': 'ai-sdk',
-    },
-    body: { 
-      id: chatId, 
-      selectedChatModel: selectedModel,
-      // Include vLLM job ID for tracking (optional, for logging)
-      ...(selectedModel === 'vllm-model' && vllmJobId ? { vllmJobId } : {}),
-    },
-    initialMessages,
-    experimental_throttle: 100,
-    sendExtraMessageFields: true,
+    id: routeAwareChatId,
+    transport,
+    messages: initialMessages,
     generateId: generateUUID,
     onFinish: () => {
-      if (!isTemporaryChat) {
-        queryClient.invalidateQueries({ queryKey: ['chatHistory'] });
-      }
+      queryClient.invalidateQueries({ queryKey: ['chatHistory'] });
     },
     onError: (error) => {
-      console.error('[Chat] Error:', error);
-      toast.error('An error occurred, please try again!');
+      handleChatRequestError({ error, isGuestMode, onGuestLimitReached });
+    },
+    onData: (dataPart) => {
+      const delta = toStreamDelta(dataPart);
+      if (!delta) return;
+
+      const artifactDefinition = artifactDefinitions.find(
+        (artifactDefinition) => artifactDefinition.kind === artifact.kind,
+      );
+
+      if (artifactDefinition?.onStreamPart) {
+        artifactDefinition.onStreamPart({
+          streamPart: delta,
+          setArtifact,
+          setMetadata,
+        });
+      }
+
+      setArtifact((draftArtifact) => {
+        const next = draftArtifact ?? { ...initialArtifactData, status: 'streaming' };
+
+        switch (delta.type) {
+          case 'id':
+            return {
+              ...next,
+              documentId: delta.content as string,
+              status: 'streaming',
+            };
+
+          case 'title':
+            return {
+              ...next,
+              title: delta.content as string,
+              status: 'streaming',
+            };
+
+          case 'kind':
+            return {
+              ...next,
+              kind: delta.content as ArtifactKind,
+              status: 'streaming',
+            };
+
+          case 'clear':
+            return {
+              ...next,
+              content: '',
+              status: 'streaming',
+            };
+
+          case 'finish':
+            return {
+              ...next,
+              status: 'idle',
+            };
+
+          default:
+            return next;
+        }
+      });
     },
   });
 
-  const handleFormSubmit = (event?: { preventDefault?: () => void }, chatRequestOptions?: ChatRequestOptions) => {
-    event?.preventDefault?.();
-    handleSubmit(event, chatRequestOptions);
+  const isLoading = status === 'submitted' || status === 'streaming';
+
+  const guardedSendMessage = async (
+    message?: any,
+    options?: ChatRequestOptions,
+  ): Promise<void> => {
+    if (!ensureModelReadyForSend({ isGuestMode, selectedModel, vllmJobId })) {
+      return;
+    }
+
+    if (
+      isGuestMode &&
+      getGuestMessageCountFromCookie() >= GUEST_CHAT_MAX_MESSAGES
+    ) {
+      onGuestLimitReached?.();
+      return;
+    }
+
+    try {
+      await sendMessage(message, options);
+    } catch (error) {
+      handleChatRequestError({ error, isGuestMode, onGuestLimitReached });
+    }
   };
+
+  const lastNonEmptyMessagesRef = useRef<Array<UIMessage>>(initialMessages);
+  const previousSessionRouteRef = useRef(`${selectedModel}|${apiEndpoint}`);
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      return;
+    }
+
+    const snapshot = lastNonEmptyMessagesRef.current;
+    const isTruncatedRouteTransition =
+      snapshot.length > messages.length && isPrefixOf(messages, snapshot);
+
+    if (isTruncatedRouteTransition) {
+      return;
+    }
+
+    lastNonEmptyMessagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    const currentSessionRoute = `${selectedModel}|${apiEndpoint}`;
+    if (previousSessionRouteRef.current === currentSessionRoute) {
+      return;
+    }
+
+    previousSessionRouteRef.current = currentSessionRoute;
+    const previousMessages = lastNonEmptyMessagesRef.current;
+
+    if (previousMessages.length === 0) {
+      return;
+    }
+
+    setMessages((currentMessages) => {
+      if (currentMessages.length === 0) {
+        return previousMessages;
+      }
+
+      const isPrefixOfPrevious =
+        currentMessages.length < previousMessages.length &&
+        isPrefixOf(currentMessages, previousMessages);
+
+      return isPrefixOfPrevious ? previousMessages : currentMessages;
+    });
+  }, [selectedModel, apiEndpoint, setMessages]);
+
+  useEffect(() => {
+    if (!isTemporaryChat) {
+      setHasDraftMessages(false);
+      return;
+    }
+
+    setHasDraftMessages(messages.length > 0);
+  }, [isTemporaryChat, messages.length, setHasDraftMessages]);
+
+  useEffect(() => {
+    if (!initialPrompt || hasAutoSentInitialPrompt.current) {
+      return;
+    }
+
+    if (messages.length > 0) {
+      return;
+    }
+
+    if (!ensureModelReadyForSend({ isGuestMode, selectedModel, vllmJobId })) {
+      return;
+    }
+
+    if (
+      isGuestMode &&
+      getGuestMessageCountFromCookie() >= GUEST_CHAT_MAX_MESSAGES
+    ) {
+      onGuestLimitReached?.();
+      return;
+    }
+
+    hasAutoSentInitialPrompt.current = true;
+    void sendMessage({ text: initialPrompt }).catch((error) => {
+      handleChatRequestError({ error, isGuestMode, onGuestLimitReached });
+    });
+  }, [
+    initialPrompt,
+    isGuestMode,
+    messages.length,
+    onGuestLimitReached,
+    selectedModel,
+    sendMessage,
+    vllmJobId,
+  ]);
 
   const { data: fetchedVotes } = useSWR<Array<Vote>>(
     !isTemporaryChat && !initialVotes ? `/api/vote?chatId=${chatId}` : null,
@@ -148,30 +492,29 @@ function ChatInner({
               votes={votes}
               messages={messages}
               setMessages={setMessages}
-              reload={reload}
+              sendMessage={guardedSendMessage}
               isReadonly={isReadonly}
               isArtifactVisible={isArtifactVisible}
             />
 
             <div className="shrink-0 bg-transparent">
               <div className="max-w-3xl mx-auto px-4 md:px-0">
-                <form onSubmit={handleFormSubmit} className="flex pb-4 md:pb-6 gap-2 w-full">
+                <div className="flex pb-4 md:pb-6 gap-2 w-full">
                   {!isReadonly && (
                     <MultimodalInput
-                      chatId={chatId}
                       input={input}
                       setInput={setInput}
-                      handleSubmit={handleFormSubmit}
                       isLoading={isLoading}
                       stop={stop}
                       attachments={attachments}
                       setAttachments={setAttachments}
                       messages={messages}
                       setMessages={setMessages}
-                      append={append}
+                      sendMessage={guardedSendMessage}
+                      isGuestMode={isGuestMode}
                     />
                   )}
-                </form>
+                </div>
               </div>
             </div>
           </div>
@@ -182,15 +525,13 @@ function ChatInner({
         chatId={chatId}
         input={input}
         setInput={setInput}
-        handleSubmit={handleFormSubmit}
         isLoading={isLoading}
         stop={stop}
         attachments={attachments}
         setAttachments={setAttachments}
-        append={append}
+        sendMessage={guardedSendMessage}
         messages={messages}
         setMessages={setMessages}
-        reload={reload}
         votes={votes}
         isReadonly={isReadonly}
         initialDocuments={initialDocuments}
@@ -204,47 +545,73 @@ export function Chat({
   initialMessages,
   initialVotes,
   initialDocuments,
-  selectedVisibilityType,
+  selectedVisibilityType: _selectedVisibilityType,
   isReadonly,
+  isGuestMode = false,
+  onGuestLimitReached,
+  initialPrompt,
+  resetVersion = 0,
+  onResolvedChatId,
 }: {
   id: string;
-  initialMessages: Array<Message>;
+  initialMessages: Array<UIMessage>;
   initialVotes?: Array<Vote>;
   initialDocuments?: Array<Document>;
   selectedVisibilityType: VisibilityType;
   isReadonly: boolean;
+  isGuestMode?: boolean;
+  onGuestLimitReached?: () => void;
+  initialPrompt?: string;
+  resetVersion?: number;
+  onResolvedChatId?: (chatId: string) => void;
 }) {
-  const { selectedModel } = useModelSelector();
-  const { jobId: vllmJobId, isLoading: isVllmJobLoading } = useVllmJob();
+  const { selectedModel, setSelectedModel } = useModelSelector();
+  const effectiveSelectedModel = isGuestMode ? 'guest-vllm-model' : selectedModel;
+  const { jobId: vllmJobId } = useVllmJob(!isGuestMode);
   const isTemporaryChat = id === 'new';
-  const [chatId] = useState(isTemporaryChat ? generateUUID() : id);
-  
+  const chatKey = isTemporaryChat ? `new:${resetVersion}` : `id:${id}`;
+  const [chatIdentity, setChatIdentity] = useState(() => ({
+    key: chatKey,
+    chatId: isTemporaryChat ? generateUUID() : id,
+  }));
+
+  useEffect(() => {
+    setChatIdentity((prev) => {
+      if (prev.key === chatKey) return prev;
+      return { key: chatKey, chatId: isTemporaryChat ? generateUUID() : id };
+    });
+  }, [chatKey, isTemporaryChat, id]);
+
+  const chatId = chatIdentity.chatId;
+
   // Determine API endpoint based on selected model and vLLM job ID
-  const apiEndpoint = getApiEndpoint(selectedModel, vllmJobId);
+  const apiEndpoint = getApiEndpoint(effectiveSelectedModel, vllmJobId);
 
-  // Show loading state while vLLM job ID is being loaded
-  if (selectedModel === 'vllm-model' && isVllmJobLoading) {
-    return (
-      <div className="flex flex-col min-w-0 h-full bg-transparent items-center justify-center">
-        <div className="text-muted-foreground">Initializing vLLM connection...</div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    onResolvedChatId?.(chatId);
+  }, [chatId, onResolvedChatId]);
 
-  // Use a key that includes the API endpoint to force complete re-mount
-  // when the model type changes. This ensures useChat hook is fully re-initialized.
+  useEffect(() => {
+    if (isGuestMode) {
+      setSelectedModel('vllm-model');
+    }
+  }, [isGuestMode, setSelectedModel]);
+
   return (
     <ChatInner
-      key={`${chatId}-${apiEndpoint}`}
+      key={chatId}
       chatId={chatId}
       apiEndpoint={apiEndpoint}
-      selectedModel={selectedModel}
+      selectedModel={effectiveSelectedModel}
       vllmJobId={vllmJobId}
       initialMessages={initialMessages}
       initialDocuments={initialDocuments}
       initialVotes={initialVotes}
       isTemporaryChat={isTemporaryChat}
       isReadonly={isReadonly}
+      isGuestMode={isGuestMode}
+      onGuestLimitReached={onGuestLimitReached}
+      initialPrompt={initialPrompt}
     />
   );
 }

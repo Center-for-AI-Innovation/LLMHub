@@ -3,9 +3,7 @@
 import {
   memo,
   type MouseEvent,
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
 } from 'react';
 import type { ArtifactKind, UIArtifact } from './artifact';
@@ -39,7 +37,7 @@ export function DocumentPreview({
     Array<Document>
   >(result ? `/api/document?id=${result.id}` : null, fetcher);
 
-  const previewDocument = useMemo(() => documents?.[0], [documents]);
+  const previewDocument = documents?.[0];
   const hitboxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -146,36 +144,33 @@ const PureHitboxLayer = ({
   result,
   setArtifact,
 }: {
-  hitboxRef: React.RefObject<HTMLDivElement>;
+  hitboxRef: React.RefObject<HTMLDivElement | null>;
   result: any;
   setArtifact: (
     updaterFn: UIArtifact | ((currentArtifact: UIArtifact) => UIArtifact),
   ) => void;
 }) => {
-  const handleClick = useCallback(
-    (event: MouseEvent<HTMLElement>) => {
-      const boundingBox = event.currentTarget.getBoundingClientRect();
+  const handleClick = (event: MouseEvent<HTMLElement>) => {
+    const boundingBox = event.currentTarget.getBoundingClientRect();
 
-      setArtifact((artifact) =>
-        artifact.status === 'streaming'
-          ? { ...artifact, isVisible: true }
-          : {
-              ...artifact,
-              title: result.title,
-              documentId: result.id,
-              kind: result.kind,
-              isVisible: true,
-              boundingBox: {
-                left: boundingBox.x,
-                top: boundingBox.y,
-                width: boundingBox.width,
-                height: boundingBox.height,
-              },
+    setArtifact((artifact) =>
+      artifact.status === 'streaming'
+        ? { ...artifact, isVisible: true }
+        : {
+            ...artifact,
+            title: result.title,
+            documentId: result.id,
+            kind: result.kind,
+            isVisible: true,
+            boundingBox: {
+              left: boundingBox.x,
+              top: boundingBox.y,
+              width: boundingBox.width,
+              height: boundingBox.height,
             },
-      );
-    },
-    [setArtifact, result],
-  );
+          },
+    );
+  };
 
   return (
     <div
