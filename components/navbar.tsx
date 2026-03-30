@@ -1,10 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Github, ChevronDown } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
@@ -18,6 +16,7 @@ import { useSession } from '@/hooks/use-chat';
 import { signOut } from 'next-auth/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { BrandMark } from '@/components/brand-mark';
+import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 
 export function Navbar() {
   const pathname = usePathname();
@@ -70,19 +69,19 @@ export function Navbar() {
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none"
+                      title={session.user.email ?? undefined}
+                      aria-label={
+                        session.user.email
+                          ? `Account menu, signed in as ${session.user.email}`
+                          : 'Account menu'
+                      }
+                      className="flex items-center rounded-full transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
-                      <Image
-                        src={`https://avatar.vercel.sh/${session.user.email}`}
-                        alt={session.user.email ?? 'User Avatar'}
-                        width={24}
-                        height={24}
-                        className="rounded-full"
+                      <UserInitialsAvatar
+                        name={session.user.name}
+                        email={session.user.email}
+                        className="size-8 text-sm"
                       />
-                      <span className="hidden sm:inline truncate max-w-[140px]">
-                        {session.user.email}
-                      </span>
-                      <ChevronDown className="size-4 opacity-60" />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">

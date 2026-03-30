@@ -1,11 +1,9 @@
 'use client';
-import { ChevronUp } from 'lucide-react';
 import Link from 'next/link';
-import Image from 'next/image';
 import type { User } from 'next-auth';
 import { signOut } from 'next-auth/react';
-import { useTheme } from 'next-themes';
 
+import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,23 +18,27 @@ import {
 } from '@/components/ui/sidebar';
 
 export function SidebarUserNav({ user }: { user: User }) {
-  const { setTheme, theme } = useTheme();
-
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton className="data-[state=open]:bg-sidebar-accent bg-background data-[state=open]:text-sidebar-accent-foreground h-10">
-              <Image
-                src={`https://avatar.vercel.sh/${user.email}`}
-                alt={user.email ?? 'User Avatar'}
-                width={24}
-                height={24}
-                className="rounded-full"
+            <SidebarMenuButton
+              title={user.email ?? undefined}
+              tooltip={user.email ?? 'Account'}
+              aria-label={
+                user.email
+                  ? `Account menu, signed in as ${user.email}`
+                  : 'Account menu'
+              }
+              className="data-[state=open]:bg-sidebar-accent bg-background data-[state=open]:text-sidebar-accent-foreground h-10"
+            >
+              <UserInitialsAvatar
+                name={user.name}
+                email={user.email}
+                className="group-data-[collapsible=icon]:size-5 group-data-[collapsible=icon]:text-[10px]"
               />
-              <span className="truncate">{user?.email}</span>
-              <ChevronUp className="ml-auto" />
+              <span className="truncate text-sm">{user?.email}</span>
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
