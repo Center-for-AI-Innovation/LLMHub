@@ -3,13 +3,20 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Github } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useSession } from '@/hooks/use-chat';
 import { signOut } from 'next-auth/react';
 import { useQueryClient } from '@tanstack/react-query';
 import { BrandMark } from '@/components/brand-mark';
+import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 
 export function Navbar() {
   const pathname = usePathname();
@@ -28,7 +35,8 @@ export function Navbar() {
 
         <nav className="ml-auto flex items-center gap-4 sm:gap-6">
           <TooltipProvider>
-            <Link
+            {/* TODO: Add documentation and GitHub link when available */}
+            {/* <Link
               href="/docs"
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
             >
@@ -39,7 +47,7 @@ export function Navbar() {
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
             >
               <Github className="size-5" />
-            </Link>
+            </Link> */}
             <ThemeToggle />
             <Button variant="secondary" size="sm" className="px-4" asChild>
               <Link
@@ -57,21 +65,49 @@ export function Navbar() {
             </Button>
             {!isChatPage ? (
               session?.user ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    await signOut({
-                      redirect: false,
-                    });
-                    queryClient.setQueryData(['session'], { user: null });
-                    await queryClient.invalidateQueries({ queryKey: ['session'] });
-                    router.push('/');
-                    router.refresh();
-                  }}
-                >
-                  Logout
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      title={session.user.email ?? undefined}
+                      aria-label={
+                        session.user.email
+                          ? `Account menu, signed in as ${session.user.email}`
+                          : 'Account menu'
+                      }
+                      className="flex items-center rounded-full transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <UserInitialsAvatar
+                        name={session.user.name}
+                        email={session.user.email}
+                        className="size-8 text-sm"
+                      />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem asChild>
+                      <Link href="/profile" className="cursor-pointer">
+                        Profile
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <button
+                        type="button"
+                        className="w-full cursor-pointer"
+                        onClick={async () => {
+                          await signOut({ redirect: false });
+                          queryClient.setQueryData(['session'], { user: null });
+                          await queryClient.invalidateQueries({ queryKey: ['session'] });
+                          router.push('/');
+                          router.refresh();
+                        }}
+                      >
+                        Logout
+                      </button>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : (
                 <Button variant="outline" size="sm" asChild>
                   <Link href={`/login?redirectTo=${encodeURIComponent(pathname)}`}>

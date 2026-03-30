@@ -498,7 +498,7 @@ function ChatInner({
             />
 
             <div className="shrink-0 bg-transparent">
-              <div className="max-w-3xl mx-auto px-4 md:px-0">
+              <div className="max-w-3xl mx-auto px-4">
                 <div className="flex pb-4 md:pb-6 gap-2 w-full">
                   {!isReadonly && (
                     <MultimodalInput
