@@ -3,13 +3,7 @@ import {
   shutdownModelDeploymentById,
 } from '@/lib/db/queries';
 import { NextResponse } from 'next/server';
-
-function isLocalTestEnabled() {
-  return (
-    process.env.NODE_ENV === 'development' &&
-    process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true'
-  );
-}
+import { isLocalTestEnabled } from '@/lib/utils';
 
 export async function DELETE(
   _: Request,

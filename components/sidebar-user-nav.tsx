@@ -1,11 +1,10 @@
 'use client';
-import { ChevronUp } from 'lucide-react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useTheme } from 'next-themes';
 
 import { authClient } from '@/lib/auth/client';
 import type { AuthUser } from '@/lib/auth/types';
+import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,16 +26,22 @@ export function SidebarUserNav({ user }: { user: AuthUser }) {
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton className="data-[state=open]:bg-sidebar-accent bg-background data-[state=open]:text-sidebar-accent-foreground h-10">
-              <Image
-                src={`https://avatar.vercel.sh/${user.email}`}
-                alt={user.email ?? 'User Avatar'}
-                width={24}
-                height={24}
-                className="rounded-full"
+            <SidebarMenuButton
+              title={user.email ?? undefined}
+              tooltip={user.email ?? 'Account'}
+              aria-label={
+                user.email
+                  ? `Account menu, signed in as ${user.email}`
+                  : 'Account menu'
+              }
+              className="data-[state=open]:bg-sidebar-accent bg-background data-[state=open]:text-sidebar-accent-foreground h-10"
+            >
+              <UserInitialsAvatar
+                name={user.name}
+                email={user.email}
+                className="group-data-[collapsible=icon]:size-5 group-data-[collapsible=icon]:text-[10px]"
               />
-              <span className="truncate">{user?.email}</span>
-              <ChevronUp className="ml-auto" />
+              <span className="truncate text-sm">{user?.email}</span>
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -49,11 +54,10 @@ export function SidebarUserNav({ user }: { user: AuthUser }) {
                 Profile
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer"
-              onSelect={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            >
-              {`Toggle ${theme === 'light' ? 'dark' : 'light'} mode`}
+            <DropdownMenuItem asChild>
+              <Link href="/catalog" className="cursor-pointer">
+                Model Catalog
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>

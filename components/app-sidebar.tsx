@@ -131,7 +131,7 @@ export function AppSidebar({ user }: { user: AuthUser | undefined }) {
             <SidebarHistory user={user} />
           </SidebarContent>
           <SidebarFooter className="flex flex-col gap-2 p-4">
-            {isChatPage && <ThemeToggle />}
+            <ThemeToggle />
             {!user && isChatPage && (
               <Button
                 variant="outline"
@@ -145,7 +145,7 @@ export function AppSidebar({ user }: { user: AuthUser | undefined }) {
         </>
       ) : (
         <SidebarFooter className="mt-auto p-2 flex flex-col items-center gap-2">
-          {isChatPage && <ThemeToggle />}
+          <ThemeToggle />
           {!user && isChatPage && (
             <Tooltip>
               <TooltipTrigger asChild>
