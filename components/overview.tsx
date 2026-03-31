@@ -15,7 +15,7 @@ export function Overview({ isArtifactVisible }: OverviewProps) {
       }}
     >
       <div className="max-w-lg text-center space-y-4">
-        <h1 className="text-2xl font-bold">Welcome to UIUC LLM Platform</h1>
+        <h1 className="text-2xl font-bold">Welcome to LLM Hub</h1>
         <p className="text-muted-foreground">
           Select a model to start chatting or request a new model for your specific needs.
         </p>
