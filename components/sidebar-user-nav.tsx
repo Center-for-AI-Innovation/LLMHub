@@ -1,6 +1,5 @@
 'use client';
 import Link from 'next/link';
-import { useTheme } from 'next-themes';
 
 import { authClient } from '@/lib/auth/client';
 import type { AuthUser } from '@/lib/auth/types';
@@ -19,8 +18,6 @@ import {
 } from '@/components/ui/sidebar';
 
 export function SidebarUserNav({ user }: { user: AuthUser }) {
-  const { setTheme, theme } = useTheme();
-
   return (
     <SidebarMenu>
       <SidebarMenuItem>
