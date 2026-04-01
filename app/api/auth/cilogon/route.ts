@@ -2,10 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 import { isCilogonEnabled } from '@/lib/auth/config';
-
-function getRedirectTo(redirectTo: string | null) {
-  return redirectTo && redirectTo.startsWith('/') ? redirectTo : '/chat';
-}
+import { sanitizeRedirectPath } from '@/lib/auth/paths';
 
 function cilogonStartErrorResponse(message: string, status = 500) {
   return NextResponse.json(
@@ -18,7 +15,9 @@ function cilogonStartErrorResponse(message: string, status = 500) {
 }
 
 export async function GET(request: NextRequest) {
-  const redirectTo = getRedirectTo(request.nextUrl.searchParams.get('redirectTo'));
+  const redirectTo = sanitizeRedirectPath(
+    request.nextUrl.searchParams.get('redirectTo'),
+  );
 
   if (!isCilogonEnabled()) {
     return cilogonStartErrorResponse(
@@ -58,10 +57,17 @@ export async function GET(request: NextRequest) {
   }
 
   const redirectResponse = NextResponse.redirect(result.url);
-  const setCookie = response.headers.get('set-cookie');
+  const setCookieHeaders =
+    'getSetCookie' in response.headers &&
+    typeof response.headers.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : (() => {
+          const singleHeader = response.headers.get('set-cookie');
+          return singleHeader ? [singleHeader] : [];
+        })();
 
-  if (setCookie) {
-    redirectResponse.headers.set('set-cookie', setCookie);
+  for (const setCookie of setCookieHeaders) {
+    redirectResponse.headers.append('set-cookie', setCookie);
   }
 
   return redirectResponse;

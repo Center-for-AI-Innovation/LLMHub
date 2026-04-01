@@ -1,10 +1,7 @@
 import { AuthView } from '@daveyplate/better-auth-ui';
 import { isCilogonEnabled } from '@/lib/auth/config';
+import { sanitizeRedirectPath } from '@/lib/auth/paths';
 import { redirect } from 'next/navigation';
-
-function getRedirectTo(redirectTo?: string) {
-  return redirectTo && redirectTo.startsWith('/') ? redirectTo : '/chat';
-}
 
 export default async function LoginPage({
   searchParams,
@@ -12,7 +9,7 @@ export default async function LoginPage({
   searchParams?: Promise<{ redirectTo?: string }>;
 }) {
   const params = searchParams ? await searchParams : undefined;
-  const redirectTo = getRedirectTo(params?.redirectTo);
+  const redirectTo = sanitizeRedirectPath(params?.redirectTo);
   const cilogonEnabled = isCilogonEnabled();
 
   if (cilogonEnabled) {
