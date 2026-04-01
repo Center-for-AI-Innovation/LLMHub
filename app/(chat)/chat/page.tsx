@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { Loader2 } from 'lucide-react';
-import { useSession } from '@/hooks/use-chat';
+import { useSession } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useChatModels } from '@/hooks/use-models';
@@ -26,9 +26,7 @@ export default function ChatPage() {
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
-  const { data: session, isLoading } = useSession({
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-  });
+  const { data: session, isLoading } = useSession();
 
   const handleGuestLimitReached = () => {
     toast.error('Guest chat limit reached. Please sign in to continue.');

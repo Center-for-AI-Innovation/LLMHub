@@ -1,7 +1,8 @@
 'use client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
-import { authClient } from '@/lib/auth/client';
+import { useSignOut } from '@/hooks/use-auth';
 import type { AuthUser } from '@/lib/auth/types';
 import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 import {
@@ -18,6 +19,9 @@ import {
 } from '@/components/ui/sidebar';
 
 export function SidebarUserNav({ user }: { user: AuthUser }) {
+  const router = useRouter();
+  const signOut = useSignOut();
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -62,8 +66,9 @@ export function SidebarUserNav({ user }: { user: AuthUser }) {
                 type="button"
                 className="w-full cursor-pointer"
                 onClick={async () => {
-                  await authClient.signOut();
-                  window.location.assign('/');
+                  await signOut.mutateAsync();
+                  router.push('/');
+                  router.refresh();
                 }}
               >
                 Sign out

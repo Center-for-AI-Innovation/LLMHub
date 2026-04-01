@@ -11,10 +11,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useSession } from '@/hooks/use-chat';
-import { useQueryClient } from '@tanstack/react-query';
+import { useSession, useSignOut } from '@/hooks/use-auth';
 import { BrandMark } from '@/components/brand-mark';
-import { authClient } from '@/lib/auth/client';
 import { getLoginPath } from '@/lib/auth/paths';
 import { navigateToLogin } from '@/lib/auth/navigation';
 import Link from 'next/link';
@@ -23,8 +21,8 @@ import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { data: session } = useSession();
+  const signOut = useSignOut();
   const isChatPage = pathname.startsWith('/chat');
   const isCatalogPage = pathname === '/catalog' || pathname === '/dashboard';
 
@@ -98,9 +96,7 @@ export function Navbar() {
                         type="button"
                         className="w-full cursor-pointer"
                         onClick={async () => {
-                          await authClient.signOut();
-                          queryClient.setQueryData(['session'], { user: null });
-                          await queryClient.invalidateQueries({ queryKey: ['session'] });
+                          await signOut.mutateAsync();
                           router.push('/');
                           router.refresh();
                         }}

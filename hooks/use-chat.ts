@@ -3,8 +3,6 @@ import type { UIMessage } from 'ai';
 import { convertToUIMessages } from '@/lib/utils';
 import type { VisibilityType } from '@/components/visibility-selector';
 import type { Chat, Vote, Document } from '@/lib/db/schema';
-import type { UseQueryOptions } from '@tanstack/react-query';
-import type { AuthUser } from '@/lib/auth/types';
 
 // Types for the chat and session data
 export interface ChatData {
@@ -15,34 +13,12 @@ export interface ChatData {
   createdAt: string;
 }
 
-export interface SessionData {
-  user?: AuthUser | null;
-}
-
 // Types for the combined chat contents data
 export interface ChatContentsData {
   chat: ChatData;
   messages: UIMessage[];
   votes: Vote[];
   documents: Document[];
-}
-
-// Fetch session data
-export function useSession(options?: Partial<UseQueryOptions<SessionData, Error, SessionData, ["session"]>>) {
-  return useQuery({
-    queryKey: ['session'],
-    queryFn: async (): Promise<SessionData> => {
-      const res = await fetch('/api/auth/get-session');
-      if (!res.ok) {
-        throw new Error('Failed to fetch session');
-      }
-      const data = await res.json();
-      return {
-        user: data?.user ?? null,
-      };
-    },
-    ...options
-  });
 }
 
 // Fetch chat data
