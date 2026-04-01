@@ -17,7 +17,6 @@ import {
   GUEST_CHAT_MAX_MESSAGES,
   getGuestMessageCount,
 } from '@/lib/guest-chat';
-import { getSessionCookie } from 'better-auth/cookies';
 import {
   createErrorResponse,
   ensureUUID,
@@ -73,8 +72,7 @@ export async function POST(request: Request) {
     const session = await auth();
     const userId = session?.user?.id;
     const cookieHeader = request.headers.get('cookie');
-    const isLoggedIn =
-      Boolean(userId) || Boolean(getSessionCookie(request.headers));
+    const isLoggedIn = Boolean(userId);
 
     const safeGuestMessageCount = getGuestMessageCount(cookieHeader);
 
