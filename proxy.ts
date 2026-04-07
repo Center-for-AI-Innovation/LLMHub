@@ -3,8 +3,37 @@ import type { NextRequest } from 'next/server';
 import { getSessionCookie } from 'better-auth/cookies';
 import { getLoginPath } from '@/lib/auth/paths';
 
+async function hasValidSession(req: NextRequest) {
+  if (!getSessionCookie(req)) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(new URL('/api/auth/get-session', req.url), {
+      headers: {
+        accept: 'application/json',
+        cookie: req.headers.get('cookie') ?? '',
+      },
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      return false;
+    }
+
+    const session = (await response.json()) as {
+      user?: { id?: string | null } | null;
+    } | null;
+
+    return Boolean(session?.user?.id);
+  } catch (error) {
+    console.error('[Proxy] Failed to validate session:', error);
+    return false;
+  }
+}
+
 export default async function proxy(req: NextRequest) {
-  const isLoggedIn = Boolean(getSessionCookie(req));
+  const isLoggedIn = await hasValidSession(req);
   const { nextUrl } = req;
 
   const isProtectedRoute = 

@@ -4,7 +4,8 @@ import { useEffect } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { Loader2 } from 'lucide-react';
-import { useSession, useChatContents } from '@/hooks/use-chat';
+import { useSession } from '@/hooks/use-auth';
+import { useChatContents } from '@/hooks/use-chat';
 import { getLoginPath } from '@/lib/auth/paths';
 import { navigateToLogin } from '@/lib/auth/navigation';
 

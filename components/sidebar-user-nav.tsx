@@ -1,8 +1,8 @@
 'use client';
 import Link from 'next/link';
-import { useTheme } from 'next-themes';
+import { useRouter } from 'next/navigation';
 
-import { authClient } from '@/lib/auth/client';
+import { useSignOut } from '@/hooks/use-auth';
 import type { AuthUser } from '@/lib/auth/types';
 import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 import {
@@ -22,9 +22,9 @@ import { useQueryClient } from '@tanstack/react-query';
 
 
 export function SidebarUserNav({ user }: { user: AuthUser }) {
-  const { setTheme, theme } = useTheme();
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const signOut = useSignOut();
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -69,17 +69,9 @@ export function SidebarUserNav({ user }: { user: AuthUser }) {
                 type="button"
                 className="w-full cursor-pointer"
                 onClick={async () => {
-                  await authClient.signOut(
-                    {
-                      fetchOptions: {
-                        onSuccess: () => {
-                          router.push("/");
-                        },
-                      },
-                    }
-                  );
-                  queryClient.setQueryData(['session'], { user: null });
-                  await queryClient.invalidateQueries({ queryKey: ['session'] });
+                  await signOut.mutateAsync();
+                  router.push('/');
+                  router.refresh();
                 }}
               >
                 Sign out
