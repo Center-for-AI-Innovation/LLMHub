@@ -98,11 +98,17 @@ export function Navbar() {
                         type="button"
                         className="w-full cursor-pointer"
                         onClick={async () => {
-                          await authClient.signOut();
+                          await authClient.signOut(
+                            {
+                              fetchOptions: {
+                                onSuccess: () => {
+                                  router.push('/');
+                                },
+                              },
+                            }
+                          );
                           queryClient.setQueryData(['session'], { user: null });
                           await queryClient.invalidateQueries({ queryKey: ['session'] });
-                          router.push('/');
-                          router.refresh();
                         }}
                       >
                         Logout

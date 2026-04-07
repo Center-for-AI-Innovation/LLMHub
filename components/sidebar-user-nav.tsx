@@ -17,10 +17,14 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
+import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
+
 
 export function SidebarUserNav({ user }: { user: AuthUser }) {
   const { setTheme, theme } = useTheme();
-
+  const router = useRouter();
+  const queryClient = useQueryClient();
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -65,8 +69,17 @@ export function SidebarUserNav({ user }: { user: AuthUser }) {
                 type="button"
                 className="w-full cursor-pointer"
                 onClick={async () => {
-                  await authClient.signOut();
-                  window.location.assign('/');
+                  await authClient.signOut(
+                    {
+                      fetchOptions: {
+                        onSuccess: () => {
+                          router.push("/");
+                        },
+                      },
+                    }
+                  );
+                  queryClient.setQueryData(['session'], { user: null });
+                  await queryClient.invalidateQueries({ queryKey: ['session'] });
                 }}
               >
                 Sign out
