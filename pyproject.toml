@@ -22,11 +22,11 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "tenacity>=8.2.3",
     "httpx>=0.25.0",
-    "vec-inf @ git+https://github.com/Center-for-AI-Innovation/llm-inference.git@add-audio-type",
+    "vec-inf @ git+https://github.com/Center-for-AI-Innovation/llm-inference.git@675e686851f9c0a28b7dde2baa4785b50fb162e4",
 ]
-# TODO: The 'vec-inf' library is currently pinned to a PR branch for a specific fix.
-#       Once this fix is merged and a new release is created, update the dependency
-#       to use the released version instead of the branch reference.
+# TODO: 'vec-inf' is pinned to an immutable commit SHA to keep builds reproducible
+#       until the upstream fix is available in a release. Once a suitable release
+#       exists, replace this direct Git reference with the released version.
 
 [project.optional-dependencies]
 dev = [
