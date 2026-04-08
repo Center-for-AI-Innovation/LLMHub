@@ -35,5 +35,5 @@ default_args:
   bind: "/projects/bfmz/rohan13/huggingface:/root/.cache/huggingface,/projects/bfmz/rohan13/torch_cache:/root/.cache/torch_inductor"
   venv: "apptainer"
   data_type: "auto"
-  log_dir: "~/.vec-inf-logs"
+  log_dir: "/projects/bfmz/mohanar2/.vec-inf-logs"
   model_weights_parent_dir: "/model-weights"
