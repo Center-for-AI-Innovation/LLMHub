@@ -1,6 +1,5 @@
 'use client';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 
 import { useSignOut } from '@/hooks/use-auth';
 import type { AuthUser } from '@/lib/auth/types';
@@ -17,12 +16,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
-
 
 export function SidebarUserNav({ user }: { user: AuthUser }) {
-  const router = useRouter();
   const signOut = useSignOut();
 
   return (
@@ -70,8 +65,6 @@ export function SidebarUserNav({ user }: { user: AuthUser }) {
                 className="w-full cursor-pointer"
                 onClick={async () => {
                   await signOut.mutateAsync();
-                  router.push('/');
-                  router.refresh();
                 }}
               >
                 Sign out

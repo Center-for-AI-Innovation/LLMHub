@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { authClient } from '@/lib/auth/client';
 import type { AuthUser } from '@/lib/auth/types';
+import { useRouter } from 'next/navigation';
 
 export interface SessionData {
   user?: AuthUser | null;
@@ -10,15 +11,11 @@ export interface SessionData {
 export const SESSION_QUERY_KEY = ['session'] as const;
 
 async function fetchSession(): Promise<SessionData> {
-  const response = await fetch('/api/auth/get-session', {
-    cache: 'no-store',
-  });
+  const { data, error } = await authClient.getSession();
 
-  if (!response.ok) {
-    throw new Error('Failed to fetch session');
+  if (error) {
+    throw new Error(error.message ?? 'Failed to fetch session');
   }
-
-  const data = await response.json();
 
   return {
     user: data?.user ?? null,
@@ -31,7 +28,7 @@ export function useSession() {
     queryFn: fetchSession,
     staleTime: 0,
     gcTime: 5 * 60 * 1000,
-    refetchOnMount: 'always',
+    refetchOnMount: 'always', 
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     retry: 1,
@@ -40,10 +37,19 @@ export function useSession() {
 
 export function useSignOut() {
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   return useMutation({
     mutationFn: async () => {
-      await authClient.signOut();
+      await authClient.signOut(
+        {
+          fetchOptions: {
+            onSuccess: () => {
+              router.push('/');
+            },
+          },
+        }
+      );
     },
     onSuccess: async () => {
       queryClient.setQueryData(SESSION_QUERY_KEY, { user: null });
