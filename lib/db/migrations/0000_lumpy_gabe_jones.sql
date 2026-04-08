@@ -79,8 +79,7 @@ CREATE TABLE "ModelDeployment" (
 	"resourceAllocation" json,
 	"createdAt" timestamp DEFAULT now() NOT NULL,
 	"updatedAt" timestamp DEFAULT now() NOT NULL,
-	"expiresAt" timestamp,
-	CONSTRAINT "ModelDeployment_modelId_userId_unique" UNIQUE("modelId","userId")
+	"expiresAt" timestamp
 );
 --> statement-breakpoint
 CREATE TABLE "ModelRequest" (
@@ -179,5 +178,6 @@ ALTER TABLE "Suggestion" ADD CONSTRAINT "Suggestion_documentId_documentCreatedAt
 ALTER TABLE "Vote" ADD CONSTRAINT "Vote_chatId_Chat_id_fk" FOREIGN KEY ("chatId") REFERENCES "public"."Chat"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "Vote" ADD CONSTRAINT "Vote_messageId_Message_id_fk" FOREIGN KEY ("messageId") REFERENCES "public"."Message"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "Account_userId_idx" ON "Account" USING btree ("userId");--> statement-breakpoint
+CREATE UNIQUE INDEX "ModelDeployment_active_modelId_userId_unique" ON "ModelDeployment" USING btree ("modelId","userId") WHERE status IN ('pending', 'launching', 'ready', 'running');--> statement-breakpoint
 CREATE INDEX "Session_userId_idx" ON "Session" USING btree ("userId");--> statement-breakpoint
 CREATE INDEX "Verification_identifier_idx" ON "Verification" USING btree ("identifier");

@@ -1,5 +1,5 @@
 {
-  "id": "5ac28422-47fc-4c6d-8a52-bbcc787ca0d4",
+  "id": "65aed886-73dd-4339-b7f6-912685330378",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -587,7 +587,30 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "ModelDeployment_active_modelId_userId_unique": {
+          "name": "ModelDeployment_active_modelId_userId_unique",
+          "columns": [
+            {
+              "expression": "modelId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "userId",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "status IN ('pending', 'launching', 'ready', 'running')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "ModelDeployment_modelId_AvailableModel_id_fk": {
           "name": "ModelDeployment_modelId_AvailableModel_id_fk",
@@ -617,16 +640,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "ModelDeployment_modelId_userId_unique": {
-          "name": "ModelDeployment_modelId_userId_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "modelId",
-            "userId"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
