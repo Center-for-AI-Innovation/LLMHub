@@ -22,11 +22,8 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "tenacity>=8.2.3",
     "httpx>=0.25.0",
-    "vec-inf @ git+https://github.com/VectorInstitute/vector-inference.git@8f6e5b371abc0a0071df84be6f4fcfee0ec63a77",
+    "vec-inf==0.9.0",
 ]
-# TODO: 'vec-inf' is pinned to an immutable commit SHA to keep builds reproducible
-#       until the upstream fix is available in a release. Once a suitable release
-#       exists, replace this direct Git reference with the released version.
 
 [project.optional-dependencies]
 dev = [
