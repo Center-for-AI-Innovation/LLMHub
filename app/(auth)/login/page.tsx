@@ -1,101 +1,29 @@
-'use client';
+import { AuthView } from '@daveyplate/better-auth-ui';
+import { isCilogonEnabled } from '@/lib/auth/config';
+import { sanitizeRedirectPath } from '@/lib/auth/paths';
+import { redirect } from 'next/navigation';
 
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useActionState, useEffect, useState } from 'react';
-import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ redirectTo?: string }>;
+}) {
+  const params = searchParams ? await searchParams : undefined;
+  const redirectTo = sanitizeRedirectPath(params?.redirectTo);
+  const cilogonEnabled = isCilogonEnabled();
 
-import { AuthForm } from '@/components/auth-form';
-import { SubmitButton } from '@/components/submit-button';
-
-import { login, type LoginActionState } from '../actions';
-
-export default function Page() {
-  return (
-    <Suspense
-      fallback={
-        <div className="flex h-dvh w-screen items-start pt-12 md:pt-0 md:items-center justify-center bg-background" />
-      }
-    >
-      <LoginPageContent />
-    </Suspense>
-  );
-}
-
-function LoginPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
-
-  const [email, setEmail] = useState('');
-  const [isSuccessful, setIsSuccessful] = useState(false);
-
-  const [state, formAction] = useActionState<LoginActionState, FormData>(
-    login,
-    {
-      status: 'idle',
-    },
-  );
-
-  const requestedRedirect = searchParams?.get('redirectTo');
-  const redirectTo =
-    requestedRedirect &&
-    requestedRedirect.startsWith('/') &&
-    !requestedRedirect.startsWith('//')
-      ? requestedRedirect
-      : '/chat';
-
-  useEffect(() => {
-    if (searchParams?.get('registered') === '1') {
-      toast.success('Registration complete. Please sign in.');
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
-    if (state.status === 'failed') {
-      toast.error(state.error || 'Invalid credentials!');
-    } else if (state.status === 'invalid_data') {
-      toast.error(state.error || 'Failed validating your submission!');
-    } else if (state.status === 'success') {
-      setIsSuccessful(true);
-      void (async () => {
-        await queryClient.invalidateQueries({ queryKey: ['session'] });
-        await queryClient.refetchQueries({ queryKey: ['session'] });
-        router.replace(redirectTo);
-        router.refresh();
-      })();
-    }
-  }, [queryClient, state.status, state.error, redirectTo, router]);
-
-  const handleSubmit = (formData: FormData) => {
-    setEmail(formData.get('email') as string);
-    formAction(formData);
-  };
+  if (cilogonEnabled) {
+    redirect(`/api/auth/cilogon?redirectTo=${encodeURIComponent(redirectTo)}`);
+  }
 
   return (
-    <div className="flex h-dvh w-screen items-start pt-12 md:pt-0 md:items-center justify-center bg-background">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl flex flex-col gap-12">
-        <div className="flex flex-col items-center justify-center gap-2 px-4 text-center sm:px-16">
-          <h3 className="text-xl font-semibold dark:text-zinc-50">Sign In</h3>
-          <p className="text-sm text-gray-500 dark:text-zinc-400">
-            Use your email and password to sign in
-          </p>
-        </div>
-        <AuthForm action={handleSubmit} defaultEmail={email}>
-          <SubmitButton isSuccessful={isSuccessful}>Sign in</SubmitButton>
-          <p className="text-center text-sm text-gray-600 mt-4 dark:text-zinc-400">
-            {"Don't have an account? "}
-            <Link
-              href={`/register${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`}
-              className="font-semibold text-gray-800 hover:underline dark:text-zinc-200"
-            >
-              Sign up
-            </Link>
-            {' for free.'}
-          </p>
-        </AuthForm>
-      </div>
+    <div className="flex min-h-dvh items-start justify-center bg-background px-4 pt-12 md:items-center md:pt-0">
+      <AuthView
+        view="SIGN_IN"
+        callbackURL={redirectTo}
+        redirectTo={redirectTo}
+        socialLayout="vertical"
+      />
     </div>
   );
 }

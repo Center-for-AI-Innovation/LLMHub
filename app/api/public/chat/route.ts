@@ -15,7 +15,6 @@ import { systemPrompt } from '@/lib/ai/prompts';
 import {
   GUEST_CHAT_COUNT_COOKIE,
   GUEST_CHAT_MAX_MESSAGES,
-  getCookieValue,
   getGuestMessageCount,
 } from '@/lib/guest-chat';
 import {
@@ -28,21 +27,6 @@ export const maxDuration = 60;
 const ALWAYS_ON_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
 const ALWAYS_ON_BASE_URL = process.env.ALWAYS_ON_VLLM_BASE_URL;
 const ALWAYS_ON_API_KEY = process.env.ALWAYS_ON_VLLM_API_KEY;
-
-function isLikelyAuthenticatedRequest(cookieHeader: string | null): boolean {
-  if (!cookieHeader) return false;
-
-  const sessionCookieNames = [
-    'authjs.session-token',
-    '__Secure-authjs.session-token',
-    'next-auth.session-token',
-    '__Secure-next-auth.session-token',
-  ];
-
-  return sessionCookieNames.some(
-    (cookieName) => getCookieValue(cookieHeader, cookieName) !== null,
-  );
-}
 
 function generateFallbackTitleFromMessage(message: UIMessage): string {
   const rawContent = message.parts
@@ -88,7 +72,7 @@ export async function POST(request: Request) {
     const session = await auth();
     const userId = session?.user?.id;
     const cookieHeader = request.headers.get('cookie');
-    const isLoggedIn = Boolean(userId) || isLikelyAuthenticatedRequest(cookieHeader);
+    const isLoggedIn = Boolean(userId);
 
     const safeGuestMessageCount = getGuestMessageCount(cookieHeader);
 

@@ -1,8 +1,8 @@
 'use client';
 import Link from 'next/link';
-import type { User } from 'next-auth';
-import { signOut } from 'next-auth/react';
 
+import { useSignOut } from '@/hooks/use-auth';
+import type { AuthUser } from '@/lib/auth/types';
 import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 import {
   DropdownMenu,
@@ -17,7 +17,9 @@ import {
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
 
-export function SidebarUserNav({ user }: { user: User }) {
+export function SidebarUserNav({ user }: { user: AuthUser }) {
+  const signOut = useSignOut();
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -61,10 +63,8 @@ export function SidebarUserNav({ user }: { user: User }) {
               <button
                 type="button"
                 className="w-full cursor-pointer"
-                onClick={() => {
-                  signOut({
-                    redirectTo: '/',
-                  });
+                onClick={async () => {
+                  await signOut.mutateAsync();
                 }}
               >
                 Sign out

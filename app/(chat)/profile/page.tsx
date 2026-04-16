@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { auth } from '@/app/(auth)/auth';
+import { getLoginPath } from '@/lib/auth/paths';
 import { getUserApiKeyMetadata } from '@/lib/db/queries';
 import { ApiKeyPanel } from '@/components/user-profile/api-key-panel';
 
@@ -11,7 +12,7 @@ import { ApiKeyPanel } from '@/components/user-profile/api-key-panel';
 export default async function ProfilePage() {
   const session = await auth();
   if (!session?.user?.id) {
-    redirect('/login');
+    redirect(getLoginPath('/profile'));
   }
 
   // The API Key is not being passed to the client

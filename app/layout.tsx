@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Providers } from '@/components/providers';
+import { isCilogonEnabled } from '@/lib/auth/config';
 
 import './globals.css';
 import { ReactScan } from '@/components/react-scan';
@@ -39,6 +40,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cilogonEnabled = isCilogonEnabled();
+
   return (
     <html
       lang="en"
@@ -58,7 +61,7 @@ export default async function RootLayout({
       </head>
       <ReactScan />
       <body className="antialiased">
-        <Providers>
+        <Providers isCilogonEnabled={cilogonEnabled}>
           {children}
         </Providers>
       </body>

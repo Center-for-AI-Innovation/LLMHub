@@ -1,14 +1,14 @@
 import { z } from 'zod';
-import type { Session } from 'next-auth';
 import { type UIMessageStreamWriter, streamObject, tool } from 'ai';
 import { getDocumentById, saveSuggestions } from '@/lib/db/queries';
 import type { Suggestion } from '@/lib/db/schema';
 import { generateUUID } from '@/lib/utils';
 import { myProvider } from '../models';
 import { writeStreamDelta } from '@/lib/ai/ui-data';
+import type { AuthSession } from '@/lib/auth/types';
 
 interface RequestSuggestionsProps {
-  session: Session;
+  session: AuthSession;
   writer: UIMessageStreamWriter;
 }
 

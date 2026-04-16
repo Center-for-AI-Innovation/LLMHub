@@ -45,4 +45,4 @@
 
 ## Security & Configuration Tips
 - Never commit secrets; use `.env.local` and .env.example.
-- Keep local/mock APIs namespaced under test routes (for example `app/api/test/local/...`) and keep core deployment routes production-safe.
+- Keep local/mock APIs namespaced under test routes (for example `app/api/local/...`) and keep core deployment routes production-safe.

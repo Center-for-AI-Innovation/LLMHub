@@ -1,0 +1,4 @@
+interface:
+  display_name: "React Query Patterns"
+  short_description: "Standardize TanStack Query and API usage"
+  default_prompt: "Use $react-query-patterns to align TanStack Query hooks and Next.js API routes with the repo standard."

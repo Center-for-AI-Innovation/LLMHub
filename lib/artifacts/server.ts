@@ -6,7 +6,7 @@ import type { ArtifactKind } from '@/components/artifact';
 import type { UIMessageStreamWriter } from 'ai';
 import type { Document } from '../db/schema';
 import { saveDocument } from '../db/queries';
-import type { Session } from 'next-auth';
+import type { AuthSession } from '@/lib/auth/types';
 
 export interface SaveDocumentProps {
   id: string;
@@ -20,14 +20,14 @@ export interface CreateDocumentCallbackProps {
   id: string;
   title: string;
   writer: UIMessageStreamWriter;
-  session: Session;
+  session: AuthSession;
 }
 
 export interface UpdateDocumentCallbackProps {
   document: Document;
   description: string;
   writer: UIMessageStreamWriter;
-  session: Session;
+  session: AuthSession;
 }
 
 export interface DocumentHandler<T = ArtifactKind> {

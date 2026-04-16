@@ -1,4 +1,5 @@
 import type { InferSelectModel } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -12,17 +13,90 @@ import {
   date,
   integer,
   unique,
+  index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 export const user = pgTable('User', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
-  email: varchar('email', { length: 64 }).notNull(),
-  password: varchar('password', { length: 64 }),
+  name: text('name').notNull(),
+  email: varchar('email', { length: 255 }).notNull(),
+  emailVerified: boolean('emailVerified').notNull().default(false),
+  image: text('image'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(),
+  updatedAt: timestamp('updatedAt').notNull().defaultNow(),
   apiKeyHash: text('apiKeyHash'),
   apiKeyExpiresAt: timestamp('apiKeyExpiresAt'),
-});
+}, (table) => ({
+  emailUnique: unique().on(table.email),
+}));
 
 export type User = InferSelectModel<typeof user>;
+
+export const session = pgTable(
+  'Session',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    expiresAt: timestamp('expiresAt').notNull(),
+    token: text('token').notNull(),
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt').notNull(),
+    ipAddress: text('ipAddress'),
+    userAgent: text('userAgent'),
+    userId: uuid('userId')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    tokenUnique: unique().on(table.token),
+    userIdIndex: index('Session_userId_idx').on(table.userId),
+  }),
+);
+
+export type Session = InferSelectModel<typeof session>;
+
+export const account = pgTable(
+  'Account',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    accountId: text('accountId').notNull(),
+    providerId: text('providerId').notNull(),
+    userId: uuid('userId')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    accessToken: text('accessToken'),
+    refreshToken: text('refreshToken'),
+    idToken: text('idToken'),
+    accessTokenExpiresAt: timestamp('accessTokenExpiresAt'),
+    refreshTokenExpiresAt: timestamp('refreshTokenExpiresAt'),
+    scope: text('scope'),
+    password: text('password'),
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt').notNull(),
+  },
+  (table) => ({
+    userIdIndex: index('Account_userId_idx').on(table.userId),
+  }),
+);
+
+export type Account = InferSelectModel<typeof account>;
+
+export const verification = pgTable(
+  'Verification',
+  {
+    id: uuid('id').primaryKey().notNull().defaultRandom(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expiresAt').notNull(),
+    createdAt: timestamp('createdAt').notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  },
+  (table) => ({
+    identifierIndex: index('Verification_identifier_idx').on(table.identifier),
+  }),
+);
+
+export type Verification = InferSelectModel<typeof verification>;
 
 export const chat = pgTable('Chat', {
   id: uuid('id').primaryKey().notNull().defaultRandom(),
@@ -200,7 +274,9 @@ export const modelDeployment = pgTable('ModelDeployment',
     expiresAt: timestamp('expiresAt'),
   },
   (table) => ({
-    modelIdUserIdUnique: unique().on(table.modelId, table.userId), // Ensure each model is deployed only once per user
+    activeDeploymentUnique: uniqueIndex('ModelDeployment_active_modelId_userId_unique')
+    .on(table.modelId, table.userId)
+    .where(sql`status IN ('pending', 'launching', 'ready', 'running')`), // Ensure there is only active deployment per user 
   }),
 );
 

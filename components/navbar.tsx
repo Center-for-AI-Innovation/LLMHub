@@ -1,7 +1,6 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -12,17 +11,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useSession } from '@/hooks/use-chat';
-import { signOut } from 'next-auth/react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useSession, useSignOut } from '@/hooks/use-auth';
 import { BrandMark } from '@/components/brand-mark';
+import { getLoginPath } from '@/lib/auth/paths';
+import { navigateToLogin } from '@/lib/auth/navigation';
+import Link from 'next/link';
 import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 
 export function Navbar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const queryClient = useQueryClient();
   const { data: session } = useSession();
+  const signOut = useSignOut();
   const isChatPage = pathname.startsWith('/chat');
   const isCatalogPage = pathname === '/catalog' || pathname === '/dashboard';
 
@@ -96,11 +95,7 @@ export function Navbar() {
                         type="button"
                         className="w-full cursor-pointer"
                         onClick={async () => {
-                          await signOut({ redirect: false });
-                          queryClient.setQueryData(['session'], { user: null });
-                          await queryClient.invalidateQueries({ queryKey: ['session'] });
-                          router.push('/');
-                          router.refresh();
+                          await signOut.mutateAsync();
                         }}
                       >
                         Logout
@@ -109,10 +104,12 @@ export function Navbar() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/login?redirectTo=${encodeURIComponent(pathname)}`}>
-                    Login
-                  </Link>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => navigateToLogin(getLoginPath(pathname))}
+                >
+                  Login
                 </Button>
               )
             ) : null}

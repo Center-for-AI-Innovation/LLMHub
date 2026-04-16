@@ -1,18 +1,19 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { Loader2 } from 'lucide-react';
-import { useSession } from '@/hooks/use-chat';
+import { useSession } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useChatModels } from '@/hooks/use-models';
 import { consumePreferredChatModel } from '@/lib/chat-navigation';
 import { useNewChat } from '@/hooks/use-new-chat';
+import { getLoginPath } from '@/lib/auth/paths';
+import { navigateToLogin } from '@/lib/auth/navigation';
 
 export default function ChatPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const query = searchParams?.get('query');
   const { setSelectedModel } = useModelSelector();
@@ -24,13 +25,11 @@ export default function ChatPage() {
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
-  const { data: session, isLoading } = useSession({
-    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-  });
+  const { data: session, isLoading } = useSession();
 
   const handleGuestLimitReached = () => {
     toast.error('Guest chat limit reached. Please sign in to continue.');
-    router.push(`/login?redirectTo=${encodeURIComponent(currentPath)}`);
+    navigateToLogin(getLoginPath(currentPath));
   };
 
   useEffect(() => {
