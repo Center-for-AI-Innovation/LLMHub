@@ -1,1 +1,0 @@
-ALTER TABLE "Chat" ADD COLUMN "isBrowserChat" boolean DEFAULT false NOT NULL;

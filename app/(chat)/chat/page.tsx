@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { Loader2 } from 'lucide-react';
 import { useSession } from '@/hooks/use-auth';
@@ -14,7 +14,6 @@ import { getLoginPath } from '@/lib/auth/paths';
 import { navigateToLogin } from '@/lib/auth/navigation';
 
 export default function ChatPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const query = searchParams?.get('query');
   const { setSelectedModel } = useModelSelector();

@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -20,7 +20,6 @@ import { UserInitialsAvatar } from '@/components/user-initials-avatar';
 
 export function Navbar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { data: session } = useSession();
   const signOut = useSignOut();
   const isChatPage = pathname.startsWith('/chat');
@@ -97,8 +96,6 @@ export function Navbar() {
                         className="w-full cursor-pointer"
                         onClick={async () => {
                           await signOut.mutateAsync();
-                          router.push('/');
-                          router.refresh();
                         }}
                       >
                         Logout

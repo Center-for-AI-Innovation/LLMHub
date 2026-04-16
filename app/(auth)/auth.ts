@@ -96,6 +96,7 @@ export const betterAuthInstance = betterAuth({
       },
     },
   },
+  // Disable email and password authentication if CILogon is enabled
   emailAndPassword: {
     enabled: !authConfig.isCilogonEnabled,
   },

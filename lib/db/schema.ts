@@ -1,4 +1,5 @@
 import type { InferSelectModel } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -13,6 +14,7 @@ import {
   integer,
   unique,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 export const user = pgTable('User', {
@@ -272,7 +274,9 @@ export const modelDeployment = pgTable('ModelDeployment',
     expiresAt: timestamp('expiresAt'),
   },
   (table) => ({
-    modelIdUserIdUnique: unique().on(table.modelId, table.userId), // Ensure each model is deployed only once per user
+    activeDeploymentUnique: uniqueIndex('ModelDeployment_active_modelId_userId_unique')
+    .on(table.modelId, table.userId)
+    .where(sql`status IN ('pending', 'launching', 'ready', 'running')`), // Ensure there is only active deployment per user 
   }),
 );
 
