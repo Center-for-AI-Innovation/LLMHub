@@ -35,5 +35,5 @@ default_args:
   bind: "/projects/bfmz/rohan13/huggingface:/root/.cache/huggingface,/projects/bfmz/rohan13/torch_cache:/root/.cache/torch_inductor"
   venv: "apptainer"
   data_type: "auto"
-  log_dir: "/projects/bfmz/rohan13/githubs/llmhub/.vec-inf-logs"
+  log_dir: "/projects/bfmz/svcdeltallmhub/Delta-deployment/.vec-inf-logs" # TODO: Change to log directory based on the environment/user
   model_weights_parent_dir: "/model-weights"
