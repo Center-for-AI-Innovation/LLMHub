@@ -1,5 +1,8 @@
 paths:
   image_path: "/u/rohan13/githubs/llm-inference/containers/vllm.sif"
+  vllm_image_path: "/u/rohan13/githubs/llm-inference/containers/vllm.sif"
+  sglang_image_path: "/u/rohan13/githubs/llm-inference/containers/sglang.sif"
+  cached_model_config_path: "/u/rohan13/githubs/llm-inference/cached_model_config.yaml"
 
 containerization:
   module_load_cmd: ""

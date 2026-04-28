@@ -1,5 +1,9 @@
 paths:
   image_path: "/projects/bfmz/rohan13/containers/vllm.sif"
+  vllm_image_path: "/projects/bfmz/rohan13/containers/vllm.sif"
+  # These filepaths are placeholders, but are kept here as it is a requirement for the vec-inf library
+  sglang_image_path: "/projects/bfmz/rohan13/containers/sglang.sif"
+  cached_model_config_path: "/projects/bfmz/rohan13/cached_model_config.yaml"
 
 containerization:
   module_load_cmd: ""

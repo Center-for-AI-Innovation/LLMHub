@@ -22,7 +22,7 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "tenacity>=8.2.3",
     "httpx>=0.25.0",
-    "vec-inf @ git+https://github.com/Center-for-AI-Innovation/llm-inference.git@hf_download",
+    "vec-inf==0.9.0",
 ]
 
 [project.optional-dependencies]
