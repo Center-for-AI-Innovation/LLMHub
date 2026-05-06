@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Button } from '@/components/ui/button';
 import { PublicApiDialog } from '@/components/public-api-dialog';
+import { ShareDeploymentDialog } from '@/components/share-deployment-dialog';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import {
@@ -8,6 +9,7 @@ import {
   Calendar,
   Square,
   ArrowRight,
+  Share2,
 } from 'lucide-react';
 import { setPreferredChatModel } from '@/lib/chat-navigation';
 import type { DeploymentStatusInfo } from '@/lib/models/deployment-status';
@@ -183,7 +185,7 @@ const ActiveModelCard = memo(({
         </Button>
       </div>
 
-      <div className="mt-3">
+      <div className="mt-3 flex w-full gap-3">
         <PublicApiDialog
           deployments={apiDeployments}
           defaultDeploymentId={isDeploymentApiReady ? deployment?.id : undefined}
@@ -191,11 +193,28 @@ const ActiveModelCard = memo(({
             <Button
               type="button"
               variant="outline"
-              className="w-full bg-white/50 dark:bg-white/5 border-0"
+              className="w-1/2 bg-white/50 dark:bg-white/5 border-0"
               onClick={(event) => event.stopPropagation()}
               disabled={!isDeploymentApiReady}
             >
               API
+            </Button>
+          }
+        />
+        <ShareDeploymentDialog
+          deploymentId={deployment?.id}
+          modelName={deployment?.modelName || displayModelName}
+          disabled={!deployment?.id}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              className="w-1/2 bg-white/50 dark:bg-white/5 border-0"
+              onClick={(event) => event.stopPropagation()}
+              disabled={!deployment?.id}
+            >
+              <Share2 className="mr-2 size-4" />
+              Share
             </Button>
           }
         />
