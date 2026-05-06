@@ -1,4 +1,5 @@
 import { auth } from '@/app/(auth)/auth';
+import { getDeploymentAccessForUser } from '../../deployment-access-control';
 import { type NextRequest, NextResponse } from 'next/server';
 
 // Backend API URL
@@ -21,11 +22,24 @@ export async function GET(
     }
 
     const { deploymentId } = await params;
-
     if (!deploymentId) {
       return NextResponse.json(
         { error: 'Deployment ID is required' },
         { status: 400 },
+      );
+    }
+
+    const access = await getDeploymentAccessForUser({ deploymentId, userId });
+    if (!access.exists) {
+      return NextResponse.json(
+        { error: 'Deployment not found' },
+        { status: 404 },
+      );
+    }
+    if (!access.canRead) {
+      return NextResponse.json(
+        { error: 'You do not have access to these deployment logs.' },
+        { status: 403 },
       );
     }
 
