@@ -52,6 +52,7 @@ const ActiveModelCard = memo(({
   handleStopModel,
   openLogsPanel,
   stoppingDeploymentId,
+  currentUserId,
 }: { 
   model: ModelInfo, 
   getModelIcon: (model: ModelInfo) => any, 
@@ -60,7 +61,8 @@ const ActiveModelCard = memo(({
   getStatusInfo: (status: string) => DeploymentStatusInfo,
   handleStopModel: (deploymentId: string) => Promise<void>,
   openLogsPanel: (deploymentId: string, modelName: string) => void,
-  stoppingDeploymentId: string | null
+  stoppingDeploymentId: string | null,
+  currentUserId?: string,
 }) => {
   const Icon = getModelIcon(model);
   const gradient = getModelGradient(model);
@@ -73,6 +75,9 @@ const ActiveModelCard = memo(({
   const apiDeployments = deployment && isDeploymentApiReady ? [deployment] : [];
   const isStoppingCurrentDeployment = Boolean(
     deployment?.id && stoppingDeploymentId === deployment.id,
+  );
+  const isDeploymentOwner = Boolean(
+    deployment?.id && currentUserId && deployment.userId === currentUserId,
   );
   const displayModelName =
     ((model as unknown as { name?: string }).name ??
@@ -201,23 +206,25 @@ const ActiveModelCard = memo(({
             </Button>
           }
         />
-        <ShareDeploymentDialog
-          deploymentId={deployment?.id}
-          modelName={deployment?.modelName || displayModelName}
-          disabled={!deployment?.id}
-          trigger={
-            <Button
-              type="button"
-              variant="outline"
-              className="w-1/2 bg-white/50 dark:bg-white/5 border-0"
-              onClick={(event) => event.stopPropagation()}
-              disabled={!deployment?.id}
-            >
-              <Share2 className="mr-2 size-4" />
-              Share
-            </Button>
-          }
-        />
+        {isDeploymentOwner && (
+          <ShareDeploymentDialog
+            deploymentId={deployment?.id}
+            modelName={deployment?.modelName || displayModelName}
+            disabled={!deployment?.id}
+            trigger={
+              <Button
+                type="button"
+                variant="outline"
+                className="w-1/2 bg-white/50 dark:bg-white/5 border-0"
+                onClick={(event) => event.stopPropagation()}
+                disabled={!deployment?.id}
+              >
+                <Share2 className="mr-2 size-4" />
+                Share
+              </Button>
+            }
+          />
+        )}
       </div>
 
       <p className="mt-3 text-center text-xs text-muted-foreground">
