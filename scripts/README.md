@@ -71,7 +71,6 @@ The scripts use the following environment variables:
 
 - `MODEL_CONFIG_PATH`: Path to models.yaml (set in .env)
 - `SLURM_ACCOUNT`: Your SLURM account
-- `SLURM_LOG_DIR`: Directory for SLURM logs
 
 ## Troubleshooting
 

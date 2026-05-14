@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from uuid import UUID
 import concurrent.futures
@@ -14,10 +15,19 @@ from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentU
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.schemas.available_model import AvailableModelCreate
 from app.utils.llm_inference import LLMInferenceClient
+from app.utils.infrastructure import get_vec_inf_log_base_dir
 from app.config.logging import get_logger
 from app.services.resource_service import ResourceService
 
 logger = get_logger("model_service")
+
+
+def _infer_model_family_from_model_name(model_name: str) -> str:
+    """Legacy heuristic when ``models.yaml`` lookup is unavailable."""
+    job = model_name.split("/")[-1] if "/" in model_name else model_name
+    if "-" in job:
+        return job.split("-", 1)[0]
+    return job
 
 TRANSIENT_STATUS_LOOKUP_WINDOW = timedelta(minutes=50)
 SLURM_FAILED_JOB_STATES = {
@@ -619,9 +629,6 @@ class ModelService:
         Returns:
             Dictionary with success status, logs, and deployment info
         """
-        import os
-        from pathlib import Path
-        
         db_deployment = self.get_deployment(db, deployment_id)
         if not db_deployment:
             return {"success": False, "error": "Deployment not found"}
@@ -630,40 +637,36 @@ class ModelService:
         refreshed = self.update_deployment_status(db=db, deployment_id=deployment_id)
         if refreshed:
             db_deployment = refreshed
-        
-        # Get the log directory from the llm_client
-        log_dir = self.llm_client.slurm_log_dir
-        if not log_dir:
+
+        log_base = get_vec_inf_log_base_dir()
+        if not log_base:
             return {
-                "success": False, 
-                "error": "Slurm log directory not configured",
+                "success": False,
+                "error": "Vec-inf log directory not configured",
                 "deployment": {
                     "id": str(db_deployment.id),
                     "status": db_deployment.status,
                     "modelName": db_deployment.modelName,
-                }
+                },
             }
-        
-        # Parse model name to get family and job name
-        # Model name format: "Qwen/Qwen3-8B" -> family="Qwen3", job_name="Qwen3-8B"
+
         model_name = db_deployment.modelName
         slurm_job_id = db_deployment.slurmJobId
-        
-        # Extract model family (second-level directory uses the model variant/family)
-        # For "Qwen/Qwen3-8B" the family folder is "Qwen3" (not "Qwen")
-        if "/" in model_name:
-            parts = model_name.split("/")
-            # The job name is the last part (e.g., "Qwen3-8B")
-            job_name = parts[-1]
-            # The family folder seems to be derived from the job name prefix
-            # e.g., "Qwen3-8B" -> "Qwen3"
-            model_family = job_name.split("-", 1)[0] if "-" in job_name else job_name
+
+        # vec-inf layout: ModelLauncher uses models.yaml ``model_family`` and registry ``model_name``
+        # (see vec_inf.client._helper.ModelLauncher._setup_log_files).
+        cfg = self.llm_client.get_model_details(model_name)
+        if cfg.get("success") and cfg.get("details") is not None:
+            det = cfg["details"]
+            mf = getattr(det, "model_family", None)
+            model_family = str(mf) if mf else _infer_model_family_from_model_name(model_name)
         else:
-            job_name = model_name
-            model_family = job_name.split("-", 1)[0] if "-" in job_name else job_name
-        
-        # Log file structure: {log_dir}/{family}/{job_name}.{job_id}/{job_name}.{job_id}.{ext}
-        job_dir = Path(log_dir) / model_family / f"{job_name}.{slurm_job_id}"
+            model_family = _infer_model_family_from_model_name(model_name)
+
+        job_name = model_name
+
+        # Log file structure: {log_dir}/{model_family}/{model_name}.{job_id}/...
+        job_dir = Path(log_base) / model_family / f"{job_name}.{slurm_job_id}"
         
         log_files = {
             "err": job_dir / f"{job_name}.{slurm_job_id}.err",
