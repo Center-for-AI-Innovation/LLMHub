@@ -1,5 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
+import { type ShareDeploymentResponse } from '@/lib/models/deployment-sharing';
+
+
 const USE_LOCAL_TEST_DEPLOYMENTS =
   process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true';
 const DEPLOYMENTS_COLLECTION_ENDPOINT = USE_LOCAL_TEST_DEPLOYMENTS
@@ -399,6 +402,37 @@ export function useDeploymentLogs(deploymentId: string | null, enabled = true) {
     refetchInterval: 2000, // Poll every 2 seconds for real-time logs
     staleTime: 1000,
     gcTime: 30000,
+  });
+}
+
+
+export function useShareDeployment() {
+  return useMutation({
+    mutationFn: async (params: {
+      deploymentId: string;
+      emails: string[];
+    }): Promise<ShareDeploymentResponse> => {
+      const res = await fetch(
+        `/api/models/deployments/${encodeURIComponent(
+          params.deploymentId,
+        )}/share`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: params.emails }),
+        },
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(
+          errorData.error ||
+            `Failed to share deployment (${res.status})`,
+        );
+      }
+
+      return res.json();
+    },
   });
 }
 

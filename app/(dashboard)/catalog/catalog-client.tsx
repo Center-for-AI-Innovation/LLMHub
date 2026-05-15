@@ -25,6 +25,7 @@ import {
   type ModelInfo,
   type ModelDeployment,
 } from '@/hooks/use-models';
+import { useSession } from '@/hooks/use-auth';
 
 import { useDebounce } from '@/hooks/use-debounce';
 import {
@@ -95,6 +96,8 @@ export function CatalogClient() {
     error: deploymentsError,
   } = useModelDeployments();
   const { data: chatModelOptions = [] } = useChatModels();
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id;
 
   const { mutate: refreshModels, isPending: isRefreshing } = useRefreshModels();
 
@@ -379,6 +382,7 @@ export function CatalogClient() {
                       handleStopModel={handleStopModel}
                       openLogsPanel={handleOpenLogsPanel}
                       stoppingDeploymentId={stoppingDeploymentId}
+                      currentUserId={currentUserId}
                     />
                   ))}
                 </div>

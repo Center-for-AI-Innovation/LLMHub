@@ -16,6 +16,7 @@ import {
 } from '@/lib/auth/config';
 import { db } from '@/lib/db';
 import { account, session, user, verification } from '@/lib/db/schema';
+import { claimPendingDeploymentInvitesForUser } from '@/lib/db/queries';
 import type { AuthSession, AuthUser } from '@/lib/auth/types';
 
 function normalizeUserName(email: string) {
@@ -116,6 +117,35 @@ export const betterAuthInstance = betterAuth({
               name: normalizeUserName(email),
             },
           };
+        },
+        after: async (createdUser) => {
+          // After a new user is created, convert any pending deployment
+          // invites for their email into AuthorizedUsers rows
+          try {
+            const email =
+              typeof createdUser?.email === 'string' ? createdUser.email : '';
+            const userId =
+              typeof createdUser?.id === 'string' ? createdUser.id : '';
+            if (!email || !userId) {
+              return;
+            }
+            const claimed = await claimPendingDeploymentInvitesForUser({
+              userId,
+              email,
+            });
+            if (claimed > 0) {
+              console.info(
+                `Claimed ${claimed} pending deployment invite${
+                  claimed === 1 ? '' : 's'
+                } for new user ${email}`,
+              );
+            }
+          } catch (error) {
+            console.error(
+              'Failed to claim pending deployment invites for new user',
+              error,
+            );
+          }
         },
       },
     },

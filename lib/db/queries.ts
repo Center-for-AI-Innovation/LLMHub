@@ -18,6 +18,8 @@ import {
   type ModelDeployment,
   authorizedUsers,
   type AuthorizedUsers,
+  pendingDeploymentInvite,
+  type PendingDeploymentInvite,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
 
@@ -716,6 +718,37 @@ export async function getAuthorizedUsersByDeploymentId(
 }
 
 /**
+ * Return a specific access row for a given deployment/user pair.
+ */
+export async function getAuthorizedUserByDeploymentIdAndUserId({
+  deploymentId,
+  userId,
+}: {
+  deploymentId: string;
+  userId: string;
+}): Promise<AuthorizedUsers | null> {
+  try {
+    const [row] = await db
+      .select()
+      .from(authorizedUsers)
+      .where(
+        and(
+          eq(authorizedUsers.deploymentId, deploymentId),
+          eq(authorizedUsers.userId, userId),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  } catch (error) {
+    console.error(
+      'Failed to get authorized user by deployment id and user id from database',
+      error,
+    );
+    throw error;
+  }
+}
+
+/**
  * Return all ModelDeployment rows that a given user has any access to
  * (either as owner or as a shared user).
  */
@@ -771,3 +804,151 @@ export async function getActiveAccessibleDeploymentByUserId(
     throw error;
   }
 }
+
+// ==========================================
+// Pending Deployment Invite Helpers
+// ==========================================
+
+/**
+ * Insert a pending invite for an email that does not yet have a User row.
+ * Idempotent on (deploymentId, email): if a row already exists, returns it.
+ */
+export async function upsertPendingDeploymentInvite({
+  deploymentId,
+  email,
+  invitedBy,
+  permission = 'user',
+}: {
+  deploymentId: string;
+  email: string;
+  invitedBy: string;
+  permission?: 'owner' | 'user';
+}): Promise<{ row: PendingDeploymentInvite; alreadyExisted: boolean }> {
+  const trimmedEmail = email.trim();
+
+  try {
+    const [row] = await db
+      .insert(pendingDeploymentInvite)
+      .values({
+        deploymentId,
+        email: trimmedEmail,
+        permission,
+        invitedBy,
+      })
+      .returning();
+
+    return { row, alreadyExisted: false };
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined;
+
+    if (errorCode === '23505') {
+      const [existing] = await db
+        .select()
+        .from(pendingDeploymentInvite)
+        .where(
+          and(
+            eq(pendingDeploymentInvite.deploymentId, deploymentId),
+            eq(pendingDeploymentInvite.email, trimmedEmail),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        return { row: existing, alreadyExisted: true };
+      }
+    }
+
+    console.error('Failed to upsert pending deployment invite', error);
+    throw error;
+  }
+}
+
+/**
+ * Return all pending invites attached to a deployment.
+ */
+export async function getPendingDeploymentInvitesByDeploymentId(
+  deploymentId: string,
+): Promise<PendingDeploymentInvite[]> {
+  try {
+    return await db
+      .select()
+      .from(pendingDeploymentInvite)
+      .where(eq(pendingDeploymentInvite.deploymentId, deploymentId));
+  } catch (error) {
+    console.error(
+      'Failed to get pending deployment invites by deployment id',
+      error,
+    );
+    throw error;
+  }
+}
+
+/**
+ * Convert any pending invites for the given email into AuthorizedUsers
+ * rows for the given user. Returns the number of invites that were claimed.
+ *
+ * Safe to call multiple times — invites are deleted as they're claimed and
+ * unique-constraint violations from existing AuthorizedUsers rows are ignored.
+ */
+export async function claimPendingDeploymentInvitesForUser({
+  userId,
+  email,
+}: {
+  userId: string;
+  email: string;
+}): Promise<number> {
+  const trimmedEmail = email.trim();
+  if (!trimmedEmail) {
+    return 0;
+  }
+
+  try {
+    const invites = await db
+      .select()
+      .from(pendingDeploymentInvite)
+      .where(eq(pendingDeploymentInvite.email, trimmedEmail));
+
+    let claimed = 0;
+    for (const invite of invites) {
+      try {
+        await db
+          .insert(authorizedUsers)
+          .values({
+            deploymentId: invite.deploymentId,
+            userId,
+            permission: invite.permission,
+          });
+        claimed += 1;
+      } catch (error) {
+        const errorCode =
+          typeof error === 'object' && error !== null && 'code' in error
+            ? (error as { code?: string }).code
+            : undefined;
+        // 23505 = unique violation: user already has access. Treat as claimed.
+        if (errorCode === '23505') {
+          claimed += 1;
+        } else {
+          console.error('Failed to convert pending invite', error);
+          continue;
+        }
+      }
+
+      try {
+        await db
+          .delete(pendingDeploymentInvite)
+          .where(eq(pendingDeploymentInvite.id, invite.id));
+      } catch (error) {
+        console.error('Failed to remove claimed pending invite', error);
+      }
+    }
+
+    return claimed;
+  } catch (error) {
+    console.error('Failed to claim pending deployment invites', error);
+    throw error;
+  }
+}
+
+

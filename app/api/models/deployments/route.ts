@@ -1,7 +1,19 @@
 import { auth } from '@/app/(auth)/auth';
+import { getAccessibleDeploymentsByUserId } from '@/lib/db/queries';
 import { NextResponse } from 'next/server';
 
-const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
+function parseStatusFilter(rawStatus: string | null): Set<string> {
+  if (!rawStatus) {
+    return new Set();
+  }
+
+  return new Set(
+    rawStatus
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
 
 export async function GET(request: Request) {
   try {
@@ -10,48 +22,28 @@ export async function GET(request: Request) {
       | { id?: string; email?: string | null }
       | undefined;
     const userId = sessionUser?.id;
-    const userEmail = sessionUser?.email ?? undefined;
 
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const url = new URL(request.url);
-    const status = url.searchParams.get('status') || undefined;
+    const statusFilter = parseStatusFilter(url.searchParams.get('status'));
+    const deployments = await getAccessibleDeploymentsByUserId(userId);
 
-    const backendUrl = new URL(`${BACKEND_API_URL}/api/models/deployments`);
-    backendUrl.searchParams.set('userId', userId);
-    if (status) backendUrl.searchParams.set('status', status);
-
-    const headers = new Headers();
-    headers.set('X-User-Id', userId);
-    if (userEmail) headers.set('X-User-Email', userEmail);
-
-    const response = await fetch(backendUrl.toString(), {
-      method: 'GET',
-      headers,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      return NextResponse.json(
-        {
-          error:
-            errorText ||
-            `Backend API returned ${response.status}: ${response.statusText}`,
-        },
-        { status: response.status },
-      );
+    if (statusFilter.size === 0) {
+      return NextResponse.json(deployments);
     }
 
-    const data = await response.json();
-    return NextResponse.json(Array.isArray(data) ? data : []);
+    const filteredDeployments = deployments.filter((deployment) =>
+      statusFilter.has(deployment.status.toLowerCase()),
+    );
+    return NextResponse.json(filteredDeployments);
   } catch (error) {
     console.error('Error fetching model deployments:', error);
     return NextResponse.json(
       {
-        error:
-          'Failed to fetch deployments. Backend service may be unavailable.',
+        error: 'Failed to fetch deployments.',
       },
       { status: 503 },
     );

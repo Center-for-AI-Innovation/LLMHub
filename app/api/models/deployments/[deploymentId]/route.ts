@@ -1,4 +1,5 @@
 import { auth } from '@/app/(auth)/auth';
+import { getDeploymentAccessForUser } from '../deployment-access-control';
 import { NextResponse } from 'next/server';
 
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
@@ -20,6 +21,18 @@ export async function GET(
     }
 
     const { deploymentId } = await params;
+    const access = await getDeploymentAccessForUser({ deploymentId, userId });
+
+    if (!access.exists) {
+      return NextResponse.json({ error: 'Deployment not found' }, { status: 404 });
+    }
+
+    if (!access.canRead) {
+      return NextResponse.json(
+        { error: 'You do not have access to this deployment.' },
+        { status: 403 },
+      );
+    }
 
     const headers = new Headers();
     headers.set('X-User-Id', userId);
@@ -76,6 +89,18 @@ export async function DELETE(
     }
 
     const { deploymentId } = await params;
+    const access = await getDeploymentAccessForUser({ deploymentId, userId });
+
+    if (!access.exists) {
+      return NextResponse.json({ error: 'Deployment not found' }, { status: 404 });
+    }
+
+    if (!access.isOwner) {
+      return NextResponse.json(
+        { error: 'Only the deployment owner can stop this deployment.' },
+        { status: 403 },
+      );
+    }
 
     const headers = new Headers();
     headers.set('X-User-Id', userId);
