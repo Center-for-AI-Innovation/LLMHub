@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.model_deployment import ModelDeployment
 from app.repositories.session import SessionLocal
+from app.services.email_service import EmailService
 from app.services.model_service import ModelService
 from app.config.config import settings
 
@@ -23,6 +24,7 @@ class BackgroundService:
     def __init__(self):
         """Initialize the background service."""
         self.model_service = ModelService()
+        self.email_service = EmailService()
         self.running = False
         self.sync_interval = settings.SYNC_INTERVAL
         self.expiry_check_interval = settings.EXPIRY_CHECK_INTERVAL
@@ -143,7 +145,21 @@ class BackgroundService:
             
                 for deployment in active_deployments:
                     try:
-                        self.model_service.update_deployment_status(db, deployment.id)
+                        updated = self.model_service.update_deployment_status(db, deployment.id)
+                        if not updated:
+                            await asyncio.sleep(0.5)
+                            continue
+
+                        if updated.notifiedAt is None:
+                            if updated.status == "ready":
+                                self.email_service.notify_deployment_ready(db, updated)
+                                updated.notifiedAt = datetime.utcnow()
+                                db.commit()
+                            elif updated.status == "failed":
+                                self.email_service.notify_deployment_failed(db, updated)
+                                updated.notifiedAt = datetime.utcnow()
+                                db.commit()
+
                         # Add a small delay between updates to avoid overwhelming the system
                         await asyncio.sleep(0.5)
                     except Exception as e:

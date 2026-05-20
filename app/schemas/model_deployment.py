@@ -66,6 +66,7 @@ class ModelDeploymentInDB(ORMBaseModel):
     errorMessage: Optional[str] = None
     resourceAllocation: Optional[Dict[str, Any]] = None
     expiresAt: Optional[datetime] = None
+    notifiedAt: Optional[datetime] = None
 
 
 class ModelDeploymentResponse(ModelDeploymentInDB):
