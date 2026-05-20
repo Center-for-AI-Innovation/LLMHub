@@ -150,6 +150,7 @@ class BackgroundService:
                             await asyncio.sleep(0.5)
                             continue
 
+                        # TODO: Need to handle sending an email if a launched deployment failed. 
                         if updated.notifiedAt is None:
                             if updated.status == "ready":
                                 self.email_service.notify_deployment_ready(db, updated)
