@@ -19,8 +19,8 @@ import type {
 } from '@/hooks/use-models';
 
 // Stable class names for buttons
-const scheduleButtonClass = "w-1/2 bg-white/50 dark:bg-white/5 border-0";
-const actionButtonClass = "w-1/2 group";
+const halfWidthOutlineButtonClass = "w-1/2 bg-white/50 dark:bg-white/5 border-0";
+const fullWidthOutlineButtonClass = "w-full bg-white/50 dark:bg-white/5 border-0";
 
 function formatLocalDateTime(value: string) {
   const normalizedValue = /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value)
@@ -83,6 +83,10 @@ const ActiveModelCard = memo(({
     ((model as unknown as { name?: string }).name ??
       model.modelName ??
       model.id);
+  const outlineButtonClass = isDeploymentOwner
+    ? halfWidthOutlineButtonClass
+    : fullWidthOutlineButtonClass;
+  const chatButtonClass = isDeploymentOwner ? "w-1/2 group" : "w-full group";
   
   return (
     <div 
@@ -152,27 +156,29 @@ const ActiveModelCard = memo(({
       </div>
 
       <div className="mt-auto flex justify-between w-full gap-3">
-        <Button
-          variant="outline"
-          className={scheduleButtonClass}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (deployment?.id) {
-              void handleStopModel(deployment.id);
-            }
-          }}
-          disabled={Boolean(stoppingDeploymentId) || !deployment?.id}
-        >
-          {isStoppingCurrentDeployment ? (
-            <Loader2 className="mr-2 size-4 animate-spin" />
-          ) : (
-            <Square className="mr-2 size-4" />
-          )}
-          Stop
-        </Button>
+        {isDeploymentOwner && (
+          <Button
+            variant="outline"
+            className={halfWidthOutlineButtonClass}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (deployment?.id) {
+                void handleStopModel(deployment.id);
+              }
+            }}
+            disabled={Boolean(stoppingDeploymentId) || !deployment?.id}
+          >
+            {isStoppingCurrentDeployment ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <Square className="mr-2 size-4" />
+            )}
+            Stop
+          </Button>
+        )}
         <Button 
           asChild 
-          className={actionButtonClass}
+          className={chatButtonClass}
         >
           <Link
             href={`/chat?model=${model.id}`}
@@ -198,7 +204,7 @@ const ActiveModelCard = memo(({
             <Button
               type="button"
               variant="outline"
-              className="w-1/2 bg-white/50 dark:bg-white/5 border-0"
+              className={outlineButtonClass}
               onClick={(event) => event.stopPropagation()}
               disabled={!isDeploymentApiReady}
             >
@@ -215,7 +221,7 @@ const ActiveModelCard = memo(({
               <Button
                 type="button"
                 variant="outline"
-                className="w-1/2 bg-white/50 dark:bg-white/5 border-0"
+                className={halfWidthOutlineButtonClass}
                 onClick={(event) => event.stopPropagation()}
                 disabled={!deployment?.id}
               >
