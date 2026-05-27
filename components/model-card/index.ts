@@ -1,4 +1,5 @@
 export { ActiveModelCard } from './active-model-card';
 export { VirtualizedModelCard } from './virtualized-model-card';
 export { VirtualizedModelGrid } from './virtualized-model-grid';
-export { ModelContext } from './model-context'; 
+export { ModelContext } from './model-context';
+export { LaunchModelDialog } from './launch-model-dialog';

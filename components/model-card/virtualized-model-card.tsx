@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Loader2, Calendar, ArrowRight } from 'lucide-react';
 import { ModelContext } from './model-context';
+import { LaunchModelDialog } from './launch-model-dialog';
 import * as React from 'react';
 import { modelUtilFunctions } from '@/lib/models/utils';
 import { useToast } from '@/components/ui/use-toast';
@@ -16,18 +17,19 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
   const { models, isLoadingModels, launchModel, launchingModelId } =
     React.useContext(ModelContext);
   const { toast } = useToast();
+  const [isDialogOpen, setIsDialogOpen] = React.useState(false);
 
   // Find model data in context
   const model = models.find((m) => m.id === modelId);
 
   const isModelLaunching = launchingModelId === modelId;
 
-  const handleLaunch = async () => {
+  const handleLaunch = async (time: string) => {
     if (!model) return;
 
     try {
-      // Pass modelId, huggingfaceId, and family for proper HF model path construction
-      await launchModel(model.id, model.huggingfaceId, model.family);
+      await launchModel(model.id, model.huggingfaceId, model.family, time);
+      setIsDialogOpen(false);
     } catch (error) {
       console.error('Failed to launch model:', error);
     }
@@ -109,7 +111,7 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
         </Button>
         <Button
           className={actionButtonClass}
-          onClick={handleLaunch}
+          onClick={() => setIsDialogOpen(true)}
           disabled={Boolean(launchingModelId)}
         >
           {isModelLaunching ? (
@@ -125,6 +127,14 @@ const VirtualizedModelCard = memo(({ modelId }: { modelId: string }) => {
           )}
         </Button>
       </div>
+
+      <LaunchModelDialog
+        open={isDialogOpen}
+        onOpenChange={setIsDialogOpen}
+        modelName={displayModelName}
+        isLaunching={isModelLaunching}
+        onLaunch={handleLaunch}
+      />
     </div>
   );
 });

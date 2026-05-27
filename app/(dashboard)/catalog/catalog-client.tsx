@@ -143,7 +143,8 @@ export function CatalogClient() {
   async function stableLaunchModel(
     modelId: string,
     huggingfaceId?: string,
-    family?: string,
+    family?: string,  
+    time?: string,
   ) {
     setLaunchingModelId(modelId);
     try {
@@ -151,6 +152,7 @@ export function CatalogClient() {
         modelId,
         huggingfaceId,
         family,
+        time,
       });
       setLaunchError(null);
       // If launch succeeds, open the logs panel with the new deployment

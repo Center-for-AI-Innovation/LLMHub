@@ -282,6 +282,7 @@ export function useLaunchModel() {
       modelId: string;
       huggingfaceId?: string;
       family?: string;
+      time?: string;
     }): Promise<ModelDeployment> => {
       // Construct HuggingFace model ID if not provided
       // Most HF model paths follow pattern: Organization/ModelName
@@ -321,6 +322,7 @@ export function useLaunchModel() {
         body: JSON.stringify({
           modelId: params.modelId,
           hf_model: hfModel || params.modelId, // Use constructed HF model ID
+          time: params.time,
         }),
       });
 
