@@ -28,4 +28,3 @@ class ModelDeployment(Base):
     errorMessage = Column(String, nullable=True)
     resourceAllocation = Column(JSON, nullable=True)
     expiresAt = Column("expiresAt", DateTime, nullable=True)
-    notifiedAt = Column("notifiedAt", DateTime, nullable=True)

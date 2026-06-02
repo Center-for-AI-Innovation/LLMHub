@@ -8,6 +8,8 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
+from app.models.authorized_users import AuthorizedUsers
+from app.models.email_notification import EmailNotification
 from app.models.model_deployment import ModelDeployment
 from app.repositories.session import SessionLocal
 from app.services.email_service import EmailService
@@ -150,16 +152,45 @@ class BackgroundService:
                             await asyncio.sleep(0.5)
                             continue
 
-                        # TODO: Need to handle sending an email if a launched deployment failed. 
-                        if updated.notifiedAt is None:
-                            if updated.status == "ready":
-                                self.email_service.notify_deployment_ready(db, updated)
-                                updated.notifiedAt = datetime.utcnow()
-                                db.commit()
-                            elif updated.status == "failed":
-                                self.email_service.notify_deployment_failed(db, updated)
-                                updated.notifiedAt = datetime.utcnow()
-                                db.commit()
+                        # Send a one-time email notification per authorized user when a
+                        # deployment becomes ready or failed. An EmailNotification row for
+                        # (deploymentId, userId, type) means we have already attempted
+                        # delivery for that user; skip on subsequent sync cycles.
+                        if updated.status in ("ready", "failed"):
+                            authorized_users = (
+                                db.query(AuthorizedUsers)
+                                .filter_by(deploymentId=updated.id)
+                                .all()
+                            )
+                            for auth_user in authorized_users:
+                                already_notified = (
+                                    db.query(EmailNotification)
+                                    .filter_by(
+                                        deploymentId=updated.id,
+                                        userId=auth_user.userId,
+                                        type=updated.status,
+                                    )
+                                    .first()
+                                    is not None
+                                )
+                                if not already_notified:
+                                    if updated.status == "ready":
+                                        delivered = await self.email_service.notify_deployment_ready(
+                                            db, updated, auth_user.userId
+                                        )
+                                    else:
+                                        delivered = await self.email_service.notify_deployment_failed(
+                                            db, updated, auth_user.userId
+                                        )
+                                    db.add(EmailNotification(
+                                        deploymentId=updated.id,
+                                        userId=auth_user.userId,
+                                        type=updated.status,
+                                        status="sent" if delivered else "failed",
+                                    ))
+                            db.commit()
+
+                        # TODO: Send an email notification once if a launched deployment failed. 
 
                         # Add a small delay between updates to avoid overwhelming the system
                         await asyncio.sleep(0.5)
