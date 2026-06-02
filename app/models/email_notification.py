@@ -26,7 +26,7 @@ class EmailNotification(Base):
         nullable=False,
     )
     userId = Column(UUID(as_uuid=True), nullable=False)
-    type = Column(String, nullable=False)    # "ready" | "failed"
+    type = Column(String, nullable=False)    # "ready" | "failed" | "completed"
     status = Column(String, nullable=False)  # "sent"  | "failed"
 
     __table_args__ = (

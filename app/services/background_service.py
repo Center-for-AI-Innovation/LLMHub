@@ -153,13 +153,19 @@ class BackgroundService:
                             await asyncio.sleep(0.5)
                             continue
 
-                        # Send a one-time email notification per authorized user when a
-                        # deployment becomes ready or failed. Insert the EmailNotification
-                        # row first and flush to claim the slot atomically via the unique
+                        # Determine notification type up-front; None means no email for this transition.
+                        if updated.status == "ready":
+                            notification_type = "ready"
+                        elif updated.status == "failed":
+                            notification_type = "completed" if updated.errorMessage == "Slurm job timeout" else "failed"
+                        else:
+                            notification_type = None
+
+                        # Insert the EmailNotification row first and flush to claim the slot atomically via the unique
                         # constraint on (deploymentId, userId, type). This prevents
                         # duplicate emails under concurrent sync cycles: the first writer
                         # to flush wins; any racing worker gets IntegrityError and skips.
-                        if updated.status in ("ready", "failed"):
+                        if notification_type is not None:
                             authorized_users = (
                                 db.query(AuthorizedUsers)
                                 .filter_by(deploymentId=updated.id)
@@ -169,18 +175,22 @@ class BackgroundService:
                                 notification = EmailNotification(
                                     deploymentId=updated.id,
                                     userId=auth_user.userId,
-                                    type=updated.status,
+                                    type=notification_type,
                                     status="pending",
                                 )
                                 db.add(notification)
                                 try:
-                                    db.flush() # Not committing to the database yet. Still in a transaction.
+                                    db.flush()
                                 except IntegrityError:
                                     db.rollback()  # another worker already claimed this slot
                                     continue
 
-                                if updated.status == "ready":
+                                if notification_type == "ready":
                                     delivered = await self.email_service.notify_deployment_ready(
+                                        db, updated, auth_user.userId
+                                    )
+                                elif notification_type == "completed":
+                                    delivered = await self.email_service.notify_deployment_completed(
                                         db, updated, auth_user.userId
                                     )
                                 else:
@@ -190,8 +200,6 @@ class BackgroundService:
 
                                 notification.status = "sent" if delivered else "failed"
                                 db.commit()
-
-                        # TODO: Send an email notification once if a launched deployment failed. 
 
                         # Add a small delay between updates to avoid overwhelming the system
                         await asyncio.sleep(0.5)

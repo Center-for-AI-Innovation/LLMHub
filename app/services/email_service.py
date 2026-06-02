@@ -14,7 +14,7 @@ from app.models.user import User
 
 logger = get_logger("email_service")
 
-_READY_SUBJECT = "[LLM Service] Your model {model_name} is ready"
+_READY_SUBJECT = "[LLMHub] Your model {model_name} is ready"
 # TODO: Add endpoint url to the body so users can directly access the chat page.
 _READY_BODY = """\
 Your model deployment is ready and accepting requests.
@@ -25,7 +25,7 @@ Your model deployment is ready and accepting requests.
 If you did not request this deployment, please contact your system administrator.
 """
 
-_FAILED_SUBJECT = "[LLM Service] Your model {model_name} deployment failed"
+_FAILED_SUBJECT = "[LLMHub] Your model {model_name} deployment failed"
 _FAILED_BODY = """\
 Your model deployment encountered an error and could not start.
 
@@ -33,6 +33,17 @@ Your model deployment encountered an error and could not start.
   Reason: {error_message}
 
 Please try launching the model again or contact your system administrator if the issue persists.
+"""
+
+_COMPLETED_SUBJECT = "[LLMHub] Your model {model_name} deployment has completed"
+_COMPLETED_BODY = """\
+Your model deployment created has completed its scheduled run and is no longer active.
+
+  Model: {model_name}
+  id: {deployment_id}
+
+If you need continued access, please submit a new deployment request.
+If you have questions, contact your system administrator.
 """
 
 
@@ -98,6 +109,30 @@ class EmailService:
             model_name=deployment.modelName,
             error_message=deployment.errorMessage or "unknown error",
         )
+        return await self._send(recipient, subject, body)
+
+    async def notify_deployment_completed(
+        self,
+        db: Session,
+        deployment: ModelDeployment,
+        user_id: uuid.UUID,
+    ) -> bool:
+        """Send a notification email when a deployment ends due to a normal Slurm job timeout.
+
+        Args:
+            db: Active database session used to resolve the user email address.
+            deployment: The deployment whose Slurm job timed out.
+            user_id: UUID of the authorized user to notify. Callers must look up
+                recipients from AuthorizedUsers and fan out one call per user.
+
+        Returns:
+            True if the email was delivered successfully, False otherwise.
+        """
+        recipient = self._resolve_email(db, deployment, user_id)
+        if not recipient:
+            return False
+        subject = _COMPLETED_SUBJECT.format(model_name=deployment.modelName,)
+        body = _COMPLETED_BODY.format(model_name=deployment.modelName, deployment_id=deployment.id)
         return await self._send(recipient, subject, body)
 
     def _resolve_email(
