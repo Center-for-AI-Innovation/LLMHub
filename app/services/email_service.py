@@ -15,7 +15,7 @@ from app.models.user import User
 logger = get_logger("email_service")
 
 _READY_SUBJECT = "[LLM Service] Your model {model_name} is ready"
-# TODO: Add endpoint url to the body but not using the DB but using the frontend API endpoint. 
+# TODO: Add endpoint url to the body so users can directly access the chat page.
 _READY_BODY = """\
 Your model deployment is ready and accepting requests.
 
@@ -68,7 +68,6 @@ class EmailService:
         subject = _READY_SUBJECT.format(model_name=deployment.modelName)
         body = _READY_BODY.format(
             model_name=deployment.modelName,
-            endpoint_url=deployment.endpointUrl or "unavailable",
             expires_at=expires_at,
         )
         return await self._send(recipient, subject, body)
