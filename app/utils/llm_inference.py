@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from app.config.logging import get_logger
 from app.config.config import settings
+from app.utils.infrastructure import get_vec_inf_log_base_dir
 
 # IMPORTANT: Set VEC_INF env vars BEFORE importing vec-inf.
 # vec-inf loads/caches config at import time.
@@ -45,7 +46,6 @@ class LLMInferenceClient:
         
         # Initialize VecInfClient - it will use VEC_INF_CONFIG_DIR if set
         self.client = VecInfClient()
-        self.slurm_log_dir = settings.SLURM_LOG_DIR
         self.slurm_account = settings.SLURM_ACCOUNT
 
     @staticmethod
@@ -251,10 +251,11 @@ class LLMInferenceClient:
         # This may need to be implemented based on how the Python API exposes tunnel URLs
         # For now, fallback to the log file method if needed
         import os
-        if not self.slurm_log_dir:
-            logger.error("Slurm log directory not specified")
+        log_base = get_vec_inf_log_base_dir()
+        if not log_base:
+            logger.error("Vec-inf log directory not configured")
             return None
-        tunnel_url_file = os.path.join(self.slurm_log_dir, f"{job_name}.{slurm_job_id}.tunnel_url")
+        tunnel_url_file = os.path.join(log_base, f"{job_name}.{slurm_job_id}.tunnel_url")
         try:
             if os.path.exists(tunnel_url_file):
                 with open(tunnel_url_file, "r") as f:

@@ -17,6 +17,19 @@ logger = get_logger("infrastructure")
 INFRASTRUCTURE_ENV_VAR = "INFRASTRUCTURE"
 
 
+def get_vec_inf_log_base_dir(infrastructure: Optional[str] = None) -> Optional[str]:
+    """Return vec-inf's configured base log directory from environment.yaml."""
+    try:
+        mgr = InfrastructureManager()
+        default_args = (mgr.get_environment_config(infrastructure) or {}).get("default_args") or {}
+        raw = default_args.get("log_dir")
+        if isinstance(raw, str) and raw.strip():
+            return str(Path(raw).expanduser())
+    except Exception as exc:
+        logger.debug("Could not resolve log_dir from environment.yaml: %s", exc)
+    return None
+
+
 class InfrastructureManager:
     """Manages infrastructure-specific configurations."""
     

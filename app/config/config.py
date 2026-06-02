@@ -17,7 +17,6 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/llm_service"
     
     # HPC settings
-    SLURM_LOG_DIR: Optional[str] = None  # Default log directory for Slurm jobs
     SLURM_ACCOUNT: Optional[str] = None  # SLURM account for job submission
     DEFAULT_VENV: str = "apptainer"  # Default container runtime (apptainer/singularity)
     MODEL_CONFIG_PATH: Optional[str] = None  # Path to custom model configuration YAML file
