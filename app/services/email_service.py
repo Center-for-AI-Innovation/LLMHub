@@ -151,9 +151,9 @@ class EmailService:
             to decide whether to record a successful notification.
         """
         msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = settings.SMTP_FROM
-        msg["To"] = recipient
+        msg["Subject"] = subject.replace("\r", " ").replace("\n", " ")
+        msg["From"] = settings.SMTP_FROM.replace("\r", " ").replace("\n", " ")
+        msg["To"] = recipient.replace("\r", " ").replace("\n", " ")
 
         try:
             await aiosmtplib.send(

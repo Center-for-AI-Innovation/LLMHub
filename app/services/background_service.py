@@ -6,6 +6,7 @@ import random
 from datetime import datetime, timedelta
 from typing import List
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.authorized_users import AuthorizedUsers
@@ -153,9 +154,11 @@ class BackgroundService:
                             continue
 
                         # Send a one-time email notification per authorized user when a
-                        # deployment becomes ready or failed. An EmailNotification row for
-                        # (deploymentId, userId, type) means we have already attempted
-                        # delivery for that user; skip on subsequent sync cycles.
+                        # deployment becomes ready or failed. Insert the EmailNotification
+                        # row first and flush to claim the slot atomically via the unique
+                        # constraint on (deploymentId, userId, type). This prevents
+                        # duplicate emails under concurrent sync cycles: the first writer
+                        # to flush wins; any racing worker gets IntegrityError and skips.
                         if updated.status in ("ready", "failed"):
                             authorized_users = (
                                 db.query(AuthorizedUsers)
@@ -163,32 +166,30 @@ class BackgroundService:
                                 .all()
                             )
                             for auth_user in authorized_users:
-                                already_notified = (
-                                    db.query(EmailNotification)
-                                    .filter_by(
-                                        deploymentId=updated.id,
-                                        userId=auth_user.userId,
-                                        type=updated.status,
-                                    )
-                                    .first()
-                                    is not None
+                                notification = EmailNotification(
+                                    deploymentId=updated.id,
+                                    userId=auth_user.userId,
+                                    type=updated.status,
+                                    status="pending",
                                 )
-                                if not already_notified:
-                                    if updated.status == "ready":
-                                        delivered = await self.email_service.notify_deployment_ready(
-                                            db, updated, auth_user.userId
-                                        )
-                                    else:
-                                        delivered = await self.email_service.notify_deployment_failed(
-                                            db, updated, auth_user.userId
-                                        )
-                                    db.add(EmailNotification(
-                                        deploymentId=updated.id,
-                                        userId=auth_user.userId,
-                                        type=updated.status,
-                                        status="sent" if delivered else "failed",
-                                    ))
-                            db.commit()
+                                db.add(notification)
+                                try:
+                                    db.flush() # Not committing to the database yet. Still in a transaction.
+                                except IntegrityError:
+                                    db.rollback()  # another worker already claimed this slot
+                                    continue
+
+                                if updated.status == "ready":
+                                    delivered = await self.email_service.notify_deployment_ready(
+                                        db, updated, auth_user.userId
+                                    )
+                                else:
+                                    delivered = await self.email_service.notify_deployment_failed(
+                                        db, updated, auth_user.userId
+                                    )
+
+                                notification.status = "sent" if delivered else "failed"
+                                db.commit()
 
                         # TODO: Send an email notification once if a launched deployment failed. 
 
