@@ -242,6 +242,32 @@ class BackgroundService:
                         logger.info(f"Shutting down expired deployment {deployment.id}")
                         # Use the model service to shut down the deployment, which will also release resources
                         self.model_service.shutdown_deployment(db, deployment.id)
+
+                        # Send a notification to the user that the deployment has been shut down
+                        if updated and updated.status == "shutdown":
+                            authorized_users = (
+                                db.query(AuthorizedUsers)
+                                .filter_by(deploymentId=updated.id)
+                                .all()
+                            )
+                            for auth_user in authorized_users:
+                                notification = EmailNotification(
+                                    deploymentId=updated.id,
+                                    userId=auth_user.userId,
+                                    type="completed",
+                                    status="pending",
+                                )
+                                db.add(notification)
+                                try:
+                                    db.flush()
+                                except IntegrityError:
+                                    db.rollback()
+                                    continue
+                                delivered = await self.email_service.notify_deployment_completed(
+                                    db, updated, auth_user.userId
+                                )
+                                notification.status = "sent" if delivered else "failed"
+                                db.commit()
                         # Add a small delay between shutdowns to avoid overwhelming the system
                         await asyncio.sleep(1)
                     except Exception as e:
