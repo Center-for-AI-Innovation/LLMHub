@@ -15,7 +15,7 @@ from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentU
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.schemas.available_model import AvailableModelCreate
 from app.utils.llm_inference import LLMInferenceClient
-from app.utils.infrastructure import get_vec_inf_log_base_dir
+from app.utils.infrastructure import get_vec_inf_log_base_dir, get_vec_inf_user_workspace_dir
 from app.config.logging import get_logger
 from app.services.resource_service import ResourceService
 
@@ -485,7 +485,12 @@ class ModelService:
             and db_deployment.resourceAllocation.get("enable_cloudflare_tunnel")
         ):
             job_name = db_deployment.modelName.replace("/", "-")
-            tunnel_url = self.llm_client.get_tunnel_url(job_name, db_deployment.slurmJobId)
+            cluster_username = db_deployment.resourceAllocation.get("cluster_username")
+            tunnel_url = self.llm_client.get_tunnel_url(
+                job_name,
+                db_deployment.slurmJobId,
+                cluster_username=cluster_username,
+            )
             if tunnel_url:
                 db_deployment.proxyUrl = tunnel_url
         
@@ -638,7 +643,11 @@ class ModelService:
         if refreshed:
             db_deployment = refreshed
 
-        log_base = get_vec_inf_log_base_dir()
+        cluster_username = None
+        if isinstance(db_deployment.resourceAllocation, dict):
+            cluster_username = db_deployment.resourceAllocation.get("cluster_username")
+
+        log_base = get_vec_inf_user_workspace_dir(cluster_username) or get_vec_inf_log_base_dir()
         if not log_base:
             return {
                 "success": False,

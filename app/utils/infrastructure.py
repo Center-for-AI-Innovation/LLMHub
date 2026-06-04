@@ -6,19 +6,26 @@ infrastructure configurations (campus-cluster, delta, delta-ai-ncsa, etc.).
 """
 
 import os
+import re
 import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from app.config.config import settings
 from app.config.logging import get_logger
 
 logger = get_logger("infrastructure")
 
 # Environment variable that overrides auto-detection (e.g. INFRASTRUCTURE=delta-ai-ncsa)
 INFRASTRUCTURE_ENV_VAR = "INFRASTRUCTURE"
+_CLUSTER_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 
 
 def get_vec_inf_log_base_dir(infrastructure: Optional[str] = None) -> Optional[str]:
     """Return vec-inf's configured base log directory from environment.yaml."""
+    env_override = getattr(settings, "VEC_INF_LOG_DIR", None) or os.environ.get("VEC_INF_LOG_DIR")
+    if isinstance(env_override, str) and env_override.strip():
+        return str(Path(env_override).expanduser())
+
     try:
         mgr = InfrastructureManager()
         default_args = (mgr.get_environment_config(infrastructure) or {}).get("default_args") or {}
@@ -28,6 +35,29 @@ def get_vec_inf_log_base_dir(infrastructure: Optional[str] = None) -> Optional[s
     except Exception as exc:
         logger.debug("Could not resolve log_dir from environment.yaml: %s", exc)
     return None
+
+
+def get_vec_inf_user_workspace_dir(
+    cluster_username: Optional[str],
+    infrastructure: Optional[str] = None,
+) -> Optional[str]:
+    """Return the per-user workspace dir when vec-inf logs/scripts are segregated by user."""
+    if not isinstance(cluster_username, str) or not cluster_username.strip():
+        return None
+    username = cluster_username.strip()
+    if not _CLUSTER_USERNAME_RE.fullmatch(username):
+        logger.warning("Ignoring invalid cluster username for workspace lookup: %r", cluster_username)
+        return None
+
+    raw_root = (
+        getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
+        or os.environ.get("VEC_INF_SHARED_WORK_ROOT")
+        or get_vec_inf_log_base_dir(infrastructure)
+    )
+    if not isinstance(raw_root, str) or not raw_root.strip():
+        return None
+
+    return str(Path(raw_root).expanduser() / username)
 
 
 class InfrastructureManager:
