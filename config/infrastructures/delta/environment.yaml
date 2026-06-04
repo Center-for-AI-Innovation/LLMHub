@@ -1,8 +1,8 @@
 paths:
-  image_path: "/projects/bfmz/rohan13/containers/vllm.sif"
-  vllm_image_path: "/projects/bfmz/rohan13/containers/vllm.sif"
+  image_path: "/sw/llmhub/vllm.sif"
+  vllm_image_path: "/sw/llmhub/vllm.sif"
   sglang_image_path: "/projects/bfmz/rohan13/containers/sglang.sif"
-  cached_model_config_path: "/projects/bfmz/rohan13/cached_model_config.yaml"
+  cached_model_config_path: "/projects/modelcache/public/models.yaml"
   
 containerization:
   module_load_cmd: ""
@@ -16,7 +16,7 @@ limits:
 allowed_values:
   qos: ["normal", "high", "low"]
   partition: ["gpuA40x4", "gpuA100x4", "gpuA100x8", "gpuH200x8", "gpuA40x4-interactive", "gpuA100x4-interactive", "gpuA100x8-interactive", "gpuH200x8-interactive", "gpuA40x4-preempt", "gpuA100x4-preempt"]
-  resource_type: ["A100", "H100", "V100", "A40", "l40s"]
+  resource_type: ["nvidia_a40", "nvidia_a100", "h200"]
 
 required_args:
   account: "VEC_INF_ACCOUNT"
@@ -29,11 +29,11 @@ default_args:
   time: "00:10:00"
   qos: ""
   partition: "gpuA40x4"
-  resource_type: "A40"
+  resource_type: "nvidia_a40"
   exclude: ""
   nodelist: ""
-  bind: "/projects/bfmz/rohan13/huggingface:/root/.cache/huggingface,/projects/bfmz/rohan13/torch_cache:/root/.cache/torch_inductor"
+  bind: "/projects/modelcache/public/huggingface:/root/.cache/huggingface,/projects/modelcache/public/torch_inductor:/root/.cache/torch_inductor"
   venv: "apptainer"
   data_type: "auto"
-  log_dir: "/projects/bfmz/svcdeltallmhub/Delta-deployment/.vec-inf-logs" # TODO: Change to log directory based on the environment/user
-  model_weights_parent_dir: "/model-weights"
+  log_dir: "/projects/llmhub"
+  model_weights_parent_dir: "/projects/modelcache/public"
