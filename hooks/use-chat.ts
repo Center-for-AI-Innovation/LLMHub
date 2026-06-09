@@ -179,7 +179,7 @@ export function useChatHistory(enabled = true) {
 }
 
 // Fetch chat, messages and votes in a single request
-export function useChatContents(id: string) {
+export function useChatContents(id: string, enabled = true) {
   return useQuery({
     queryKey: ['chatContents', id],
     queryFn: async (): Promise<ChatContentsData> => {
@@ -197,7 +197,7 @@ export function useChatContents(id: string) {
         documents: data.documents || []
       };
     },
-    enabled: !!id && id !== 'new',
+    enabled: enabled && !!id && id !== 'new',
     staleTime: 2 * 60 * 1000, // 2 minutes
   });
 } 

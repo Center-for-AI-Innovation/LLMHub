@@ -42,9 +42,12 @@ import {
   SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
+  sidebarDropdownItemClassName,
+  sidebarDropdownSubTriggerClassName,
   useSidebar,
 } from '@/components/ui/sidebar';
 import type { Chat } from '@/lib/db/schema';
+import { cn } from '@/lib/utils';
 import { useChatVisibility } from '@/hooks/use-chat-visibility';
 import { useChatHistory, useDeleteChat } from '@/hooks/use-chat';
 import { useQueryClient } from '@tanstack/react-query';
@@ -84,7 +87,7 @@ const PureChatItem = ({
       <DropdownMenu modal={true}>
         <DropdownMenuTrigger asChild>
           <SidebarMenuAction
-            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground mr-0.5"
+            className="data-[state=open]:bg-sidebar-hover data-[state=open]:text-sidebar-hover-foreground mr-0.5"
             showOnHover={!isActive}
           >
             <MoreHorizontalIcon />
@@ -94,14 +97,19 @@ const PureChatItem = ({
 
         <DropdownMenuContent side="bottom" align="end">
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="cursor-pointer">
+            <DropdownMenuSubTrigger
+              className={cn('cursor-pointer', sidebarDropdownSubTriggerClassName)}
+            >
               <ShareIcon />
               <span>Share</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
               <DropdownMenuSubContent>
                 <DropdownMenuItem
-                  className="cursor-pointer flex-row justify-between"
+                  className={cn(
+                    'cursor-pointer flex-row justify-between',
+                    sidebarDropdownItemClassName,
+                  )}
                   onClick={() => {
                     setVisibilityType('private');
                   }}
@@ -115,7 +123,10 @@ const PureChatItem = ({
                   ) : null}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  className="cursor-pointer flex-row justify-between"
+                  className={cn(
+                    'cursor-pointer flex-row justify-between',
+                    sidebarDropdownItemClassName,
+                  )}
                   onClick={() => {
                     setVisibilityType('public');
                   }}
@@ -194,7 +205,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
       <SidebarGroup>
         <SidebarGroupContent>
           <div className="px-2 text-zinc-500 w-full flex flex-row justify-center items-center text-sm gap-2">
-            Login to save and revisit previous chats!
+            Login to see previous chats and deploy different models
           </div>
         </SidebarGroupContent>
       </SidebarGroup>

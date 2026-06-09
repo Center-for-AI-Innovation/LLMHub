@@ -13,6 +13,7 @@ coverage
 out/
 build
 *.tsbuildinfo
+next-env.d.ts
 
 # misc
 .DS_Store

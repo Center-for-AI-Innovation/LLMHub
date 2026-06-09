@@ -4,8 +4,20 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Braces, Check, Copy, TerminalSquare } from 'lucide-react';
 
 import type { ModelDeployment } from '@/hooks/use-models';
+import { useGenerateApiKey } from '@/hooks/use-api-key';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -124,8 +136,12 @@ export function PublicApiDialog({
   const [systemPrompt, setSystemPrompt] = useState<string>(DEFAULT_SYSTEM_PROMPT);
   const [userPrompt, setUserPrompt] = useState<string>(DEFAULT_USER_PROMPT);
   const [streamResponse, setStreamResponse] = useState<boolean>(false);
+  const [justGeneratedKey, setJustGeneratedKey] = useState<string | null>(
+    null,
+  );
 
   const { toast } = useToast();
+  const generateApiKey = useGenerateApiKey();
 
   const activeDeployments = useMemo(
     () => deployments.filter((deployment) => isActiveDeployment(deployment)),
@@ -289,9 +305,35 @@ if (${streamResponse ? 'true' : 'false'}) {
     }
   }
 
+  async function handleGenerate() {
+    try {
+      const result = await generateApiKey.mutateAsync();
+      setApiKeyOverride(result.apiKey);
+      setJustGeneratedKey(result.apiKey);
+      toast({
+        title: 'API key generated',
+        description: 'Copy and store it securely. You will not see it again.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Failed to generate API key',
+        description:
+          error instanceof Error ? error.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    }
+  }
+
   return (
     <TooltipProvider delayDuration={200}>
-      <Dialog>
+      <Dialog
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setApiKeyOverride('');
+            setJustGeneratedKey(null);
+          }
+        }}
+      >
         <DialogTrigger asChild>
           {trigger ?? (
             <Button type="button" variant="outline">
@@ -346,25 +388,69 @@ if (${streamResponse ? 'true' : 'false'}) {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    API Key
-                  </label>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      API Key
+                    </label>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto shrink-0 px-2 py-0 text-xs font-medium text-primary hover:bg-primary/10 hover:text-primary"
+                          disabled={generateApiKey.isPending}
+                        >
+                          {generateApiKey.isPending
+                            ? 'Generating...'
+                            : 'Generate API Key'}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Generate API Key?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Generating will invalidate any previous keys.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={handleGenerate}
+                            disabled={generateApiKey.isPending}
+                          >
+                            {generateApiKey.isPending
+                              ? 'Generating...'
+                              : 'Generate'}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                   <div className="relative">
                     <Input
                       value={apiKeyValue}
-                      onChange={(event) => setApiKeyOverride(event.target.value)}
+                      onChange={(event) => {
+                        setApiKeyOverride(event.target.value);
+                        setJustGeneratedKey(null);
+                      }}
                       placeholder={DEFAULT_API_KEY}
                       className="h-9 pr-9 font-mono text-xs"
                     />
                     <div className="absolute inset-y-0 right-1 flex items-center">
                       <CopyButton
-                        value={authorizationHeader}
-                        label="Authorization header"
+                        value={apiKeyValue}
+                        label="API key"
                         onCopy={copyToClipboard}
                         size="sm"
                       />
                     </div>
                   </div>
+                  {justGeneratedKey && (
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      Your API key will disappear after closing this dialog.
+                    </p>
+                  )}
                 </div>
               </div>
 

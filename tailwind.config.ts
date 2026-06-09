@@ -68,6 +68,8 @@ const config: Config = {
           'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
           accent: 'hsl(var(--sidebar-accent))',
           'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
+          hover: 'hsl(var(--sidebar-hover))',
+          'hover-foreground': 'hsl(var(--sidebar-hover-foreground))',
           border: 'hsl(var(--sidebar-border))',
           ring: 'hsl(var(--sidebar-ring))',
         },

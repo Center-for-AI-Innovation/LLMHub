@@ -4,6 +4,7 @@ import type { ChatRequestOptions, UIMessage } from 'ai';
 import { DefaultChatTransport } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -29,6 +30,7 @@ import { useModelSelector } from '@/hooks/use-model-selector';
 import { useDocumentCache } from '@/hooks/use-document-cache';
 import { useVllmJob, getVllmChatEndpoint } from '@/hooks/use-vllm-job';
 import { useNewChat } from '@/hooks/use-new-chat';
+import { usePendingChat } from '@/hooks/use-pending-chat';
 import type { DataStreamDelta } from '@/lib/ai/data-stream';
 
 const VLLM_JOB_MODEL_PREFIX = 'vllm-job:';
@@ -205,10 +207,12 @@ function ChatInner({
   initialPrompt?: string;
 }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [votes, setVotes] = useState<Array<Vote>>(initialVotes || []);
   const [attachments, setAttachments] = useState<Array<UploadedAttachment>>([]);
   const [input, setInput] = useState('');
   const hasAutoSentInitialPrompt = useRef(false);
+  const autoSentPendingRef = useRef(false);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
   const setHasDraftMessages = useNewChat((state) => state.setHasDraftMessages);
 
@@ -374,6 +378,15 @@ function ChatInner({
       return;
     }
 
+    // For the first message of a logged-in temporary chat, stash the payload
+    // and redirect to the real /chat/[id] route so that the stream starts there
+    // rather than on the transient /chat page.
+    if (isTemporaryChat && !isGuestMode && messages.length === 0) {
+      usePendingChat.getState().set(chatId, { message, options });
+      router.replace(`/chat/${chatId}`);
+      return;
+    }
+
     try {
       await sendMessage(message, options);
     } catch (error) {
@@ -444,31 +457,30 @@ function ChatInner({
       return;
     }
 
-    if (!ensureModelReadyForSend({ isGuestMode, selectedModel, vllmJobId })) {
-      return;
-    }
-
-    if (
-      isGuestMode &&
-      getGuestMessageCountFromCookie() >= GUEST_CHAT_MAX_MESSAGES
-    ) {
-      onGuestLimitReached?.();
-      return;
-    }
-
     hasAutoSentInitialPrompt.current = true;
-    void sendMessage({ text: initialPrompt }).catch((error) => {
-      handleChatRequestError({ error, isGuestMode, onGuestLimitReached });
-    });
+    // Route through guardedSendMessage so that logged-in temporary chats
+    // redirect to /chat/[id] before streaming begins.
+    void guardedSendMessage({ text: initialPrompt });
   }, [
     initialPrompt,
-    isGuestMode,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     messages.length,
-    onGuestLimitReached,
-    selectedModel,
-    sendMessage,
-    vllmJobId,
   ]);
+
+  // On the real /chat/[id] route, fire the stashed payload from a prior redirect
+  // and immediately clear the store so it never runs twice.
+  useEffect(() => {
+    if (isTemporaryChat || autoSentPendingRef.current || messages.length > 0) {
+      return;
+    }
+    const pending = usePendingChat.getState().pending[chatId];
+    if (!pending) return;
+    autoSentPendingRef.current = true;
+    usePendingChat.getState().clear(chatId);
+    void guardedSendMessage(pending.message, pending.options);
+    // guardedSendMessage is stable for the lifetime of this ChatInner mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTemporaryChat, chatId, messages.length]);
 
   const { data: fetchedVotes } = useSWR<Array<Vote>>(
     !isTemporaryChat && !initialVotes ? `/api/vote?chatId=${chatId}` : null,

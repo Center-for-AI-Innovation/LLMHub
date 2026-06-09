@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Copy, KeyRound, RotateCcw } from 'lucide-react';
+import { Copy, KeyRound } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -78,7 +78,8 @@ export function ApiKeyPanel({ hasApiKey, expiresAt }: ApiKeyPanelProps) {
           API Key
         </CardTitle>
         <CardDescription>
-          Generate an API key for model access. Regenerating invalidates the previous key.
+          Generate an API key for model access. Generating will invalidate any
+          previous keys.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -95,14 +96,7 @@ export function ApiKeyPanel({ hasApiKey, expiresAt }: ApiKeyPanelProps) {
           disabled={generateApiKey.isPending}
           className="w-full sm:w-auto"
         >
-          {currentHasKey ? (
-            <>
-              <RotateCcw className="mr-2 size-4" />
-              Regenerate API Key
-            </>
-          ) : (
-            'Generate API Key'
-          )}
+          {generateApiKey.isPending ? 'Generating...' : 'Generate API Key'}
         </Button>
 
         {generatedKey && (

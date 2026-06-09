@@ -10,8 +10,12 @@ import {
   Square,
   ArrowRight,
   Share2,
+  Terminal,
 } from 'lucide-react';
 import { setPreferredChatModel } from '@/lib/chat-navigation';
+import { modelCardGradient } from '@/lib/models/utils';
+import { ModelCardIcon } from './model-card-icon';
+import { ModelSpecChips } from './model-metadata-chips';
 import type { DeploymentStatusInfo } from '@/lib/models/deployment-status';
 import type { 
   ModelInfo,
@@ -19,8 +23,16 @@ import type {
 } from '@/hooks/use-models';
 
 // Stable class names for buttons
-const halfWidthOutlineButtonClass = "w-1/2 bg-white/50 dark:bg-white/5 border-0";
-const fullWidthOutlineButtonClass = "w-full bg-white/50 dark:bg-white/5 border-0";
+const outlineButtonHoverClass =
+  'text-foreground transition-colors hover:bg-white/80 hover:text-foreground hover:shadow-sm dark:hover:bg-white/15 dark:hover:text-accent-foreground dark:hover:shadow-none';
+const halfWidthOutlineButtonClass = cn(
+  'w-1/2 bg-white/50 dark:bg-white/5 border-0',
+  outlineButtonHoverClass,
+);
+const flexOutlineButtonClass = cn(
+  'flex-1 bg-white/50 dark:bg-white/5 border-0',
+  outlineButtonHoverClass,
+);
 
 function formatLocalDateTime(value: string) {
   const normalizedValue = /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value)
@@ -38,15 +50,9 @@ function formatLocalDateTime(value: string) {
   }).format(date);
 }
 
-function LocalDateTime({ value }: { value: string }) {
-  return <span suppressHydrationWarning>{formatLocalDateTime(value)}</span>;
-}
-
 // Memoized Active Model Card component
 const ActiveModelCard = memo(({ 
   model, 
-  getModelIcon, 
-  getModelGradient, 
   getModelDeployment, 
   getStatusInfo,
   handleStopModel,
@@ -55,8 +61,6 @@ const ActiveModelCard = memo(({
   currentUserId,
 }: { 
   model: ModelInfo, 
-  getModelIcon: (model: ModelInfo) => any, 
-  getModelGradient: (model: ModelInfo) => string,
   getModelDeployment: (model: ModelInfo) => ModelDeployment | undefined, 
   getStatusInfo: (status: string) => DeploymentStatusInfo,
   handleStopModel: (deploymentId: string) => Promise<void>,
@@ -64,8 +68,7 @@ const ActiveModelCard = memo(({
   stoppingDeploymentId: string | null,
   currentUserId?: string,
 }) => {
-  const Icon = getModelIcon(model);
-  const gradient = getModelGradient(model);
+  const gradient = modelCardGradient;
   const deployment = getModelDeployment(model);
   const statusInfo = deployment ? getStatusInfo(deployment.status) : null;
   const isDeploymentApiReady = Boolean(
@@ -83,103 +86,74 @@ const ActiveModelCard = memo(({
     ((model as unknown as { name?: string }).name ??
       model.modelName ??
       model.id);
-  const outlineButtonClass = isDeploymentOwner
-    ? halfWidthOutlineButtonClass
-    : fullWidthOutlineButtonClass;
-  const chatButtonClass = isDeploymentOwner ? "w-1/2 group" : "w-full group";
+
+  function handleOpenLogs() {
+    if (deployment?.id) {
+      openLogsPanel(deployment.id, deployment.modelName || displayModelName);
+    }
+  }
   
   return (
     <div 
       key={model.id} 
-      onClick={(event) => {
-        // Ignore portal-based clicks (e.g. dialog overlay/content) that bubble
-        // through the React tree but are not inside the card DOM node.
-        if (!event.currentTarget.contains(event.target as Node)) {
-          return;
-        }
-
-        if (deployment?.id) {
-          openLogsPanel(
-            deployment.id,
-            deployment.modelName || displayModelName,
-          );
-        }
-      }}
       className={cn(
         "relative p-6 rounded-[1.5rem] bg-gradient-to-br",
         gradient,
         "shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]",
-        "hover:shadow-[0_4px_20px_rgba(0,0,0,0.12)] dark:hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]",
-        "backdrop-blur-sm hover:bg-white/[0.05] dark:hover:bg-white/[0.03] group flex flex-col h-full cursor-pointer",
-        "will-change-transform"
+        "backdrop-blur-sm flex flex-col h-full",
       )}
     >
-      {statusInfo && (
-        <div className="absolute top-4 right-4">
-          <div className={cn("rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1", statusInfo.colorClass)}>
+      <ModelCardIcon model={model} displayModelName={displayModelName} />
+
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <h3 className="min-w-0 flex-1 text-xl font-semibold truncate">
+          {displayModelName}
+        </h3>
+        {statusInfo && (
+          <div
+            className={cn(
+              'shrink-0 rounded-full px-2 py-1 text-xs font-medium flex items-center gap-1',
+              statusInfo.colorClass,
+            )}
+          >
             <statusInfo.icon
               className={cn('size-3', statusInfo.iconClassName)}
             />
             {statusInfo.label}
           </div>
-        </div>
-      )}
-      
-      <div className="mb-4 inline-flex size-12 items-center justify-center rounded-full bg-white/20 dark:bg-white/10">
-        <Icon className="size-6 text-primary" />
-      </div>
-      
-      <div className="mb-2">
-        <h3 className="text-xl font-semibold truncate">{displayModelName}</h3>
-      </div>
-      
-      <p className="text-muted-foreground line-clamp-2 mb-4">{model.description}</p>
-      
-      <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground mb-6">
-        <div>
-          <span className="font-medium">Type:</span> {model.type}
-        </div>
-        <div>
-          <span className="font-medium">GPUs:</span> {model.specs.gpus}
-        </div>
-        <div className="col-span-2">
-          <span className="font-medium">Context:</span> {model.specs.contextLength.toLocaleString()} tokens
-        </div>
-        {deployment?.expiresAt && (
-          <div className="col-span-2 flex items-center gap-1 text-amber-500">
-            <Calendar className="size-3" />
-            <span>
-              Expires: <LocalDateTime value={deployment.expiresAt} />
-            </span>
-          </div>
         )}
       </div>
 
-      <div className="mt-auto flex justify-between w-full gap-3">
-        {isDeploymentOwner && (
-          <Button
-            variant="outline"
-            className={halfWidthOutlineButtonClass}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (deployment?.id) {
-                void handleStopModel(deployment.id);
-              }
-            }}
-            disabled={Boolean(stoppingDeploymentId) || !deployment?.id}
-          >
-            {isStoppingCurrentDeployment ? (
-              <Loader2 className="mr-2 size-4 animate-spin" />
-            ) : (
-              <Square className="mr-2 size-4" />
-            )}
-            Stop
-          </Button>
-        )}
-        <Button 
-          asChild 
-          className={chatButtonClass}
-        >
+      {deployment?.expiresAt && (
+        <p className="mb-2 flex items-center gap-1 text-sm font-semibold text-amber-600 dark:text-amber-400">
+   
+          <Calendar className="size-3 shrink-0" aria-hidden />
+          <span>Expires <span suppressHydrationWarning>{formatLocalDateTime(deployment.expiresAt)}</span></span>
+        </p>
+      )}
+
+      <p className="text-muted-foreground line-clamp-2 mb-4">{model.description}</p>
+      
+      <div className="mb-6 flex flex-wrap gap-2">
+        <ModelSpecChips model={model} />
+      </div>
+
+      <div className="mt-auto flex w-full gap-3">
+        <PublicApiDialog
+          deployments={apiDeployments}
+          defaultDeploymentId={isDeploymentApiReady ? deployment?.id : undefined}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              className={halfWidthOutlineButtonClass}
+              disabled={!isDeploymentApiReady}
+            >
+              API
+            </Button>
+          }
+        />
+        <Button asChild className="w-1/2 group transition-colors hover:bg-primary/90 hover:shadow-sm">
           <Link
             href={`/chat?model=${model.id}`}
             onClick={(event) => {
@@ -197,21 +171,36 @@ const ActiveModelCard = memo(({
       </div>
 
       <div className="mt-3 flex w-full gap-3">
-        <PublicApiDialog
-          deployments={apiDeployments}
-          defaultDeploymentId={isDeploymentApiReady ? deployment?.id : undefined}
-          trigger={
-            <Button
-              type="button"
-              variant="outline"
-              className={outlineButtonClass}
-              onClick={(event) => event.stopPropagation()}
-              disabled={!isDeploymentApiReady}
-            >
-              API
-            </Button>
-          }
-        />
+        {isDeploymentOwner && (
+          <Button
+            variant="outline"
+            className={flexOutlineButtonClass}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (deployment?.id) {
+                void handleStopModel(deployment.id);
+              }
+            }}
+            disabled={Boolean(stoppingDeploymentId) || !deployment?.id}
+          >
+            {isStoppingCurrentDeployment ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <Square className="mr-2 size-4" />
+            )}
+            Stop
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          className={flexOutlineButtonClass}
+          onClick={handleOpenLogs}
+          disabled={!deployment?.id}
+        >
+          <Terminal className="mr-2 size-4" />
+          Logs
+        </Button>
         {isDeploymentOwner && (
           <ShareDeploymentDialog
             deploymentId={deployment?.id}
@@ -221,8 +210,7 @@ const ActiveModelCard = memo(({
               <Button
                 type="button"
                 variant="outline"
-                className={halfWidthOutlineButtonClass}
-                onClick={(event) => event.stopPropagation()}
+                className={flexOutlineButtonClass}
                 disabled={!deployment?.id}
               >
                 <Share2 className="mr-2 size-4" />
@@ -232,10 +220,6 @@ const ActiveModelCard = memo(({
           />
         )}
       </div>
-
-      <p className="mt-3 text-center text-xs text-muted-foreground">
-        Click here to view logs
-      </p>
     </div>
   );
 });
