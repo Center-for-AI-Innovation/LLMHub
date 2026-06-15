@@ -71,11 +71,11 @@ const ActiveModelCard = memo(({
   const gradient = modelCardGradient;
   const deployment = getModelDeployment(model);
   const statusInfo = deployment ? getStatusInfo(deployment.status) : null;
-  const isDeploymentApiReady = Boolean(
+  const isDeploymentReady = Boolean(
     deployment &&
       ['ready', 'running'].includes(deployment.status.toLowerCase()),
   );
-  const apiDeployments = deployment && isDeploymentApiReady ? [deployment] : [];
+  const apiDeployments = deployment && isDeploymentReady ? [deployment] : [];
   const isStoppingCurrentDeployment = Boolean(
     deployment?.id && stoppingDeploymentId === deployment.id,
   );
@@ -141,32 +141,44 @@ const ActiveModelCard = memo(({
       <div className="mt-auto flex w-full gap-3">
         <PublicApiDialog
           deployments={apiDeployments}
-          defaultDeploymentId={isDeploymentApiReady ? deployment?.id : undefined}
+          defaultDeploymentId={isDeploymentReady ? deployment?.id : undefined}
           trigger={
             <Button
               type="button"
               variant="outline"
               className={halfWidthOutlineButtonClass}
-              disabled={!isDeploymentApiReady}
+              disabled={!isDeploymentReady}
             >
               API
             </Button>
           }
         />
-        <Button asChild className="w-1/2 group transition-colors hover:bg-primary/90 hover:shadow-sm">
-          <Link
-            href={`/chat?model=${model.id}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              const preferredModelId = deployment?.slurmJobId
-                ? `vllm-job:${deployment.slurmJobId}`
-                : 'vllm-model';
-              setPreferredChatModel(preferredModelId);
-            }}
-          >
-            Chat
-            <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
-          </Link>
+        <Button
+          type="button"
+          className="w-1/2 group transition-colors hover:bg-primary/90 hover:shadow-sm"
+          disabled={!isDeploymentReady}
+          asChild={isDeploymentReady}
+        >
+          {isDeploymentReady ? (
+            <Link
+              href={`/chat?model=${model.id}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                const preferredModelId = deployment?.slurmJobId
+                  ? `vllm-job:${deployment.slurmJobId}`
+                  : 'vllm-model';
+                setPreferredChatModel(preferredModelId);
+              }}
+            >
+              Chat
+              <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
+            </Link>
+          ) : (
+            <>
+              Chat
+              <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
+            </>
+          )}
         </Button>
       </div>
 
