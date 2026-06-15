@@ -24,7 +24,7 @@ import type {
 
 // Stable class names for buttons
 const outlineButtonHoverClass =
-  'text-foreground transition-colors hover:bg-white/80 hover:text-foreground hover:shadow-sm dark:hover:bg-white/15 dark:hover:text-accent-foreground dark:hover:shadow-none';
+  'text-foreground transition-colors hover:bg-white/80 hover:text-foreground hover:shadow-sm dark:hover:bg-white/15 dark:hover:text-foreground dark:hover:shadow-none';
 const halfWidthOutlineButtonClass = cn(
   'w-1/2 bg-white/50 dark:bg-white/5 border-0',
   outlineButtonHoverClass,
