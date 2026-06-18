@@ -24,12 +24,17 @@ class Settings(BaseSettings):
     VEC_INF_ACCOUNT: Optional[str] = None  # SLURM account for vec-inf (can override SLURM_ACCOUNT)
     VEC_INF_WORK_DIR: Optional[str] = None  # Working directory for vec-inf jobs
     VEC_INF_ENV: Optional[str] = None  # Environment variables for container jobs (comma-separated KEY=VALUE pairs)
-
+    
     # Background service settings
     SYNC_INTERVAL: int = int(os.getenv("SYNC_INTERVAL", "60"))  # deployment sync interval in seconds
     EXPIRY_CHECK_INTERVAL: int = int(os.getenv("EXPIRY_CHECK_INTERVAL", "300"))  # expiry check interval in seconds
     MAX_DEPLOYMENTS_PER_CYCLE: int = int(os.getenv("MAX_DEPLOYMENTS_PER_CYCLE", "10"))  # max deployments to process per cycle
     MODEL_SYNC_INTERVAL: int = int(os.getenv("MODEL_SYNC_INTERVAL", "3600"))  # seconds (default: 1 hour)
+
+    # Email settings (unauthenticated campus SMTP relay, IP-restricted)
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "outbound-relays.techservices.illinois.edu")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "25"))
+    SMTP_FROM: str = os.getenv("SMTP_FROM", "no-reply@illinois.edu")
     
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 

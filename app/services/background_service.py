@@ -6,10 +6,14 @@ import random
 from datetime import datetime, timedelta
 from typing import List
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.authorized_users import AuthorizedUsers
+from app.models.email_notification import EmailNotification
 from app.models.model_deployment import ModelDeployment
 from app.repositories.session import SessionLocal
+from app.services.email_service import EmailService
 from app.services.model_service import ModelService
 from app.config.config import settings
 
@@ -23,6 +27,7 @@ class BackgroundService:
     def __init__(self):
         """Initialize the background service."""
         self.model_service = ModelService()
+        self.email_service = EmailService()
         self.running = False
         self.sync_interval = settings.SYNC_INTERVAL
         self.expiry_check_interval = settings.EXPIRY_CHECK_INTERVAL
@@ -143,7 +148,59 @@ class BackgroundService:
             
                 for deployment in active_deployments:
                     try:
-                        self.model_service.update_deployment_status(db, deployment.id)
+                        updated = self.model_service.update_deployment_status(db, deployment.id)
+                        if not updated:
+                            await asyncio.sleep(0.5)
+                            continue
+
+                        # Determine notification type up-front; None means no email for this transition.
+                        if updated.status == "ready":
+                            notification_type = "ready"
+                        elif updated.status == "failed":
+                            notification_type = "completed" if updated.errorMessage == "Slurm job timeout" else "failed"
+                        else:
+                            notification_type = None
+
+                        # Insert the EmailNotification row first and flush to claim the slot atomically via the unique
+                        # constraint on (deploymentId, userId, type). This prevents
+                        # duplicate emails under concurrent sync cycles: the first writer
+                        # to flush wins; any racing worker gets IntegrityError and skips.
+                        if notification_type is not None:
+                            authorized_users = (
+                                db.query(AuthorizedUsers)
+                                .filter_by(deploymentId=updated.id)
+                                .all()
+                            )
+                            for auth_user in authorized_users:
+                                notification = EmailNotification(
+                                    deploymentId=updated.id,
+                                    userId=auth_user.userId,
+                                    type=notification_type,
+                                    status="pending",
+                                )
+                                db.add(notification)
+                                try:
+                                    db.flush()
+                                except IntegrityError:
+                                    db.rollback()  # another worker already claimed this slot
+                                    continue
+
+                                if notification_type == "ready":
+                                    delivered = await self.email_service.notify_deployment_ready(
+                                        db, updated, auth_user.userId
+                                    )
+                                elif notification_type == "completed":
+                                    delivered = await self.email_service.notify_deployment_completed(
+                                        db, updated, auth_user.userId
+                                    )
+                                else:
+                                    delivered = await self.email_service.notify_deployment_failed(
+                                        db, updated, auth_user.userId
+                                    )
+
+                                notification.status = "sent" if delivered else "failed"
+                                db.commit()
+
                         # Add a small delay between updates to avoid overwhelming the system
                         await asyncio.sleep(0.5)
                     except Exception as e:
@@ -185,6 +242,32 @@ class BackgroundService:
                         logger.info(f"Shutting down expired deployment {deployment.id}")
                         # Use the model service to shut down the deployment, which will also release resources
                         self.model_service.shutdown_deployment(db, deployment.id)
+
+                        # Send a notification to the user that the deployment has been shut down
+                        if updated and updated.status == "shutdown":
+                            authorized_users = (
+                                db.query(AuthorizedUsers)
+                                .filter_by(deploymentId=updated.id)
+                                .all()
+                            )
+                            for auth_user in authorized_users:
+                                notification = EmailNotification(
+                                    deploymentId=updated.id,
+                                    userId=auth_user.userId,
+                                    type="completed",
+                                    status="pending",
+                                )
+                                db.add(notification)
+                                try:
+                                    db.flush()
+                                except IntegrityError:
+                                    db.rollback()
+                                    continue
+                                delivered = await self.email_service.notify_deployment_completed(
+                                    db, updated, auth_user.userId
+                                )
+                                notification.status = "sent" if delivered else "failed"
+                                db.commit()
                         # Add a small delay between shutdowns to avoid overwhelming the system
                         await asyncio.sleep(1)
                     except Exception as e:
