@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 217 85% 15%;
+        --card: 0 0% 100%;
+        --card-foreground: 217 85% 15%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 217 85% 15%;
+        --primary: 217 85% 15%;
+        --primary-foreground: 0 0% 98%;
+        --secondary: 16 95% 50%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 217 45% 95%;
+        --muted-foreground: 217 45% 46.1%;
+        --accent: 16 95% 50%;
+        --accent-foreground: 0 0% 98%;
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 217 45% 90%;
+        --input: 217 45% 90%;
+        --ring: 217 85% 15%;
+        --chart-1: 16 95% 50%;
+        --chart-2: 217 85% 15%;
+        --chart-3: 217 70% 35%;
+        --chart-4: 16 75% 65%;
+        --chart-5: 217 65% 45%;
+        --radius: 0.5rem;
+        --sidebar-background: 217 45% 98%;
+        --sidebar-foreground: 217 85% 15%;
+        --sidebar-primary: 217 85% 15%;
+        --sidebar-primary-foreground: 0 0% 98%;
+        --sidebar-accent: 16 95% 50%;
+        --sidebar-accent-foreground: 0 0% 98%;
+        --sidebar-hover: 217 35% 94%;
+        --sidebar-hover-foreground: 217 85% 15%;
+        --sidebar-border: 217 45% 90%;
+        --sidebar-ring: 217 85% 15%;
+    }
+    .dark {
+        --background: 217 85% 8%;
+        --foreground: 217 45% 98%;
+        --card: 217 85% 8%;
+        --card-foreground: 217 45% 98%;
+        --popover: 217 85% 8%;
+        --popover-foreground: 217 45% 98%;
+        --primary: 217 45% 98%;
+        --primary-foreground: 217 85% 15%;
+        --secondary: 16 85% 45%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 217 85% 15%;
+        --muted-foreground: 217 45% 75%;
+        --accent: 16 85% 45%;
+        --accent-foreground: 0 0% 98%;
+        --destructive: 0 62.8% 30.6%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 217 85% 15%;
+        --input: 217 85% 15%;
+        --ring: 217 45% 90%;
+        --chart-1: 16 85% 45%;
+        --chart-2: 217 85% 75%;
+        --chart-3: 217 75% 65%;
+        --chart-4: 16 65% 65%;
+        --chart-5: 217 70% 85%;
+        --sidebar-background: 217 85% 10%;
+        --sidebar-foreground: 217 45% 98%;
+        --sidebar-primary: 217 85% 75%;
+        --sidebar-primary-foreground: 0 0% 100%;
+        --sidebar-accent: 16 85% 45%;
+        --sidebar-accent-foreground: 0 0% 98%;
+        --sidebar-hover: 217 50% 14%;
+        --sidebar-hover-foreground: 217 45% 98%;
+        --sidebar-border: 217 85% 15%;
+        --sidebar-ring: 217 85% 75%;
+    }
+}
+
+@layer utilities {
+    .text-balance {
+        text-wrap: balance;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+        font-family: var(--il-font-sans), "Source Sans 3", "Source Sans Pro", Arial, sans-serif;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        font-family: var(--il-font-heading), Montserrat, "Avenir Next", "Segoe UI", sans-serif;
+    }
+}
+
+.skeleton {
+    * {
+        pointer-events: none !important;
+    }
+
+    *[class^="text-"] {
+        color: transparent;
+        @apply rounded-md bg-foreground/20 select-none animate-pulse;
+    }
+
+    .skeleton-bg {
+        @apply bg-foreground/10;
+    }
+
+    .skeleton-div {
+        @apply bg-foreground/20 animate-pulse;
+    }
+}
+
+.ProseMirror {
+    outline: none;
+}
+
+.cm-editor,
+.cm-gutters {
+    @apply bg-background dark:bg-zinc-800 outline-none selection:bg-zinc-900 !important;
+}
+
+.ͼo.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground,
+.ͼo.cm-selectionBackground,
+.ͼo.cm-content::selection {
+    @apply bg-zinc-200 dark:bg-zinc-900 !important;
+}
+
+.cm-activeLine,
+.cm-activeLineGutter {
+    @apply bg-transparent !important;
+}
+
+.cm-activeLine {
+    @apply rounded-r-sm !important;
+}
+
+.cm-lineNumbers {
+    @apply min-w-7;
+}
+
+.cm-foldGutter {
+    @apply min-w-3;
+}
+
+.cm-lineNumbers .cm-activeLineGutter {
+    @apply rounded-l-sm !important;
+}
+
+.suggestion-highlight {
+    @apply bg-blue-200 hover:bg-blue-300 dark:hover:bg-blue-400/50 dark:text-blue-50 dark:bg-blue-500/40;
+}
