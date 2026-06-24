@@ -126,31 +126,6 @@ pnpm format
 pnpm build
 ```
 
-## Maintaining Upstream Subtrees
-
-The backend and frontend directories are maintained as Git subtrees with their
-upstream histories preserved.
-
-Configured upstream remotes:
-
-```sh
-git remote add backend https://github.com/center-for-ai-innovation/llm-serving-backend.git
-git remote add frontend https://github.com/Center-for-AI-Innovation/llm-serving-frontend.git
-```
-
-To pull future upstream changes:
-
-```sh
-git fetch backend main
-git subtree pull --prefix=backend backend main
-
-git fetch frontend main
-git subtree pull --prefix=frontend frontend main
-```
-
-If `git subtree` is not available in your Git installation, install the Git
-subtree helper package for your platform before running these commands.
-
 ## License
 
 See [LICENSE](LICENSE).
