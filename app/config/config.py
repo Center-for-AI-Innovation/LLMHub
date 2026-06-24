@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     EXPIRY_CHECK_INTERVAL: int = int(os.getenv("EXPIRY_CHECK_INTERVAL", "300"))  # expiry check interval in seconds
     MAX_DEPLOYMENTS_PER_CYCLE: int = int(os.getenv("MAX_DEPLOYMENTS_PER_CYCLE", "10"))  # max deployments to process per cycle
     MODEL_SYNC_INTERVAL: int = int(os.getenv("MODEL_SYNC_INTERVAL", "3600"))  # seconds (default: 1 hour)
+
+    # Email settings (unauthenticated campus SMTP relay, IP-restricted)
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "outbound-relays.techservices.illinois.edu")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "25"))
+    SMTP_FROM: str = os.getenv("SMTP_FROM", "no-reply@illinois.edu")
     
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
