@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const response = await fetch(new URL('/api/auth/sign-in/oauth2', request.url), {
+  const internalBaseUrl = `http://localhost:${process.env.PORT ?? 3000}`;
+  const response = await fetch(new URL('/api/auth/sign-in/oauth2', internalBaseUrl), {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

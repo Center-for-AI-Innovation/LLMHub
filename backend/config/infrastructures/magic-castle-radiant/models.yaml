@@ -1,0 +1,287 @@
+models:
+  llava-1.5-7b-hf:
+    model_family: llava-hf
+    model_variant: 7b-hf
+    model_type: VLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 32000
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 4096
+  llava-1.5-13b-hf:
+    model_family: llava-hf
+    model_variant: 13b-hf
+    model_type: VLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 32000
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 4096
+  llava-v1.6-mistral-7b-hf:
+    model_family: llava-hf
+    model_variant: mistral-7b-hf
+    model_type: VLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 32064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Mistral-7B-Instruct-v0.1:
+    model_family: Mistral
+    model_variant: 7B-Instruct-v0.1
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 32000
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Mistral-7B-Instruct-v0.2:
+    model_family: Mistral
+    model_variant: 7B-Instruct-v0.2
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 32000
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Mistral-7B-v0.3:
+    model_family: Mistral
+    model_variant: 7B-v0.3
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 32768
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Mistral-7B-Instruct-v0.3:
+    model_family: Mistral
+    model_variant: 7B-Instruct-v0.3
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 32768
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Qwen2.5-0.5B-Instruct:
+    model_family: Qwen2.5
+    model_variant: 0.5B-Instruct
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Qwen2.5-1.5B-Instruct:
+    model_family: Qwen2.5
+    model_variant: 1.5B-Instruct
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Qwen2.5-3B-Instruct:
+    model_family: Qwen2.5
+    model_variant: 3B-Instruct
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Qwen2.5-7B-Instruct:
+    model_family: Qwen2.5
+    model_variant: 7B-Instruct
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Qwen2.5-14B-Instruct:
+    model_family: Qwen2.5
+    model_variant: 14B-Instruct
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Qwen2.5-Math-1.5B-Instruct:
+    model_family: Qwen2.5
+    model_variant: Math-1.5B-Instruct
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 4096
+  Qwen2.5-Math-7B-Instruct:
+    model_family: Qwen2.5
+    model_variant: Math-7B-Instruct
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 4096
+  Qwen2.5-Coder-7B-Instruct:
+    model_family: Qwen2.5
+    model_variant: Coder-7B-Instruct
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 32768
+  Qwen2.5-Math-PRM-7B:
+    model_family: Qwen2.5
+    model_variant: Math-PRM-7B
+    model_type: Reward_Modeling
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 4096
+  Pixtral-12B-2409:
+    model_family: mistralai
+    model_variant: 12B-2409
+    model_type: VLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 131072
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 8192
+  DeepSeek-R1-Distill-Llama-8B:
+    model_family: DeepSeek-AI
+    model_variant: Distill-Llama-8B
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 128256
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 131072
+  DeepSeek-R1-Distill-Qwen-14B:
+    model_family: DeepSeek-AI
+    model_variant: Distill-Qwen-14B
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 65536
+  DeepSeek-R1-Distill-Qwen-7B:
+    model_family: DeepSeek-AI
+    model_variant: Distill-Qwen-7B
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 131072
+  DeepSeek-R1-Distill-Qwen-1.5B:
+    model_family: DeepSeek-AI
+    model_variant: Distill-Qwen-1.5B
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 152064
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 131072
+  deepseek-vl2-small:
+    model_family: DeepSeek-AI
+    model_variant: small
+    model_type: VLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 129280
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 4096
+  # DeepSeek-V4-Flash:
+  #   model_family: DeepSeek-AI
+  #   model_variant: V4-Flash
+  #   model_type: LLM
+  #   num_nodes: 2
+  #   gpus_per_node: 1
+  #   cpus_per_task: 24
+  #   mem_per_node: 200G
+  #   vocab_size: 129280
+  #   resource_type: a100
+  #   time: 08:00:00
+  #   env:
+  #     RAY_ADDRESS: $ray_head
+  #   vllm_args:
+  #     --trust-remote-code: ""
+  #     --dtype: float16
+  #     --tensor-parallel-size: 2
+  #     --max-model-len: 8192
+  #     --max-num-seqs: 64
+  #     --gpu-memory-utilization: "0.95"
+  #     --enable-expert-parallel: ""
+  #     --block-size: 128
+  Qwen3-8B:
+    model_family: Qwen
+    model_variant: 8B
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 151936
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 40960
+  Qwen3-14B:
+    model_family: Qwen
+    model_variant: 14B
+    model_type: LLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 151936
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 40960

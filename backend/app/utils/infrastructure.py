@@ -2,7 +2,8 @@
 Infrastructure management utilities for multi-infrastructure support.
 
 This module provides functionality to detect, select, and manage different
-infrastructure configurations (campus-cluster, delta, delta-ai-ncsa, etc.).
+infrastructure configurations (campus-cluster, delta, delta-ai-ncsa,
+magic-castle-radiant, etc.).
 """
 
 import os
@@ -48,6 +49,15 @@ class InfrastructureManager:
         "delta-ai-ncsa": {
             "name": "Delta AI NCSA",
             "hostname_patterns": ["delta-ai"],
+            "default": False
+        },
+        "magic-castle-radiant": {
+            "name": "Magic Castle Radiant",
+            "hostname_patterns": [
+                "magic-castle-radiant",
+                "magic-castle",
+                "llmhub"
+            ],
             "default": False
         }
     }

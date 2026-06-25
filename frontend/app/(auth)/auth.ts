@@ -37,6 +37,7 @@ const authPlugins = authConfig.isCilogonEnabled
             clientSecret: process.env.CILOGON_CLIENT_SECRET || '',
             discoveryUrl:
               process.env.CILOGON_DISCOVERY_URL || DEFAULT_CILOGON_DISCOVERY_URL,
+              redirectURI: `${getBaseURL()}/api/auth/oauth2/callback/cilogon`,
             scopes: ['openid', 'email', 'profile'],
             authorizationUrlParams: {
               skin: process.env.CILOGON_SKIN || DEFAULT_CILOGON_SKIN,
@@ -65,6 +66,8 @@ export const betterAuthInstance = betterAuth({
   baseURL: {
     baseURL: getBaseURL(),
     allowedHosts: getAllowedAuthHosts(),
+    protocol: 'https',
+    fallback: getBaseURL(),
   },
   basePath: '/api/auth',
   secret: process.env.BETTER_AUTH_SECRET,

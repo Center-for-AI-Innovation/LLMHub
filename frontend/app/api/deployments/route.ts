@@ -4,8 +4,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
-const DEFAULT_LAUNCH_RESOURCE_TYPE = 'nvidia_a40';
-const DEFAULT_LAUNCH_PARTITION = 'gpuA40x4';
+const DEFAULT_LAUNCH_RESOURCE_TYPE = '';
+const DEFAULT_LAUNCH_PARTITION = 'node';
 const DEFAULT_LAUNCH_TIME = '00:30:00';
 
 function getDeploymentId(payload: unknown): string | null {

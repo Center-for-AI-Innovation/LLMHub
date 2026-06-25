@@ -294,6 +294,11 @@ class ModelService:
     def get_deployment(self, db: Session, deployment_id: UUID) -> Optional[ModelDeployment]:
         """Get a model deployment by ID."""
         return db.query(ModelDeployment).filter(ModelDeployment.id == deployment_id).first()
+    
+    def get_model_family(self, db: Session, model_id: str) -> Optional[str]:
+        """Get the model family from the model id."""
+        model = db.query(AvailableModel).filter(AvailableModel.id == model_id).first()
+        return model.family if model is not None else None
 
     def get_deployment_by_job_id(self, db: Session, slurm_job_id: str) -> Optional[ModelDeployment]:
         """Get a model deployment by Slurm job ID."""
@@ -638,6 +643,7 @@ class ModelService:
         if refreshed:
             db_deployment = refreshed
 
+        # Get the log directory from the llm_client
         log_base = get_vec_inf_log_base_dir()
         if not log_base:
             return {
@@ -649,28 +655,19 @@ class ModelService:
                     "modelName": db_deployment.modelName,
                 },
             }
-
-        model_name = db_deployment.modelName
+        
+        model_id = db_deployment.modelId
         slurm_job_id = db_deployment.slurmJobId
 
-        # vec-inf layout: ModelLauncher uses models.yaml ``model_family`` and registry ``model_name``
-        # (see vec_inf.client._helper.ModelLauncher._setup_log_files).
-        cfg = self.llm_client.get_model_details(model_name)
-        if cfg.get("success") and cfg.get("details") is not None:
-            det = cfg["details"]
-            mf = getattr(det, "model_family", None)
-            model_family = str(mf) if mf else _infer_model_family_from_model_name(model_name)
-        else:
-            model_family = _infer_model_family_from_model_name(model_name)
-
-        job_name = model_name
-
-        # Log file structure: {log_dir}/{model_family}/{model_name}.{job_id}/...
-        job_dir = Path(log_base) / model_family / f"{job_name}.{slurm_job_id}"
+        model_family = self.get_model_family(db, model_id)
+        # Raise error if model_family is None
+        if not model_family:
+            raise ValueError(f"Model family not found for model {model_id}")
+        job_dir = Path(log_base) / model_family / f"{model_id}.{slurm_job_id}"
         
         log_files = {
-            "err": job_dir / f"{job_name}.{slurm_job_id}.err",
-            "out": job_dir / f"{job_name}.{slurm_job_id}.out",
+            "err": job_dir / f"{model_id}.{slurm_job_id}.err",
+            "out": job_dir / f"{model_id}.{slurm_job_id}.out",
         }
         
         logs = {
@@ -1034,6 +1031,7 @@ class ModelService:
             added_count = 0
             updated_count = 0
             unchanged_count = 0
+            removed_count = 0
             
             # Process models in parallel
             results = []
@@ -1084,16 +1082,25 @@ class ModelService:
                 elif status == "unchanged":
                     unchanged_count += 1
             
+            # Remove models that are no longer in the current YAML
+            synced_model_ids = {m.get("model_name") for m in models}
+            stale_ids = set(existing_models.keys()) - synced_model_ids
+            if stale_ids:
+                db.execute(delete(AvailableModel).where(AvailableModel.id.in_(stale_ids)))
+                removed_count = len(stale_ids)
+                logger.info(f"Removed {removed_count} stale models: {stale_ids}")
+
             # Commit changes
             db.commit()
             
             return {
                 "success": True,
-                "message": f"Successfully synced models: {added_count} added, {updated_count} updated, {unchanged_count} unchanged",
+                "message": f"Successfully synced models: {added_count} added, {updated_count} updated, {unchanged_count} unchanged, {removed_count} removed",
                 "count": len(models),
                 "added": added_count,
                 "updated": updated_count,
                 "unchanged": unchanged_count,
+                "removed": removed_count,
             }
         except Exception as e:
             db.rollback()
