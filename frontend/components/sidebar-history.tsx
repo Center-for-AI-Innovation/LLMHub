@@ -204,7 +204,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
     return (
       <SidebarGroup>
         <SidebarGroupContent>
-          <div className="px-2 text-zinc-500 w-full flex flex-row justify-center items-center text-sm gap-2">
+          <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
             Login to see previous chats and deploy different models
           </div>
         </SidebarGroupContent>
@@ -245,7 +245,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
     return (
       <SidebarGroup>
         <SidebarGroupContent>
-          <div className="px-2 text-zinc-500 w-full flex flex-row justify-center items-center text-sm gap-2">
+          <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
             Your conversations will appear here once you start chatting!
           </div>
         </SidebarGroupContent>
