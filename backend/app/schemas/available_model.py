@@ -28,6 +28,7 @@ class AvailableModelBase(BaseModel):
     specs: ModelSpecs
     vocabSize: Optional[int] = None
     huggingfaceId: Optional[str] = None
+    gated: Optional[str] = None
 
 
 class AvailableModelCreate(AvailableModelBase):
@@ -49,6 +50,7 @@ class AvailableModelUpdate(BaseModel):
     specs: Optional[ModelSpecs] = None
     vocabSize: Optional[int] = None
     huggingfaceId: Optional[str] = None
+    gated: Optional[str] = None
 
 
 class AvailableModelResponse(AvailableModelBase):
