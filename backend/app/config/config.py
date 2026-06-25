@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     MODEL_SYNC_INTERVAL: int = int(
         os.getenv("MODEL_SYNC_INTERVAL", "3600")
     )  # seconds (default: 1 hour)
+    HF_TOKEN: Optional[str] = os.getenv(
+        "HF_TOKEN"
+    )  # Default HF token for model downloads
 
     # Email settings (unauthenticated campus SMTP relay, IP-restricted)
     SMTP_HOST: str = os.getenv("SMTP_HOST", "outbound-relays.techservices.illinois.edu")

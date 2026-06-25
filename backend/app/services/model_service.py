@@ -8,13 +8,20 @@ from uuid import UUID
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.config.config import settings
 from app.config.logging import get_logger
 from app.models.available_model import AvailableModel
 from app.models.model_deployment import ModelDeployment
 from app.models.model_request import ModelRequest
+from app.schemas.available_model import AvailableModelCreate
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.services.resource_service import ResourceService
+from app.utils.hf_auth import (
+    append_hf_token_to_env,
+    check_model_hf_access,
+    fetch_model_gating_status,
+)
 from app.utils.infrastructure import (
     get_vec_inf_log_base_dir,
     get_vec_inf_user_workspace_dir,
@@ -159,8 +166,11 @@ class ModelService:
         self, db: Session, deployment: ModelDeploymentCreate
     ) -> ModelDeployment:
         """Launch a model and create a deployment record."""
-        # Extract parameters for the launch command
-        params = deployment.model_dump(exclude={"modelName", "modelId", "userId"})
+        # Extract parameters for the launch command (never persist hf_token on the deployment row)
+        params = deployment.model_dump(
+            exclude={"modelName", "modelId", "userId", "hf_token"}
+        )
+        hf_token = deployment.hf_token or settings.HF_TOKEN
         model_id = deployment.modelId or deployment.modelName
 
         # Get the enable_cloudflare_tunnel parameter
@@ -176,6 +186,33 @@ class ModelService:
         # Get the number of GPUs requested
         num_gpus = params.get("num_gpus")
         num_nodes = params.get("num_nodes", 1)
+
+        # Early Hugging Face access check (requested "fast exit")
+        db_model = (
+            db.query(AvailableModel).filter(AvailableModel.id == model_id).first()
+        )
+        hf_repo_id = db_model.huggingfaceId if db_model else None
+        cached_gated = db_model.gated if db_model else None
+
+        has_access, hf_err = check_model_hf_access(cached_gated, hf_repo_id, hf_token)
+        if not has_access:
+            db_deployment = ModelDeployment(
+                modelId=model_id,
+                modelName=deployment.modelName,
+                userId=deployment.userId,
+                slurmJobId="failed",
+                status="failed",
+                errorMessage=(
+                    "Hugging Face model access denied or unavailable. "
+                    "For gated or private models, supply a valid hf_token with Hub access. "
+                    f"Details: {hf_err}"
+                ),
+                resourceAllocation=resource_allocation,
+            )
+            db.add(db_deployment)
+            db.commit()
+            db.refresh(db_deployment)
+            return db_deployment
 
         # If GPU resources are requested, check availability and allocate
         if num_gpus:
@@ -210,6 +247,10 @@ class ModelService:
             logger.info(
                 f"Allocated {total_gpus} GPU resources for model {deployment.modelName}"
             )
+
+        if hf_token:
+            base_env = params.get("env") or getattr(settings, "VEC_INF_ENV", None)
+            params["env"] = append_hf_token_to_env(base_env, hf_token)
 
         # Launch the model
         logger.info(
@@ -1075,6 +1116,15 @@ class ModelService:
         vocab_size = model_data.get("vocab_size")
         huggingface_id = model_data.get("huggingface_id")
 
+        # Refresh gating status from HF Hub. On failure keep the cached DB value
+        # so a transient API error doesn't clear a known-gated model's status.
+        if huggingface_id:
+            gated = fetch_model_gating_status(huggingface_id)
+            if gated is None and existing_model and existing_model.gated:
+                gated = existing_model.gated
+        else:
+            gated = existing_model.gated if existing_model else None
+
         # Create model specs
         specs = {
             "gpus": num_gpus,
@@ -1101,6 +1151,7 @@ class ModelService:
             "specs": specs,
             "vocabSize": vocab_size,
             "huggingfaceId": huggingface_id,
+            "gated": gated,
         }
 
         # Check if model exists and needs update
@@ -1114,6 +1165,7 @@ class ModelService:
                 or existing_model.vocabSize != vocab_size
                 or existing_model.huggingfaceId != huggingface_id
                 or existing_model.specs != specs
+                or existing_model.gated != gated
             )
 
             if needs_update:
