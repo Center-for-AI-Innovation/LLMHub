@@ -662,7 +662,15 @@ class ModelService:
         model_family = self.get_model_family(db, model_id)
         # Raise error if model_family is None
         if not model_family:
-            raise ValueError(f"Model family not found for model {model_id}")
+            return {
+                "success": False,
+                "error": f"Model family not found for model {model_id}",
+                "deployment": {
+                    "id": str(db_deployment.id),
+                    "status": db_deployment.status,
+                    "modelName": db_deployment.modelName,
+                },
+            }   
         job_dir = Path(log_base) / model_family / f"{model_id}.{slurm_job_id}"
         
         log_files = {
@@ -1083,8 +1091,12 @@ class ModelService:
                     unchanged_count += 1
             
             # Remove models that are no longer in the current YAML
-            synced_model_ids = {m.get("model_name") for m in models}
+            synced_model_ids = {m.get("model_name") for m in models if m.get("model_name")}
             stale_ids = set(existing_models.keys()) - synced_model_ids
+            # Check rows did not exist in ModelDeployment table to avoid orphaned rows
+            if stale_ids:
+                referenced_ids = {row[0] for row in db.query(ModelDeployment.modelId).distinct().all()}
+                stale_ids -= referenced_ids
             if stale_ids:
                 db.execute(delete(AvailableModel).where(AvailableModel.id.in_(stale_ids)))
                 removed_count = len(stale_ids)

@@ -200,7 +200,8 @@ class LLMInferenceClient:
             return {"success": False, "error": str(e)}
 
     def list_available_models(self):
-        # Only models defined in the infrastructure models.yaml are returned.
+        # Prefer models defined in the infrastructure models.yaml;
+        # fall back to vec-inf's merged/default list if not found.
         try:
             user_config_path = self._resolve_user_models_config_path()
             if user_config_path:
