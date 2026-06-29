@@ -1,4 +1,4 @@
-export const DEFAULT_APP_URL = 'http://localhost:3000'; // Will need to be modified for production
+export const DEFAULT_APP_URL = 'http://localhost:3000';
 export const DEFAULT_CILOGON_DISCOVERY_URL =
   'https://cilogon.org/.well-known/openid-configuration';
 export const DEFAULT_CILOGON_SKIN = 'illinois-chat';
