@@ -36,9 +36,9 @@ def get_launch_defaults() -> Dict[str, Any]:
             detail="Could not load launch defaults from infrastructure configuration.",
         )
     return {
-        "partition": default_args.get("partition", ""),
-        "resource_type": default_args.get("resource_type", ""),
-        "time": default_args.get("time", "00:30:00"),
+        "partition": default_args.get("partition"),
+        "resource_type": default_args.get("resource_type"),
+        "time": default_args.get("time"),
     }
 
 

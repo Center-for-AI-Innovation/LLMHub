@@ -95,7 +95,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/api/models/deployments`, {
+    if (!body.time || !body.partition || !body.resource_type) {
+      return NextResponse.json(
+        { error: 'Time, partition, and resource type are required' },
+        { status: 400 },
+      );
+    }
+
+    const response = await fetch(`${BACKEND_API_URL}/api/models/deployments`, {  
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
