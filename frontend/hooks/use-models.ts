@@ -288,8 +288,8 @@ export function useLaunchDefaults() {
       }
       return res.json();
     },
-    staleTime: Infinity,
-    gcTime: Infinity,
+    staleTime: 55 * 60 * 1000, // 55 minutes
+    gcTime: 24 * 60 * 60 * 1000, // 24 hours
     retry: false,
   });
 }
