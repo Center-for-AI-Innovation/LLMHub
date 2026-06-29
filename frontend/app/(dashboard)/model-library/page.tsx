@@ -17,6 +17,7 @@ import {
   useModelDeployments,
   useRefreshModels,
   useLaunchModel,
+  useLaunchDefaults,
   type ModelDeployment,
   type ModelInfo,
 } from '@/hooks/use-models';
@@ -69,6 +70,7 @@ function ModelLibraryPageInner() {
 
   const { mutate: refreshModels, isPending: isRefreshing } = useRefreshModels();
   const { mutateAsync: launchModelAsync } = useLaunchModel();
+  const { data: launchDefaults, error: launchDefaultsError } = useLaunchDefaults();
 
   const error = modelsError || deploymentsError;
   const isSearching = debouncedSearchQuery.trim() !== '';
@@ -95,13 +97,23 @@ function ModelLibraryPageInner() {
     family?: string,
     time?: string,
   ) {
+    if (!launchDefaults) {
+      const message = launchDefaultsError instanceof Error
+        ? launchDefaultsError.message
+        : 'Launch configuration unavailable. Please refresh and try again.';
+      setLaunchError(message);
+      toast({ title: 'Cannot launch model', description: message, variant: 'destructive' });
+      return;
+    }
     setLaunchingModelId(modelId);
     try {
       const deployment = await launchModelAsync({
         modelId,
         huggingfaceId,
         family,
-        time,
+        time: time ?? launchDefaults.time,
+        partition: launchDefaults.partition,
+        resource_type: launchDefaults.resource_type,
       });
       setLaunchError(null);
       if (deployment?.id) {
