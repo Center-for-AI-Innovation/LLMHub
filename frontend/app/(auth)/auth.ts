@@ -10,7 +10,6 @@ import { redirect } from 'next/navigation';
 import {
   DEFAULT_CILOGON_DISCOVERY_URL,
   DEFAULT_CILOGON_SKIN,
-  getAllowedAuthHosts,
   getBaseURL,
   isCilogonEnabled,
 } from '@/lib/auth/config';
@@ -63,12 +62,7 @@ const authPlugins = authConfig.isCilogonEnabled
 
 export const betterAuthInstance = betterAuth({
   appName: 'LLM Hub',
-  baseURL: {
-    baseURL: getBaseURL(),
-    allowedHosts: getAllowedAuthHosts(),
-    protocol: 'https',
-    fallback: getBaseURL(),
-  },
+  baseURL: getBaseURL(),
   basePath: '/api/auth',
   secret: process.env.BETTER_AUTH_SECRET,
   database: drizzleAdapter(db, {

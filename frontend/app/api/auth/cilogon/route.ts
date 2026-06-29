@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
   }
 
   const redirectResponse = NextResponse.redirect(url);
-  for (const setCookie of authHeaders.getSetCookie()) {
+  for (const setCookie of authHeaders.getSetCookie?.() ?? []) {
     redirectResponse.headers.append('set-cookie', setCookie);
   }
 

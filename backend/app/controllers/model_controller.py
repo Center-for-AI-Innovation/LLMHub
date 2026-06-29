@@ -29,13 +29,13 @@ def get_launch_defaults() -> Dict[str, Any]:
     """Return infrastructure-specific default launch parameters from environment.yaml."""
     mgr = InfrastructureManager()
     env_config = mgr.get_environment_config()
-    default_args = (env_config or {}).get("default_args")
+    default_args = ((env_config or {}).get("default_args") or {})
 
     partition = default_args.get("partition")
     resource_type = default_args.get("resource_type")
     time = default_args.get("time")
 
-    if not partition or not resource_type or not time:
+    if partition is None or resource_type is None or time is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Infrastructure configuration is missing required launch defaults (partition, resource_type, time).",
