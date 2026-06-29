@@ -200,9 +200,27 @@ class LLMInferenceClient:
             return {"success": False, "error": str(e)}
 
     def list_available_models(self):
+        # Prefer models defined in the infrastructure models.yaml;
+        # fall back to vec-inf's merged/default list if not found.
         try:
+            user_config_path = self._resolve_user_models_config_path()
+            if user_config_path:
+                import yaml as _yaml
+                with open(user_config_path) as fh:
+                    raw = _yaml.safe_load(fh) or {}
+                names = list(raw.get("models", {}).keys())
+                logger.info(
+                    "Loaded %d models from infrastructure config: %s",
+                    len(names),
+                    user_config_path,
+                )
+                return {"success": True, "models": names}
+
+            # Fallback: no user config found, defer to vec-inf's merged list
+            logger.warning(
+                "No infrastructure models.yaml found; falling back to vec-inf default model list"
+            )
             models = self.client.list_models()
-            # Normalize to a simple list of names if ModelInfo objects
             try:
                 names = [getattr(m, "name", str(m)) for m in models]
                 return {"success": True, "models": names}
@@ -211,6 +229,20 @@ class LLMInferenceClient:
         except Exception as e:
             logger.error(f"Failed to list available models: {e}")
             return {"success": False, "error": str(e)}
+
+    def _resolve_user_models_config_path(self) -> Optional[str]:
+        """Return the path to the infrastructure-specific models.yaml, or None."""
+        explicit = os.getenv("VEC_INF_MODEL_CONFIG")
+        if explicit and Path(explicit).exists():
+            return explicit
+
+        config_dir = os.getenv("VEC_INF_CONFIG_DIR")
+        if config_dir:
+            candidate = Path(config_dir) / "models.yaml"
+            if candidate.exists():
+                return str(candidate)
+
+        return None
 
     def get_model_details(self, model_name: str):
         try:

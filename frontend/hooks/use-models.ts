@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { type LaunchDefaults } from '@/app/api/launch-defaults/route';
 
 import { type ShareDeploymentResponse } from '@/lib/models/deployment-sharing';
 
@@ -273,6 +274,26 @@ export function useChatModels() {
   });
 }
 
+export function useLaunchDefaults() {
+  return useQuery<LaunchDefaults>({
+    queryKey: ['launch-defaults'],
+    queryFn: async () => {
+      const res = await fetch('/api/launch-defaults');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(
+          (errorData as { error?: string }).error ||
+            `Failed to fetch launch defaults (${res.status})`,
+        );
+      }
+      return res.json();
+    },
+    staleTime: 55 * 60 * 1000, // 55 minutes
+    gcTime: 24 * 60 * 60 * 1000, // 24 hours
+    retry: false,
+  });
+}
+
 // Launch a model
 export function useLaunchModel() {
   const queryClient = useQueryClient();
@@ -282,7 +303,9 @@ export function useLaunchModel() {
       modelId: string;
       huggingfaceId?: string;
       family?: string;
-      time?: string;
+      time: string;
+      partition: string;
+      resource_type: string;
     }): Promise<ModelDeployment> => {
       // Construct HuggingFace model ID if not provided
       // Most HF model paths follow pattern: Organization/ModelName
@@ -321,8 +344,10 @@ export function useLaunchModel() {
         },
         body: JSON.stringify({
           modelId: params.modelId,
-          hf_model: hfModel || params.modelId, // Use constructed HF model ID
+          hf_model: hfModel || params.modelId,
           time: params.time,
+          partition: params.partition,
+          resource_type: params.resource_type,
         }),
       });
 

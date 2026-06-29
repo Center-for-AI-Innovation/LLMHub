@@ -6,7 +6,7 @@ const DEFAULT_LOCAL_ALLOWED_HOSTS = [
   'localhost:3000',
   '127.0.0.1:3000',
   'localhost:3001',
-  '127.0.0.1:3001',
+  '127.0.0.1:3001'
 ] as const;
 
 export function getBaseURL() {
