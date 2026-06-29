@@ -95,7 +95,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!body.time || !body.partition || !body.resource_type) {
+    if (
+      body.time == null ||
+      body.partition == null ||
+      body.resource_type == null
+    ) {
       return NextResponse.json(
         { error: 'Time, partition, and resource type are required' },
         { status: 400 },
