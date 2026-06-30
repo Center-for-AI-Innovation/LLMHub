@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { type LaunchDefaults } from '@/app/api/launch-defaults/route';
 
 import { type ShareDeploymentResponse } from '@/lib/models/deployment-sharing';
+import { useDebounce } from '@/hooks/use-debounce';
 
 
 const USE_LOCAL_TEST_DEPLOYMENTS =
@@ -482,5 +483,79 @@ export function useDeployment(deploymentId: string | null) {
     enabled: !!deploymentId,
     refetchInterval: 3000, // Poll every 3 seconds for status updates
     staleTime: 2000,
+  });
+}
+
+export type UserSearchResult = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+// Search registered users by name or email for share autosuggest
+export function useUserSearch(query: string) {
+  const debouncedQuery = useDebounce(query.trim(), 300);
+
+  return useQuery({
+    queryKey: ['userSearch', debouncedQuery],
+    queryFn: async (): Promise<UserSearchResult[]> => {
+      const res = await fetch(
+        `/api/users/search?q=${encodeURIComponent(debouncedQuery)}`,
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to search users');
+      }
+
+      const data = await res.json();
+      return data.users;
+    },
+    enabled: debouncedQuery.length > 0,
+    staleTime: 30000,
+    gcTime: 300000,
+  });
+}
+
+export type DeploymentAuthorizedUser = {
+  userId: string;
+  permission: 'owner' | 'user';
+  name: string;
+  email: string;
+};
+
+export type DeploymentSharingInfo = {
+  authorizedUsers: DeploymentAuthorizedUser[];
+  pendingInvites: Array<{
+    id: string;
+    email: string;
+    permission: 'owner' | 'user';
+  }>;
+};
+
+// Current access (authorized users + pending invites) for a deployment
+export function useDeploymentSharing(
+  deploymentId: string | null | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['deploymentSharing', deploymentId],
+    queryFn: async (): Promise<DeploymentSharingInfo> => {
+      if (!deploymentId) {
+        throw new Error('Deployment ID is required');
+      }
+      const res = await fetch(
+        `/api/models/deployments/${encodeURIComponent(deploymentId)}/share`,
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to load sharing info');
+      }
+
+      return res.json();
+    },
+    enabled: !!deploymentId && enabled,
+    staleTime: 10000,
   });
 }

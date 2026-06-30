@@ -108,6 +108,17 @@ export async function getUserByApiKeyHash(apiKeyHash: string) {
   }
 }
 
+export async function searchUsers({ query }: { query: string }) {
+  return await db
+    .select({ id: user.id, name: user.name, email: user.email })
+    .from(user)
+    .where(
+      or(ilike(user.name, `%${query}%`), ilike(user.email, `%${query}%`)),
+    )
+    .orderBy(asc(user.name))
+    .limit(20);
+}
+
 
 // Chat and Message Utility Functions
 // ==========================================
@@ -703,13 +714,17 @@ export async function removeUserFromDeployment({
 /**
  * Return all access rows for a given deployment (owner + shared users).
  */
-export async function getAuthorizedUsersByDeploymentId(
-  deploymentId: string,
-): Promise<AuthorizedUsers[]> {
+export async function getAuthorizedUsersByDeploymentId(deploymentId: string) {
   try {
     return await db
-      .select()
+      .select({
+        userId: authorizedUsers.userId,
+        permission: authorizedUsers.permission,
+        name: user.name,
+        email: user.email,
+      })
       .from(authorizedUsers)
+      .innerJoin(user, eq(authorizedUsers.userId, user.id))
       .where(eq(authorizedUsers.deploymentId, deploymentId));
   } catch (error) {
     console.error('Failed to get authorized users by deployment id from database', error);
