@@ -33,7 +33,7 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
 
   if (!model) {
     return (
-      <div className="relative p-6 rounded-3xl bg-gradient-to-br from-primary/10 to-primary/5 shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] h-[340px] flex items-center justify-center">
+      <div className="relative p-6 rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] h-[340px] flex items-center justify-center">
         <Loader2 className="size-6 animate-spin text-primary" />
       </div>
     );
@@ -48,7 +48,7 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
   return (
     <div
       className={cn(
-        'relative p-6 rounded-[1.5rem] bg-gradient-to-br',
+        'relative p-6 rounded-2xl bg-gradient-to-br',
         gradient,
         'shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]',
         'hover:shadow-[0_4px_20px_rgba(0,0,0,0.12)] dark:hover:shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]',

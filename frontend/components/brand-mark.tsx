@@ -19,12 +19,7 @@ export function BrandMark({ href = '/', className }: BrandMarkProps) {
         height={36}
         className="rounded-sm"
       />
-      <span
-        className="tracking-tight text-[hsl(217,85%,15%)] dark:text-white text-2xl font-bold"
-        style={{
-          fontFamily: 'Montserrat, var(--il-font-heading), "Avenir Next", "Segoe UI", sans-serif',
-        }}
-      >
+      <span className="tracking-tight text-primary dark:text-foreground text-2xl font-bold font-display">
         LLM Hub
       </span>
     </Link>

@@ -37,11 +37,11 @@ const STATUS_LABEL: Record<ShareDeploymentResultEntry['status'], string> = {
 };
 
 const STATUS_TONE: Record<ShareDeploymentResultEntry['status'], string> = {
-  added: 'text-emerald-600 dark:text-emerald-400',
+  added: 'text-status-success',
   already_shared: 'text-muted-foreground',
-  invited: 'text-sky-600 dark:text-sky-400',
+  invited: 'text-status-info',
   already_invited: 'text-muted-foreground',
-  invalid: 'text-amber-600 dark:text-amber-400',
+  invalid: 'text-status-neutral',
   failed: 'text-destructive',
 };
 
