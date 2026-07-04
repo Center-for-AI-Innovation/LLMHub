@@ -15,7 +15,7 @@ from typing import Any
 
 import yaml
 
-from .constants import DEFAULT_FRAMEWORK_OVERHEAD_GIB
+from .constants import DEFAULT_FRAMEWORK_OVERHEAD_GIB, DEFAULT_TP_COMM_BUFFER_GIB
 
 _DATA_PACKAGE = "app.services.fit_estimator.data"
 _HARDWARE_RESOURCE = "delta_hardware.yaml"
@@ -32,6 +32,7 @@ class GpuPartition:
     vendor: str
     vram_gib_per_gpu: float
     framework_overhead_gib: float
+    tp_communication_buffer_gib: float = DEFAULT_TP_COMM_BUFFER_GIB
     su_per_gpu_hour: int | str | None = None
     max_walltime: str | None = None
 
@@ -48,6 +49,9 @@ def _parse_entry(raw: dict[str, Any]) -> GpuPartition:
         vram_gib_per_gpu=float(raw["vram_gib_per_gpu"]),
         framework_overhead_gib=float(
             raw.get("framework_overhead_gib", DEFAULT_FRAMEWORK_OVERHEAD_GIB)
+        ),
+        tp_communication_buffer_gib=float(
+            raw.get("tp_communication_buffer_gib", DEFAULT_TP_COMM_BUFFER_GIB)
         ),
         su_per_gpu_hour=raw.get("su_per_gpu_hour"),
         max_walltime=raw.get("max_walltime"),

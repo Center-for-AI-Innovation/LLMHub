@@ -44,6 +44,13 @@ DEFAULT_DTYPE = "bfloat16"
 # live in the YAML so they are swappable when the calibration sweep lands.
 DEFAULT_FRAMEWORK_OVERHEAD_GIB = 2.0
 
+# Per-GPU extra reservation for tensor-parallel communication buffers (NCCL
+# buffers, all-reduce workspace). Applied per rank only when tp_size > 1.
+# !!! UNCALIBRATED PLACEHOLDER !!! 0.5 GiB is a conservative guess biased toward
+# false-reject. TODO(multi-gpu-probe): measure real TP comm reservation across
+# tp_size / GPU type and move per-partition values into the hardware YAML.
+DEFAULT_TP_COMM_BUFFER_GIB = 0.5
+
 # The two KV-cache sizing assumptions we always compute. ``worst_case`` reserves
 # the full token budget; ``typical`` scales it by a workload archetype factor.
 KV_ASSUMPTION_WORST_CASE = "worst_case"

@@ -34,9 +34,84 @@ def per_token_kv_bytes(
 
     ``n_kv_heads`` (not ``n_attention_heads``) is used so grouped-query and
     multi-query attention are sized correctly; callers resolve the MHA fallback
-    (``n_kv_heads == n_attention_heads``) upstream.
+    (``n_kv_heads == n_attention_heads``) upstream. This is the single-GPU
+    (TP=1) figure; :func:`per_token_kv_bytes_per_gpu` handles tensor parallel.
     """
     return 2 * n_layers * n_kv_heads * head_dim * kv_dtype_bytes
+
+
+# --------------------------------------------------------------------------- #
+# Tensor-parallel-aware math (per-GPU quantities).                             #
+#                                                                              #
+# Under tensor parallelism a model is split across ``tp_size`` GPUs. Weights   #
+# and attention heads shard across ranks; the framework overhead does NOT (see #
+# .overhead). These helpers are deliberately conservative -- when sharding is  #
+# uneven they round toward MORE per-GPU memory, biasing the gate toward a      #
+# false reject rather than a false accept (an OOM at launch).                  #
+# --------------------------------------------------------------------------- #
+
+
+def weights_per_gpu_gib(weights_bytes: float, tp_size: int) -> float:
+    """Per-GPU weight footprint under tensor parallelism.
+
+    Approximate: weights divide evenly by ``tp_size``. In reality embedding /
+    LM-head sharding and non-divisible head counts cause small per-rank
+    imbalance, so a rank can hold slightly more than ``weights / tp_size``.
+    Callers should emit a warning on non-divisible head counts (see
+    :func:`heads_shard_evenly`); the imbalance is small relative to the
+    conservative overhead term.
+    """
+    return gib_from_bytes(weights_bytes / tp_size)
+
+
+def effective_kv_heads_per_gpu(n_kv_heads: int, tp_size: int) -> float:
+    """KV head groups stored on each rank under tensor parallelism.
+
+    Two regimes, matching vLLM:
+
+    * ``n_kv_heads >= tp_size``: heads shard across ranks -> ``n_kv_heads /
+      tp_size`` per rank.
+    * ``n_kv_heads < tp_size`` (common for GQA at high TP): there are fewer KV
+      heads than ranks, so vLLM REPLICATES KV heads -- every rank holds at least
+      one full KV head. KV cache therefore does NOT shrink past one head per
+      rank. We floor the effective share at 1.0.
+
+    Using ``max(1.0, n_kv_heads / tp_size)`` (float, not floored) never
+    under-counts KV memory, keeping the gate conservative when the division is
+    uneven.
+    """
+    return max(1.0, n_kv_heads / tp_size)
+
+
+def kv_heads_replicated(n_kv_heads: int, tp_size: int) -> bool:
+    """True when there are fewer KV heads than ranks (KV gets replicated)."""
+    return n_kv_heads < tp_size
+
+
+def heads_shard_evenly(n_attention_heads: int, n_kv_heads: int, tp_size: int) -> bool:
+    """True when both attention and KV heads divide evenly by ``tp_size``.
+
+    When ``n_kv_heads < tp_size`` the KV-replication path applies instead of
+    even sharding; that is reported separately by :func:`kv_heads_replicated`.
+    """
+    return n_attention_heads % tp_size == 0 and n_kv_heads % tp_size == 0
+
+
+def per_token_kv_bytes_per_gpu(
+    n_layers: int,
+    n_kv_heads: int,
+    head_dim: int,
+    kv_dtype_bytes: float,
+    tp_size: int,
+) -> float:
+    """Per-GPU KV-cache bytes for a single token under tensor parallelism."""
+    return (
+        2
+        * n_layers
+        * effective_kv_heads_per_gpu(n_kv_heads, tp_size)
+        * head_dim
+        * kv_dtype_bytes
+    )
 
 
 def token_budget(max_model_len: int, max_num_seqs: int) -> int:

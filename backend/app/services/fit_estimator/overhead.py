@@ -47,3 +47,26 @@ def total_overhead_gib(
     return framework_constant_gib + activation_overhead_gib(
         model_config, max_batched_tokens
     )
+
+
+def total_overhead_per_gpu_gib(
+    framework_constant_gib: float,
+    tp_communication_buffer_gib: float,
+    tp_size: int,
+    model_config: Mapping[str, Any],
+    max_batched_tokens: int,
+) -> float:
+    """Per-GPU overhead under tensor parallelism.
+
+    The framework constant is paid IN FULL by every rank -- it is NOT divided by
+    ``tp_size`` (each GPU has its own CUDA context, allocator, and workspace).
+    For ``tp_size > 1`` we add ``tp_communication_buffer_gib`` per rank for
+    NCCL/all-reduce buffers (an UNCALIBRATED, conservative placeholder). The
+    activation term remains stubbed at 0.0.
+    """
+    overhead = framework_constant_gib + activation_overhead_gib(
+        model_config, max_batched_tokens
+    )
+    if tp_size > 1:
+        overhead += tp_communication_buffer_gib
+    return overhead
