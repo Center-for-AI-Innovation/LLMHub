@@ -145,17 +145,11 @@ export function ShareDeploymentDialog({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === 'Enter' && suggestions.length > 0) {
+    if (event.key === 'Enter' && showDropdown && suggestions.length > 0) {
       event.preventDefault();
       selectUser(suggestions[0]);
     } else if (event.key === 'Escape') {
       setShowSuggestions(false);
-    } else if (
-      event.key === 'Backspace' &&
-      query === '' &&
-      selected.length > 0
-    ) {
-      setSelected((current) => current.slice(0, -1));
     }
   }
 
