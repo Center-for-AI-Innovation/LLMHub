@@ -6,8 +6,10 @@ repo. vLLM-only; no cost/throughput ranking on this branch (see :mod:`.ranking`)
 
 Public entry points:
 
-* :func:`estimate_fit` -- pure: resolved metadata + knobs -> per-partition fit.
-* :func:`estimate_fit_for_model` -- network-backed: model id -> per-partition fit.
+* :func:`validate_config` -- pure pre-launch gate: certify a concrete config.
+* :func:`validate_config_for_model` -- network-backed config gate by model id.
+* :func:`estimate_fit` -- pure: resolved metadata + knobs -> per-partition survey.
+* :func:`estimate_fit_for_model` -- network-backed: model id -> per-partition survey.
 """
 
 from __future__ import annotations
@@ -21,6 +23,12 @@ from .estimator import (
     estimate_fit_for_model,
 )
 from .model_metadata import ModelMetadata, fetch_model_metadata, map_config
+from .validator import (
+    ConfigValidation,
+    PerGpuBreakdown,
+    validate_config,
+    validate_config_for_model,
+)
 
 __all__ = [
     "AssumptionResult",
@@ -28,8 +36,12 @@ __all__ = [
     "FitEstimate",
     "PartitionFit",
     "ModelMetadata",
+    "ConfigValidation",
+    "PerGpuBreakdown",
     "estimate_fit",
     "estimate_fit_for_model",
+    "validate_config",
+    "validate_config_for_model",
     "fetch_model_metadata",
     "map_config",
 ]
