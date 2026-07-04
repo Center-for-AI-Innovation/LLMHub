@@ -7,10 +7,15 @@ import pytest
 from app.services.fit_estimator.constants import GIB
 from app.services.fit_estimator.memory_model import (
     Fit,
+    effective_kv_heads_per_gpu,
     evaluate_fit,
+    heads_shard_evenly,
+    kv_heads_replicated,
     kv_pool_required_gib,
     per_token_kv_bytes,
+    per_token_kv_bytes_per_gpu,
     token_budget,
+    weights_per_gpu_gib,
 )
 
 
@@ -53,3 +58,50 @@ def test_evaluate_fit_does_not_fit() -> None:
 
 def test_kv_pool_gib_uses_binary_gib() -> None:
     assert kv_pool_required_gib(GIB, 1) == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------- #
+# Tensor-parallel-aware math.                                                  #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("tp,expected", [(1, 14.185), (2, 7.0925), (4, 3.546)])
+def test_weights_shard_by_tp(tp, expected) -> None:
+    weights_bytes = 15_231_233_024  # Qwen2.5-7B
+    assert weights_per_gpu_gib(weights_bytes, tp) == pytest.approx(expected, rel=1e-3)
+
+
+def test_effective_kv_heads_shard_when_divisible() -> None:
+    assert effective_kv_heads_per_gpu(4, 1) == 4
+    assert effective_kv_heads_per_gpu(4, 2) == 2
+    assert effective_kv_heads_per_gpu(4, 4) == 1
+
+
+def test_effective_kv_heads_floor_at_one_when_replicated() -> None:
+    # More ranks than KV heads: replicated, cannot go below one head per rank.
+    assert effective_kv_heads_per_gpu(8, 16) == 1.0
+    assert effective_kv_heads_per_gpu(4, 8) == 1.0
+
+
+def test_kv_heads_replicated_predicate() -> None:
+    assert kv_heads_replicated(8, 16) is True
+    assert kv_heads_replicated(4, 4) is False
+
+
+def test_heads_shard_evenly_predicate() -> None:
+    assert heads_shard_evenly(28, 4, 2) is True
+    assert heads_shard_evenly(28, 4, 8) is False  # 28 % 8 != 0
+
+
+def test_per_token_kv_shards_with_tp() -> None:
+    base = per_token_kv_bytes_per_gpu(28, 4, 128, 2, tp_size=1)
+    half = per_token_kv_bytes_per_gpu(28, 4, 128, 2, tp_size=2)
+    assert base == per_token_kv_bytes(28, 4, 128, 2)  # TP=1 matches single-GPU
+    assert half == pytest.approx(base / 2)
+
+
+def test_per_token_kv_does_not_shrink_past_replication() -> None:
+    # kv_heads=4 with tp=8: effective heads floored at 1 (not 0.5).
+    tp8 = per_token_kv_bytes_per_gpu(28, 4, 128, 2, tp_size=8)
+    tp4 = per_token_kv_bytes_per_gpu(28, 4, 128, 2, tp_size=4)  # 1 head/rank
+    assert tp8 == pytest.approx(tp4)
