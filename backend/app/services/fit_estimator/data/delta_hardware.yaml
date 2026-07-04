@@ -1,0 +1,113 @@
+# NCSA Delta GPU partitions for the fit estimator.
+#
+# Sourced from the standalone memory-estimator calibration (live SLURM sinfo/
+# scontrol + Delta architecture docs, gathered 2026-06-12). Only the fields the
+# fit estimator needs are kept here; per-GPU VRAM is what matters for single-GPU
+# feasibility (this branch does not model tensor/pipeline parallelism).
+#
+# framework_overhead_gib: the per-partition constant term of the two-term
+#   overhead model (CUDA context + framework reservation + vLLM profiling slack).
+#   Default 2.0 GiB everywhere for now; these are the knobs the pending
+#   calibration sweep will tune per GPU, which is exactly why they live in data
+#   rather than code. See services/fit_estimator/overhead.py.
+# vendor: NVIDIA partitions are evaluated; AMD (ROCm/MI100) is out of scope and
+#   reported as skipped rather than silently dropped.
+# su_per_gpu_hour / max_walltime: carried for the future cost-ranking layer
+#   (ranking.py stub); not used by the fit math.
+
+partitions:
+  - partition: gpuA40x4
+    gpu_type: NVIDIA A40
+    vendor: NVIDIA
+    vram_gib_per_gpu: 48
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 500
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA40x4-interactive
+    gpu_type: NVIDIA A40
+    vendor: NVIDIA
+    vram_gib_per_gpu: 48
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 1000
+    max_walltime: "1:00:00"
+
+  - partition: gpuA40x4-preempt
+    gpu_type: NVIDIA A40
+    vendor: NVIDIA
+    vram_gib_per_gpu: 48
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 250
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA100x4
+    gpu_type: NVIDIA A100-SXM4-40GB
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 1000
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA100x4-interactive
+    gpu_type: NVIDIA A100-SXM4-40GB
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 2000
+    max_walltime: "1:00:00"
+
+  - partition: gpuA100x4-preempt
+    gpu_type: NVIDIA A100-SXM4-40GB
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 500
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA100x8
+    gpu_type: NVIDIA A100-SXM4-40GB
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 1500
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA100x8-interactive
+    gpu_type: NVIDIA A100-SXM4-40GB
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 3000
+    max_walltime: "1:00:00"
+
+  - partition: gpuH200x8
+    gpu_type: NVIDIA H200-SXM
+    vendor: NVIDIA
+    vram_gib_per_gpu: 141
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 3000
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuH200x8-interactive
+    gpu_type: NVIDIA H200-SXM
+    vendor: NVIDIA
+    vram_gib_per_gpu: 141
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 6000
+    max_walltime: "1:00:00"
+
+  - partition: gpuMI100x8
+    gpu_type: AMD Instinct MI100
+    vendor: AMD
+    vram_gib_per_gpu: 32
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 250
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuMI100x8-interactive
+    gpu_type: AMD Instinct MI100
+    vendor: AMD
+    vram_gib_per_gpu: 32
+    framework_overhead_gib: 2.0
+    su_per_gpu_hour: 500
+    max_walltime: "1:00:00"
