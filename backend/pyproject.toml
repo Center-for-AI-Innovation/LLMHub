@@ -24,6 +24,7 @@ dependencies = [
     "httpx>=0.25.0",
     "vec-inf==0.9.0",
     "aiosmtplib>=5.1.1",
+    "pyyaml>=6.0",
 
 ]
 
