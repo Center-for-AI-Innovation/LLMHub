@@ -5,6 +5,7 @@ from app.controllers import (
     health_controller,
     model_controller,
     resource_controller,
+    validate_controller,
 )
 
 api_router = APIRouter()
@@ -15,4 +16,7 @@ api_router.include_router(
 )
 api_router.include_router(
     fit_controller.router, prefix="/fit-estimate", tags=["fit-estimate"]
+)
+api_router.include_router(
+    validate_controller.router, prefix="/validate-config", tags=["validate-config"]
 )
