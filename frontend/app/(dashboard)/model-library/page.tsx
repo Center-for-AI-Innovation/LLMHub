@@ -21,6 +21,7 @@ import {
   type ModelDeployment,
   type ModelInfo,
 } from '@/hooks/use-models';
+import type { LaunchConfig } from '@/components/model-card/launch-model-dialog';
 
 import { useDebounce } from '@/hooks/use-debounce';
 import { fullWidthButtonClass } from '@/lib/models/utils';
@@ -95,7 +96,7 @@ function ModelLibraryPageInner() {
     modelId: string,
     huggingfaceId?: string,
     family?: string,
-    time?: string,
+    config?: LaunchConfig,
   ) {
     if (!launchDefaults) {
       const message = launchDefaultsError instanceof Error
@@ -111,9 +112,12 @@ function ModelLibraryPageInner() {
         modelId,
         huggingfaceId,
         family,
-        time: time ?? launchDefaults.time,
-        partition: launchDefaults.partition,
-        resource_type: launchDefaults.resource_type,
+        time: config?.time ?? launchDefaults.time,
+        partition: config?.partition ?? launchDefaults.partition,
+        resource_type: config?.resource_type ?? launchDefaults.resource_type,
+        max_model_len: config?.max_model_len,
+        max_num_seqs: config?.max_num_seqs,
+        num_gpus: config?.num_gpus,
       });
       setLaunchError(null);
       if (deployment?.id) {

@@ -3,9 +3,10 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Loader2, ArrowRight } from 'lucide-react';
 import { ModelContext } from './model-context';
-import { LaunchModelDialog } from './launch-model-dialog';
+import { LaunchModelDialog, type LaunchConfig } from './launch-model-dialog';
 import * as React from 'react';
 import { modelCardGradient } from '@/lib/models/utils';
+import { VLLM_DEFAULT_MAX_NUM_SEQS } from '@/lib/models/launch-config';
 import { ModelCardIcon } from './model-card-icon';
 import { ModelSpecChips } from './model-metadata-chips';
 
@@ -20,11 +21,11 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
 
   const isModelLaunching = launchingModelId === modelId;
 
-  const handleLaunch = async (time: string) => {
+  const handleLaunch = async (config: LaunchConfig) => {
     if (!model) return;
 
     try {
-      await launchModel(model.id, model.huggingfaceId, model.family, time);
+      await launchModel(model.id, model.huggingfaceId, model.family, config);
       setIsDialogOpen(false);
     } catch (error) {
       console.error('Failed to launch model:', error);
@@ -94,6 +95,14 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         modelName={displayModelName}
+        modelId={model.id}
+        huggingfaceId={model.huggingfaceId}
+        modelFamily={model.family}
+        defaultContextLength={model.specs.contextLength}
+        defaultMaxNumSeqs={
+          model.specs.maxNumSeqs ?? VLLM_DEFAULT_MAX_NUM_SEQS
+        }
+        defaultGpus={model.specs.gpus}
         isLaunching={isModelLaunching}
         onLaunch={handleLaunch}
       />
