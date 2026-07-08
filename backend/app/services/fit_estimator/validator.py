@@ -35,7 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
-from .constants import DEFAULT_MAX_NUM_SEQS
+from .constants import DEFAULT_GPU_MEMORY_UTILIZATION, DEFAULT_MAX_NUM_SEQS
 from .hardware import GpuPartition, load_partitions
 from .memory_model import (
     evaluate_fit,
@@ -131,7 +131,14 @@ def validate_config(
     partitions: Sequence[GpuPartition] | None = None,
     max_num_seqs: int = DEFAULT_MAX_NUM_SEQS,
 ) -> ConfigValidation:
-    """Certify a concrete launch config against a partition (worst-case gate)."""
+    """Certify a concrete launch config against a partition.
+
+    ``max_num_seqs`` controls the KV token budget:
+
+    * ``resolve_max_num_seqs()`` — effective launch concurrency (gate + UI).
+    * ``LAUNCH_GATE_MAX_NUM_SEQS`` (1) — legacy boot-only contract; deprecated.
+    * ``DEFAULT_MAX_NUM_SEQS`` (256) — vLLM default when catalog omits the flag.
+    """
     parts = tuple(partitions) if partitions is not None else load_partitions()
 
     if tensor_parallel_size < 1:
@@ -201,6 +208,8 @@ def validate_config(
     kv_gib = kv_pool_required_gib(per_token_gpu, worst_case_tokens)
 
     overhead_gib = total_overhead_per_gpu_gib(
+        gpu.vram_gib_per_gpu,
+        DEFAULT_GPU_MEMORY_UTILIZATION,
         gpu.framework_overhead_gib,
         gpu.tp_communication_buffer_gib,
         tp,
@@ -263,6 +272,7 @@ def validate_config_for_model(
     tensor_parallel_size: int,
     partition: str,
     num_nodes: int = 1,
+    max_num_seqs: int = DEFAULT_MAX_NUM_SEQS,
     dtype: str | None = None,
     revision: str = "main",
 ) -> ConfigValidation:
@@ -291,4 +301,5 @@ def validate_config_for_model(
         tensor_parallel_size=tensor_parallel_size,
         partition=partition,
         num_nodes=num_nodes,
+        max_num_seqs=max_num_seqs,
     )
