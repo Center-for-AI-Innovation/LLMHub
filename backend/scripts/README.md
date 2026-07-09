@@ -25,6 +25,24 @@ Detects SLURM partitions, hardware configurations, and updates `config/models.ya
 
 **Note:** This script is automatically run by the application unless skipped (see Application Usage below).
 
+### `check-impersonation-setup.py`
+Validates the impersonation path for user-submitted launches.
+
+**What it checks:**
+- Resolves the target user's Slurm account via `VEC_INF_ACCOUNTS_SCRIPT`
+- Creates or repairs `<VEC_INF_SHARED_WORK_ROOT>/<user>` ACLs using the backend's current settings
+- Optionally runs the impersonation wrapper and verifies the target user plus preserved env vars
+- Uses `VEC_INF_IMPERSONATE_PYTHON` when set, otherwise falls back to the backend's current interpreter
+
+**Usage:**
+```bash
+# Run from the backend service context
+.venv/bin/python scripts/check-impersonation-setup.py --user someclusteruser
+
+# Skip the sudo/wrapper probe and only validate account/workspace setup
+.venv/bin/python scripts/check-impersonation-setup.py --user someclusteruser --skip-wrapper
+```
+
 ## Infrastructure Detection Process
 
 The infrastructure detection script performs the following steps:

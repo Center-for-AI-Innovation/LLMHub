@@ -1,21 +1,40 @@
+import json
 import os
+import pwd
+import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+import yaml
 
-from app.config.logging import get_logger
 from app.config.config import settings
+from app.config.logging import get_logger
 from app.utils.infrastructure import get_vec_inf_log_base_dir
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _apply_vec_inf_environment() -> None:
+    """Set vec-inf env vars before importing the SDK."""
+    if getattr(settings, "VEC_INF_CONFIG_DIR", None) and not os.getenv("VEC_INF_CONFIG_DIR"):
+        os.environ["VEC_INF_CONFIG_DIR"] = str(settings.VEC_INF_CONFIG_DIR)
+    if (
+        not os.getenv("VEC_INF_ACCOUNT")
+        and (getattr(settings, "VEC_INF_ACCOUNT", None) or getattr(settings, "SLURM_ACCOUNT", None))
+    ):
+        os.environ["VEC_INF_ACCOUNT"] = str(
+            getattr(settings, "VEC_INF_ACCOUNT", None) or settings.SLURM_ACCOUNT
+        )
+    if getattr(settings, "VEC_INF_WORK_DIR", None) and not os.getenv("VEC_INF_WORK_DIR"):
+        os.environ["VEC_INF_WORK_DIR"] = str(settings.VEC_INF_WORK_DIR)
+    if getattr(settings, "VEC_INF_LOG_DIR", None) and not os.getenv("VEC_INF_LOG_DIR"):
+        os.environ["VEC_INF_LOG_DIR"] = str(settings.VEC_INF_LOG_DIR)
+
 
 # IMPORTANT: Set VEC_INF env vars BEFORE importing vec-inf.
 # vec-inf loads/caches config at import time.
-if getattr(settings, "VEC_INF_CONFIG_DIR", None):
-    os.environ["VEC_INF_CONFIG_DIR"] = str(settings.VEC_INF_CONFIG_DIR)
-if getattr(settings, "VEC_INF_ACCOUNT", None) or getattr(settings, "SLURM_ACCOUNT", None):
-    os.environ["VEC_INF_ACCOUNT"] = str(
-        getattr(settings, "VEC_INF_ACCOUNT", None) or settings.SLURM_ACCOUNT
-    )
-if getattr(settings, "VEC_INF_WORK_DIR", None):
-    os.environ["VEC_INF_WORK_DIR"] = str(settings.VEC_INF_WORK_DIR)
+_apply_vec_inf_environment()
 
 # Python SDK for vec-inf (imported AFTER env vars are set)
 from vec_inf.client.api import VecInfClient
@@ -23,9 +42,174 @@ from vec_inf.client.models import LaunchOptions
 
 logger = get_logger("llm_inference")
 
+_ACCOUNT_LINE_RE = re.compile(r"^(?P<account>\S+)\s+\d+\s+\d+\s+.+$")
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+_CLUSTER_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 
-class LLMInferenceClient:
-    """Client for interacting with the llm-inference package via Python API."""
+
+def _normalize_cluster_username(cluster_username: str) -> str:
+    username = cluster_username.strip()
+    if not _CLUSTER_USERNAME_RE.fullmatch(username):
+        raise RuntimeError(f"Invalid cluster username: {cluster_username!r}")
+    return username
+
+
+def _resolve_impersonated_workspace_root() -> Optional[Path]:
+    raw_root = getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None) or get_vec_inf_log_base_dir()
+    if not isinstance(raw_root, str) or not raw_root.strip():
+        return None
+    return Path(raw_root).expanduser()
+
+
+def _resolve_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
+    cluster_username = _normalize_cluster_username(cluster_username)
+    root = _resolve_impersonated_workspace_root()
+    if root is None:
+        return None
+    return root / cluster_username
+
+
+def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
+    cluster_username = _normalize_cluster_username(cluster_username)
+    workspace_dir = _resolve_impersonated_workspace_dir(cluster_username)
+    if workspace_dir is None:
+        return None
+
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    service_account = pwd.getpwuid(os.geteuid()).pw_name
+
+    acl_commands = [
+        ["setfacl", "-m", f"u:{cluster_username}:rwx", str(workspace_dir)],
+        ["setfacl", "-m", f"u:{service_account}:rwx", str(workspace_dir)],
+        ["setfacl", "-d", "-m", f"u:{cluster_username}:rwx", str(workspace_dir)],
+        ["setfacl", "-d", "-m", f"u:{service_account}:rwx", str(workspace_dir)],
+    ]
+    for command in acl_commands:
+        try:
+            subprocess.run(command, text=True, capture_output=True, check=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"Required ACL command not found: {command[0]}") from exc
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            raise RuntimeError(
+                f"Failed to prepare workspace {workspace_dir} for {cluster_username}: {stderr or exc}"
+            ) from exc
+
+    return workspace_dir
+
+
+def _get_shared_cache_dirs() -> List[Path]:
+    config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.getenv("VEC_INF_CONFIG_DIR")
+    if not isinstance(config_dir, str) or not config_dir.strip():
+        return []
+
+    env_path = Path(config_dir).expanduser() / "environment.yaml"
+    if not env_path.exists():
+        return []
+
+    try:
+        with env_path.open() as file_obj:
+            config = yaml.safe_load(file_obj) or {}
+    except Exception:
+        return []
+
+    bind_value = (((config.get("default_args") or {}).get("bind")) or "").strip()
+    if not bind_value:
+        return []
+
+    host_dirs: List[Path] = []
+    for mount in bind_value.split(","):
+        parts = mount.split(":", 1)
+        if len(parts) != 2:
+            continue
+        host_path, container_path = parts
+        if container_path not in {"/root/.cache/huggingface", "/root/.cache/torch_inductor"}:
+            continue
+        host_dirs.append(Path(host_path).expanduser())
+    return host_dirs
+
+
+def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
+    cluster_username = _normalize_cluster_username(cluster_username)
+    # TODO: Remove this temporary user write access once model cache population is
+    # managed manually and launch-time downloads are no longer needed.
+    service_account = pwd.getpwuid(os.geteuid()).pw_name
+    for cache_dir in _get_shared_cache_dirs():
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        acl_commands = [
+            ["setfacl", "-m", f"u:{cluster_username}:rwx", str(cache_dir)],
+            ["setfacl", "-m", f"u:{service_account}:rwx", str(cache_dir)],
+            ["setfacl", "-d", "-m", f"u:{cluster_username}:rwx", str(cache_dir)],
+            ["setfacl", "-d", "-m", f"u:{service_account}:rwx", str(cache_dir)],
+        ]
+        for command in acl_commands:
+            try:
+                subprocess.run(command, text=True, capture_output=True, check=True)
+            except FileNotFoundError as exc:
+                raise RuntimeError(f"Required ACL command not found: {command[0]}") from exc
+            except subprocess.CalledProcessError as exc:
+                stderr = (exc.stderr or "").strip()
+                raise RuntimeError(
+                    f"Failed to prepare shared cache dir {cache_dir} for {cluster_username}: {stderr or exc}"
+                ) from exc
+
+
+def _select_user_slurm_account(cluster_username: str, prefer_gpu: bool = True) -> str:
+    cluster_username = _normalize_cluster_username(cluster_username)
+    script_path = Path(getattr(settings, "VEC_INF_ACCOUNTS_SCRIPT", "/sw/user/scripts/accounts"))
+    if not script_path.exists():
+        raise RuntimeError(f"Accounts helper not found: {script_path}")
+
+    result = subprocess.run(
+        [str(script_path), "-u", cluster_username],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(f"Failed to resolve Slurm account for {cluster_username}: {stderr}")
+
+    accounts: List[str] = []
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("Project Summary for User"):
+            continue
+        if line.startswith("Account") or set(line) == {"-"}:
+            continue
+        match = _ACCOUNT_LINE_RE.match(line)
+        if match:
+            accounts.append(match.group("account"))
+
+    if not accounts:
+        raise RuntimeError(f"No Slurm accounts found for {cluster_username}")
+
+    if prefer_gpu:
+        for account in accounts:
+            if account.lower().endswith("-gpu") or "-gpu-" in account.lower():
+                return account
+
+    return accounts[0]
+
+
+def _get_impersonation_python() -> str:
+    configured = getattr(settings, "VEC_INF_IMPERSONATE_PYTHON", None) or os.getenv(
+        "VEC_INF_IMPERSONATE_PYTHON"
+    )
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip()
+    return sys.executable
+
+
+def _should_inject_project_pythonpath() -> bool:
+    configured = getattr(settings, "VEC_INF_IMPERSONATE_PYTHON", None) or os.getenv(
+        "VEC_INF_IMPERSONATE_PYTHON"
+    )
+    return not (isinstance(configured, str) and configured.strip())
+
+
+class LLMInferenceDirectClient:
+    """Direct vec-inf client used both locally and inside the launch shim."""
 
     def __init__(self):
         vec_inf_config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None)
@@ -278,12 +462,18 @@ class LLMInferenceClient:
             else:
                 logger.warning("models.yaml not found at: %s", models_file)
 
-    def get_tunnel_url(self, job_name: str, slurm_job_id: str):
+    def get_tunnel_url(
+        self,
+        job_name: str,
+        slurm_job_id: str,
+        cluster_username: Optional[str] = None,
+    ):
         """Get the Cloudflare tunnel URL for a deployed model (if available)."""
-        # This may need to be implemented based on how the Python API exposes tunnel URLs
-        # For now, fallback to the log file method if needed
-        import os
-        log_base = get_vec_inf_log_base_dir()
+        if cluster_username:
+            workspace_dir = _resolve_impersonated_workspace_dir(cluster_username)
+            log_base = str(workspace_dir) if workspace_dir else None
+        else:
+            log_base = get_vec_inf_log_base_dir()
         if not log_base:
             logger.error("Vec-inf log directory not configured")
             return None
@@ -300,3 +490,194 @@ class LLMInferenceClient:
         except Exception as e:
             logger.error(f"Error reading tunnel URL file: {e}")
             return None
+
+
+class LLMInferenceClient:
+    """Launch wrapper that can impersonate the submitting cluster user."""
+
+    def __init__(self):
+        self.execution_mode = str(getattr(settings, "VEC_INF_EXECUTION_MODE", "direct") or "direct")
+        self.direct_client = LLMInferenceDirectClient()
+
+    @staticmethod
+    def _build_launch_payload(
+        model_name: str,
+        enable_cloudflare_tunnel: bool,
+        params: Dict[str, Any],
+    ) -> str:
+        return json.dumps(
+            {
+                "model_name": model_name,
+                "enable_cloudflare_tunnel": enable_cloudflare_tunnel,
+                "params": params,
+            }
+        )
+
+    @staticmethod
+    def _prepend_pythonpath(env: Dict[str, str]) -> Dict[str, str]:
+        project_root = str(PROJECT_ROOT)
+        pythonpath = env.get("PYTHONPATH")
+        if not pythonpath:
+            env["PYTHONPATH"] = project_root
+        else:
+            parts = pythonpath.split(os.pathsep)
+            if project_root not in parts:
+                env["PYTHONPATH"] = os.pathsep.join([project_root, pythonpath])
+        return env
+
+    @staticmethod
+    def _parse_impersonated_response(stdout: str, stderr: str) -> Dict[str, Any]:
+        for line in reversed([item.strip() for item in stdout.splitlines() if item.strip()]):
+            line = _CONTROL_CHARS_RE.sub("", line)
+            if "{" in line and "}" in line:
+                line = line[line.find("{") : line.rfind("}") + 1]
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+
+        error_parts = []
+        if stderr.strip():
+            error_parts.append(stderr.strip())
+        if stdout.strip():
+            error_parts.append(stdout.strip())
+        error = "\n".join(error_parts) if error_parts else "Impersonated launch returned no JSON payload"
+        return {"success": False, "error": error}
+
+    def _launch_model_impersonated(
+        self,
+        model_name: str,
+        enable_cloudflare_tunnel: bool,
+        cluster_username: Optional[str],
+        **params,
+    ):
+        if not cluster_username:
+            return {
+                "success": False,
+                "error": "Cluster username is required when impersonation mode is enabled",
+            }
+        try:
+            cluster_username = _normalize_cluster_username(cluster_username)
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
+
+        params = dict(params)
+        wrapper_path = Path(
+            getattr(
+                settings,
+                "VEC_INF_IMPERSONATE_SCRIPT",
+                PROJECT_ROOT / "scripts" / "impersonate-wrapper.py",
+            )
+        )
+        if not wrapper_path.exists():
+            return {
+                "success": False,
+                "error": f"Impersonation wrapper not found: {wrapper_path}",
+            }
+
+        try:
+            workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
+            _ensure_shared_cache_dir_access(cluster_username)
+            if workspace_dir is not None:
+                params.setdefault("work_dir", str(workspace_dir))
+                params.setdefault("log_dir", str(workspace_dir))
+
+            if not params.get("account"):
+                prefer_gpu = params.get("num_gpus", 1) != 0
+                params["account"] = _select_user_slurm_account(
+                    cluster_username,
+                    prefer_gpu=prefer_gpu,
+                )
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
+
+        payload = self._build_launch_payload(model_name, enable_cloudflare_tunnel, params)
+        command = [str(wrapper_path)]
+        if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
+            command.append("--no-login-shell")
+        command.extend(
+            [
+                cluster_username,
+                "--",
+                _get_impersonation_python(),
+                "-m",
+                "app.utils.vec_inf_launch_shim",
+                payload,
+            ]
+        )
+
+        env = os.environ.copy()
+        if _should_inject_project_pythonpath():
+            env = self._prepend_pythonpath(env)
+        if getattr(settings, "VEC_INF_ENV", None):
+            env["VEC_INF_ENV"] = str(settings.VEC_INF_ENV)
+        if workspace_dir is not None:
+            env["VEC_INF_LOG_DIR"] = str(workspace_dir)
+            env["VEC_INF_WORK_DIR"] = str(params.get("work_dir") or workspace_dir)
+        if params.get("account"):
+            env["VEC_INF_ACCOUNT"] = str(params["account"])
+            env["SLURM_ACCOUNT"] = str(params["account"])
+        result = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            env=env,
+            cwd=str(PROJECT_ROOT),
+        )
+
+        parsed = self._parse_impersonated_response(result.stdout, result.stderr)
+        if result.returncode != 0 and parsed.get("success", True):
+            parsed = {
+                "success": False,
+                "error": parsed.get("error") or f"Impersonated launch failed with code {result.returncode}",
+            }
+        return parsed
+
+    def launch_model(
+        self,
+        model_name: str,
+        enable_cloudflare_tunnel: bool = False,
+        cluster_username: Optional[str] = None,
+        **params,
+    ):
+        if self.execution_mode == "impersonate":
+            return self._launch_model_impersonated(
+                model_name,
+                enable_cloudflare_tunnel=enable_cloudflare_tunnel,
+                cluster_username=cluster_username,
+                **params,
+            )
+        return self.direct_client.launch_model(
+            model_name,
+            enable_cloudflare_tunnel=enable_cloudflare_tunnel,
+            **params,
+        )
+
+    def get_model_status(self, slurm_job_id: str):
+        return self.direct_client.get_model_status(slurm_job_id)
+
+    def get_model_metrics(self, slurm_job_id: str):
+        return self.direct_client.get_model_metrics(slurm_job_id)
+
+    def shutdown_model(self, slurm_job_id: str):
+        return self.direct_client.shutdown_model(slurm_job_id)
+
+    def list_available_models(self):
+        return self.direct_client.list_available_models()
+
+    def get_model_details(self, model_name: str):
+        return self.direct_client.get_model_details(model_name)
+
+    def get_tunnel_url(
+        self,
+        job_name: str,
+        slurm_job_id: str,
+        cluster_username: Optional[str] = None,
+    ):
+        return self.direct_client.get_tunnel_url(
+            job_name,
+            slurm_job_id,
+            cluster_username=cluster_username,
+        )
