@@ -129,7 +129,13 @@ export async function handleChatCompletions(
 
   // Create dynamic provider for this deployment
   const vllmProvider = createVllmProvider(deployment);
-  const modelName = deployment.modelName ?? process.env.VLLM_MODEL;
+  const modelName = deployment.modelName;
+  if (!modelName) {
+    return createErrorResponse(
+      'Deployment ${deployment.id} has no model name configured.',
+      500,
+    );
+  }
 
   const modelMessages = await convertToModelMessages(messages);
   const stream = createUIMessageStream({
