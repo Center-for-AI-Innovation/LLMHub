@@ -11,9 +11,9 @@ import { isLocalTestEnabled } from '@/lib/utils';
 import { type NextRequest, NextResponse } from 'next/server';
 
 const DEV_ENDPOINT_URL =
-  process.env.DEV_VLLM_ENDPOINT || 'http://localhost:8000/v1';
+  process.env.ALWAYS_ON_VLLM_BASE_URL || 'http://localhost:8000/v1';
 const DEV_MODEL_NAME =
-  process.env.DEV_VLLM_MODEL_NAME || 'Qwen/Qwen2.5-1.5B-Instruct';
+  process.env.ALWAYS_ON_VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct';
 const SLURM_JOB_ID_LENGTH = 6;
 
 const createSlurmJobId = () =>
