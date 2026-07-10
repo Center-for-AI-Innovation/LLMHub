@@ -605,7 +605,7 @@ export function Chat({
 
   useEffect(() => {
     if (isGuestMode) {
-      setSelectedModel('vllm-model');
+      setSelectedModel('always-on-model');
     }
   }, [isGuestMode, setSelectedModel]);
 

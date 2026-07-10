@@ -2,7 +2,6 @@ import { auth } from '@/app/(auth)/auth';
 import { getAccessibleDeploymentsByUserId } from '@/lib/db/queries';
 import { NextResponse } from 'next/server';
 
-const VLLM_MODEL = process.env.VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct';
 const ALWAYS_ON_VLLM_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
 
 interface SessionUser {
@@ -26,20 +25,13 @@ interface ChatModelOption {
 
 export const dynamic = 'force-dynamic';
 
-function getDefaultVllmOption(): ChatModelOption {
-  return {
-    id: 'vllm-model',
-    name: VLLM_MODEL,
-    description: `Deployed vLLM model (${VLLM_MODEL})`,
-  };
-}
 
 function deploymentToChatOption(
   deployment: ModelDeployment,
   deploymentId: string,
 ): ChatModelOption {
   const deployedModelName =
-    deployment.modelName || deployment.modelId || VLLM_MODEL;
+    deployment.modelName || deployment.modelId || 'unknown-model';
   const status = deployment.status?.toLowerCase() || 'ready';
 
   return {
@@ -111,22 +103,12 @@ export async function GET() {
       }
     : null;
 
-  const defaultVllmOption = getDefaultVllmOption();
-  const models: ChatModelOption[] = [];
-
   // Priority order:
   // 1) User's active deployments (ready/running)
   // 2) Always-on model
-  // 3) Development/default vLLM model (only when no active and no always-on)
-  if (activeDeploymentOptions.length > 0) {
-    models.push(...activeDeploymentOptions);
-    if (alwaysOnOption) {
-      models.push(alwaysOnOption);
-    }
-  } else if (alwaysOnOption) {
+  const models: ChatModelOption[] = [...activeDeploymentOptions];
+  if (alwaysOnOption) {
     models.push(alwaysOnOption);
-  } else {
-    models.push(defaultVllmOption);
   }
 
   return NextResponse.json(models);
