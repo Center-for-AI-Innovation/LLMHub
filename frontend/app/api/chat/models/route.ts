@@ -34,14 +34,16 @@ function getDefaultVllmOption(): ChatModelOption {
   };
 }
 
-function deploymentToChatOption(deployment: ModelDeployment): ChatModelOption {
+function deploymentToChatOption(
+  deployment: ModelDeployment,
+  deploymentId: string,
+): ChatModelOption {
   const deployedModelName =
     deployment.modelName || deployment.modelId || VLLM_MODEL;
   const status = deployment.status?.toLowerCase() || 'ready';
-  const slurmJobId = deployment.slurmJobId || deployment.id || deployedModelName;
 
   return {
-    id: `vllm-job:${slurmJobId}`,
+    id: `vllm-deployment:${deploymentId}`,
     name: deployedModelName,
     description: `Active deployment (${status})`,
   };
@@ -77,16 +79,16 @@ async function getActiveDeploymentOptionsForUser(
       .filter((deployment) => isActiveDeploymentStatus(deployment.status))
       .sort((left, right) => toTimestamp(right.updatedAt) - toTimestamp(left.updatedAt));
 
-    const seenJobIds = new Set<string>();
+    const seenDeploymentIds = new Set<string>();
     const options: ChatModelOption[] = [];
 
     for (const deployment of activeDeployments) {
-      const jobId = deployment.slurmJobId;
-      if (!jobId || seenJobIds.has(jobId)) {
+      const deploymentId = deployment.id;
+      if (!deploymentId || seenDeploymentIds.has(deploymentId)) {
         continue;
       }
-      seenJobIds.add(jobId);
-      options.push(deploymentToChatOption(deployment));
+      seenDeploymentIds.add(deploymentId);
+      options.push(deploymentToChatOption(deployment, deploymentId));
     }
 
     return options;

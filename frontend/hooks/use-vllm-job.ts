@@ -1,52 +1,54 @@
 /**
- * Hook for managing vLLM job ID for the proxy
+ * Hook for managing active vLLM deployment for the proxy
  *
- * This hook fetches the vLLM job ID from the ModelDeployment table.
- * It returns the job ID of the user's active deployment.
+ * This hook fetches the active vLLM deployment from the ModelDeployment table.
+ * It returns the deployment ID of the user's active deployment.
  */
 
+import { ModelDeployment } from '@/hooks/use-models';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-const VLLM_JOB_QUERY_KEY = ['vllm-job'] as const;
+const VLLM_DEPLOYMENT_QUERY_KEY = ['vllm-deployment'] as const;
 
-const fetchVllmJob = async (): Promise<VllmJobResponse> => {
-  const response = await fetch('/api/v1/vllm/job', { cache: 'no-store' });
+interface VllmDeploymentResponse {
+  deploymentId?: string | null;
+  slurmJobId?: string | null;
+  modelId?: string;
+  proxyUrl?: string;
+  endpointUrl?: string | null;
+  modelName?: string;
+  status?: ModelDeployment['status'];
+  expiresAt?: string | null;
+  createdAt?: string | null;
+  error?: string | null;
+  message?: string | null;
+  refreshed?: boolean | null;
+}
+
+const fetchVllmDeployment = async (): Promise<VllmDeploymentResponse> => {
+  const response = await fetch('/api/v1/vllm/deployment', { cache: 'no-store' });
 
   if (!response.ok) {
-    const errorMessage = `Failed to fetch vLLM job: ${response.status}`;
+    const errorMessage = `Failed to fetch vLLM deployment: ${response.status}`;
     throw new Error(errorMessage);
   }
 
   return response.json();
 };
 
-interface VllmJobResponse {
-  jobId: string | null;
-  deploymentId?: string;
-  modelId?: string;
-  proxyUrl?: string;
-  endpointUrl?: string;
-  modelName?: string;
-  status?: string;
-  expiresAt?: string;
-  createdAt?: string;
-  error?: string;
-  message?: string;
-}
-
 /**
- * Hook for managing the vLLM job ID
+ * Hook for managing the active vLLM deployment
  *
- * Fetches the job ID from the user's active ModelDeployment.
+ * Fetches the active vLLM deployment from the user's active ModelDeployment.
  *
- * @returns Object with jobId, deployment info, refresh function, and loading state
+ * @returns Object with deploymentId, deployment info, refresh function, and loading state
  */
 export function useVllmJob(enabled = true) {
   const queryClient = useQueryClient();
   const { data, error, isLoading } = useQuery({
-    queryKey: VLLM_JOB_QUERY_KEY,
-    queryFn: fetchVllmJob,
-    // Always refetch quickly so chat does not reuse stale job IDs.
+    queryKey: VLLM_DEPLOYMENT_QUERY_KEY,
+    queryFn: fetchVllmDeployment,
+    // Always refetch quickly so chat does not reuse stale deployment IDs.
     staleTime: 0,
     gcTime: 5 * 60 * 1000,
     refetchOnMount: 'always',
@@ -56,25 +58,28 @@ export function useVllmJob(enabled = true) {
     enabled,
   });
 
-  const refreshJobMutation = useMutation({
-    mutationFn: async (): Promise<VllmJobResponse> => {
-      const response = await fetch('/api/v1/vllm/job', {
+  const refreshDeploymentMutation = useMutation({
+    mutationFn: async (): Promise<VllmDeploymentResponse> => {
+      const response = await fetch('/api/v1/vllm/deployment', {
         method: 'POST',
       });
 
       if (!response.ok) {
-        const errorMessage = `Failed to refresh vLLM job: ${response.status}`;
+        const errorMessage = `Failed to refresh vLLM deployment: ${response.status}`;
         throw new Error(errorMessage);
       }
 
       return response.json();
     },
     onSuccess: (newData) => {
-      queryClient.setQueryData(VLLM_JOB_QUERY_KEY, newData);
+      queryClient.setQueryData(VLLM_DEPLOYMENT_QUERY_KEY, newData);
+    },
+    onError: (error) => {
+      console.error('[vLLM Deployment] Error refreshing deployment:', error);
     },
   });
 
-  const jobId = data?.jobId || null;
+  const slurmJobId = data?.slurmJobId || null;
   const deploymentId = data?.deploymentId || null;
   const modelId = data?.modelId || null;
   const proxyUrl = data?.proxyUrl || null;
@@ -84,14 +89,14 @@ export function useVllmJob(enabled = true) {
   const expiresAt = data?.expiresAt || null;
 
   // Function to refresh/revalidate the deployment info
-  const refreshJobId = async () => refreshJobMutation.mutateAsync();
+  const refreshDeploymentId = async () => refreshDeploymentMutation.mutateAsync();
 
   // Check if there's an active deployment
   const hasActiveDeployment =
-    jobId !== null && (status === 'ready' || status === 'running');
+    deploymentId !== null && (status === 'ready' || status === 'running');
 
   return {
-    jobId,
+    slurmJobId,
     deploymentId,
     modelId,
     proxyUrl,
@@ -103,26 +108,26 @@ export function useVllmJob(enabled = true) {
     hasActiveDeployment,
     error: error?.message || data?.error,
     message: data?.message,
-    refreshJobId,
+    refreshDeploymentId,
   };
 }
 
 /**
- * Get the API endpoint for vLLM chat based on the job ID
+ * Get the API endpoint for vLLM chat based on the deployment ID
  *
- * @param jobId - The Slurm job ID
+ * @param deploymentId - The deployment ID
  * @returns The API endpoint URL
  */
-export function getVllmChatEndpoint(jobId: string): string {
-  return `/api/v1/job/${jobId}/chat/completions`;
+export function getVllmChatEndpoint(deploymentId: string): string {
+  return `/api/v1/deployment/${deploymentId}/chat/completions`;
 }
 
 /**
- * Get the API endpoint for vLLM models based on the job ID
+ * Get the API endpoint for vLLM models based on the deployment ID
  *
- * @param jobId - The Slurm job ID
+ * @param deploymentId - The deployment ID
  * @returns The API endpoint URL
  */
-export function getVllmModelsEndpoint(jobId: string): string {
-  return `/api/v1/job/${jobId}/models`;
+export function getVllmModelsEndpoint(deploymentId: string): string {
+  return `/api/v1/deployment/${deploymentId}/models`;
 }

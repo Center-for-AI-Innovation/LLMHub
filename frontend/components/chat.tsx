@@ -33,37 +33,37 @@ import { useNewChat } from '@/hooks/use-new-chat';
 import { usePendingChat } from '@/hooks/use-pending-chat';
 import type { DataStreamDelta } from '@/lib/ai/data-stream';
 
-const VLLM_JOB_MODEL_PREFIX = 'vllm-job:';
+const VLLM_DEPLOYMENT_PREFIX = 'vllm-deployment:';
 
-function getSelectedVllmJobId(model: string): string | null {
-  if (!model.startsWith(VLLM_JOB_MODEL_PREFIX)) {
+function getSelectedVllmDeploymentId(model: string): string | null {
+  if (!model.startsWith(VLLM_DEPLOYMENT_PREFIX)) {
     return null;
   }
 
-  const jobId = model.slice(VLLM_JOB_MODEL_PREFIX.length).trim();
-  return jobId.length > 0 ? jobId : null;
+  const deploymentId = model.slice(VLLM_DEPLOYMENT_PREFIX.length).trim();
+  return deploymentId.length > 0 ? deploymentId : null;
 }
 
-function isSlurmBackedModel(model: string): boolean {
-  return model === 'vllm-model' || model.startsWith(VLLM_JOB_MODEL_PREFIX);
+function isVllmDeploymentModel(model: string): boolean {
+  return model === 'vllm-model' || model.startsWith(VLLM_DEPLOYMENT_PREFIX);
 }
 
-// Helper to determine API endpoint based on model and job ID
-const getApiEndpoint = (model: string, vllmJobId: string | null) => {
+// Helper to determine API endpoint based on model and deployment ID
+const getApiEndpoint = (model: string, vllmDeploymentId: string | null) => {
   if (model === 'guest-vllm-model' || model === 'always-on-model') {
     return '/api/public/chat';
   }
 
-  const selectedJobId = getSelectedVllmJobId(model);
-  if (selectedJobId) {
-    return getVllmChatEndpoint(selectedJobId);
+  const selectedDeploymentId = getSelectedVllmDeploymentId(model);
+  if (selectedDeploymentId) {
+    return getVllmChatEndpoint(selectedDeploymentId);
   }
 
   if (model === 'vllm-model') {
-    // Slurm-backed model route only. No fallback to legacy static vLLM route.
-    return vllmJobId
-      ? getVllmChatEndpoint(vllmJobId)
-      : '/api/v1/job/__missing__/chat/completions';
+    // vLLM deployment route only. No fallback to legacy static vLLM route.
+    return vllmDeploymentId
+      ? getVllmChatEndpoint(vllmDeploymentId)
+      : '/api/v1/deployment/__missing__/chat/completions';
   }
   return '/api/chat';
 };
@@ -132,32 +132,32 @@ function getGuestMessageCountFromCookie(): number {
 function ensureModelReadyForSend({
   isGuestMode,
   selectedModel,
-  vllmJobId,
+  vllmDeploymentId,
 }: {
   isGuestMode: boolean;
   selectedModel: string;
-  vllmJobId: string | null;
+  vllmDeploymentId: string | null;
 }): boolean {
   if (isGuestMode) {
     return true;
   }
 
-  if (!isSlurmBackedModel(selectedModel)) {
+  if (!isVllmDeploymentModel(selectedModel)) {
     return true;
   }
 
   // Deployment-specific options include the job ID directly.
-  if (getSelectedVllmJobId(selectedModel)) {
+  if (getSelectedVllmDeploymentId(selectedModel)) {
     return true;
   }
 
-  if (vllmJobId) {
+  if (vllmDeploymentId) {
     return true;
   }
 
   showErrorToast(
     'Model deployment is still initializing. Please wait a few seconds and try again.',
-  );
+  );  
   return false;
 }
 
@@ -183,7 +183,7 @@ function ChatInner({
   chatId,
   apiEndpoint,
   selectedModel,
-  vllmJobId,
+  vllmDeploymentId,
   initialMessages,
   initialDocuments,
   initialVotes,
@@ -196,7 +196,7 @@ function ChatInner({
   chatId: string;
   apiEndpoint: string;
   selectedModel: string;
-  vllmJobId: string | null;
+  vllmDeploymentId: string | null;
   initialMessages: Array<UIMessage>;
   initialDocuments?: Array<Document>;
   initialVotes?: Array<Vote>;
@@ -272,14 +272,14 @@ function ChatInner({
               trigger,
               messageId,
               selectedChatModel: selectedModel,
-              ...(isSlurmBackedModel(selectedModel) && vllmJobId
-                ? { vllmJobId }
+              ...(isVllmDeploymentModel(selectedModel) && vllmDeploymentId
+                ? { vllmDeploymentId }
                 : {}),
             },
           };
         },
       }),
-    [apiEndpoint, chatId, selectedModel, vllmJobId],
+    [apiEndpoint, chatId, selectedModel, vllmDeploymentId],
   );
 
   const {
@@ -366,7 +366,7 @@ function ChatInner({
     message?: any,
     options?: ChatRequestOptions,
   ): Promise<void> => {
-    if (!ensureModelReadyForSend({ isGuestMode, selectedModel, vllmJobId })) {
+    if (!ensureModelReadyForSend({ isGuestMode, selectedModel, vllmDeploymentId })) {
       return;
     }
 
@@ -579,7 +579,7 @@ export function Chat({
 }) {
   const { selectedModel, setSelectedModel } = useModelSelector();
   const effectiveSelectedModel = isGuestMode ? 'guest-vllm-model' : selectedModel;
-  const { jobId: vllmJobId } = useVllmJob(!isGuestMode);
+  const { deploymentId: vllmDeploymentId } = useVllmJob(!isGuestMode);
   const isTemporaryChat = id === 'new';
   const chatKey = isTemporaryChat ? `new:${resetVersion}` : `id:${id}`;
   const [chatIdentity, setChatIdentity] = useState(() => ({
@@ -596,8 +596,8 @@ export function Chat({
 
   const chatId = chatIdentity.chatId;
 
-  // Determine API endpoint based on selected model and vLLM job ID
-  const apiEndpoint = getApiEndpoint(effectiveSelectedModel, vllmJobId);
+  // Determine API endpoint based on selected model and vLLM deployment ID
+  const apiEndpoint = getApiEndpoint(effectiveSelectedModel, vllmDeploymentId);
 
   useEffect(() => {
     onResolvedChatId?.(chatId);
@@ -615,7 +615,7 @@ export function Chat({
       chatId={chatId}
       apiEndpoint={apiEndpoint}
       selectedModel={effectiveSelectedModel}
-      vllmJobId={vllmJobId}
+      vllmDeploymentId={vllmDeploymentId}
       initialMessages={initialMessages}
       initialDocuments={initialDocuments}
       initialVotes={initialVotes}

@@ -359,7 +359,7 @@ export function useLaunchModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
-      queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
+      queryClient.invalidateQueries({ queryKey: ['vllm-deployment'] });
       queryClient.invalidateQueries({ queryKey: ['chat-models'] });
     },
   });
@@ -381,7 +381,7 @@ export function useStopModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
-      queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
+      queryClient.invalidateQueries({ queryKey: ['vllm-deployment'] });
       queryClient.invalidateQueries({ queryKey: ['chat-models'] });
     },
   });
