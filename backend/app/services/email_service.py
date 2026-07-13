@@ -24,7 +24,7 @@ Your model deployment is ready and accepting requests.
   Model:      {model_name}
   Expires at: {expires_at}
 
-If you did not request this deployment, please contact your system administrator.
+If you did not request this deployment, please contact {support_contact}.
 """
 
 _FAILED_SUBJECT = "[LLMHub] Your model {model_name} deployment failed"
@@ -34,7 +34,7 @@ Your model deployment encountered an error and could not start.
   Model:  {model_name}
   Reason: {error_message}
 
-Please try launching the model again or contact your system administrator if the issue persists.
+Please try launching the model again or contact {support_contact} if the issue persists.
 """
 
 _COMPLETED_SUBJECT = "[LLMHub] Your model {model_name} deployment has completed"
@@ -45,7 +45,7 @@ Your model deployment created has completed its scheduled run and is no longer a
   id: {deployment_id}
 
 If you need continued access, please submit a new deployment request.
-If you have questions, contact your system administrator.
+If you have questions, contact {support_contact}.
 """
 
 _INVITE_SUBJECT = "[LLMHub] You have been granted access to {model_name}"
@@ -58,7 +58,7 @@ You have been granted access to a model deployment on LLMHub.
 
 {access_instructions}
 
-If you were not expecting this access, please contact your system administrator.
+If you were not expecting this access, please contact {support_contact}.
 """
 
 _INVITE_ACCESS_WITH_URL = (
@@ -69,6 +69,13 @@ _INVITE_ACCESS_DEFAULT = (
     "Sign in to LLMHub and select {model_name} in the chat interface "
     "to start using it."
 )
+
+
+def _support_contact() -> str:
+    """Render the admin-contact phrase, appending SUPPORT_EMAIL when configured."""
+    if settings.SUPPORT_EMAIL:
+        return f"your system administrator at {settings.SUPPORT_EMAIL}"
+    return "your system administrator"
 
 
 class EmailService:
@@ -104,6 +111,7 @@ class EmailService:
         body = _READY_BODY.format(
             model_name=deployment.modelName,
             expires_at=expires_at,
+            support_contact=_support_contact(),
         )
         return await self._send(recipient, subject, body)
 
@@ -132,6 +140,7 @@ class EmailService:
         body = _FAILED_BODY.format(
             model_name=deployment.modelName,
             error_message=deployment.errorMessage or "unknown error",
+            support_contact=_support_contact(),
         )
         return await self._send(recipient, subject, body)
 
@@ -156,7 +165,11 @@ class EmailService:
         if not recipient:
             return False
         subject = _COMPLETED_SUBJECT.format(model_name=deployment.modelName,)
-        body = _COMPLETED_BODY.format(model_name=deployment.modelName, deployment_id=deployment.id)
+        body = _COMPLETED_BODY.format(
+            model_name=deployment.modelName,
+            deployment_id=deployment.id,
+            support_contact=_support_contact(),
+        )
         return await self._send(recipient, subject, body)
 
     async def notify_deployment_invite(
@@ -200,6 +213,7 @@ class EmailService:
             granted_by=granted_by,
             status=deployment.status,
             access_instructions=access_instructions,
+            support_contact=_support_contact(),
         )
         return await self._send(recipient, subject, body)
 

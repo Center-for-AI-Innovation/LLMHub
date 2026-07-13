@@ -209,6 +209,34 @@ class TestNotifyDeploymentInvite:
 
         assert "https://llmhub.example.edu" in sent_message(mock_send).get_payload()
 
+    async def test_support_email_included_when_configured(self):
+        recipient = make_user()
+        with patch_send() as mock_send, patch(
+            "app.services.email_service.settings.SUPPORT_EMAIL",
+            "llmhub-support@illinois.edu",
+        ):
+            await EmailService().notify_deployment_invite(
+                make_db(recipient), make_deployment(), recipient.id
+            )
+
+        body = sent_message(mock_send).get_payload()
+        assert (
+            "contact your system administrator at llmhub-support@illinois.edu"
+            in body
+        )
+
+    async def test_no_support_email_keeps_generic_contact_line(self):
+        recipient = make_user()
+        with patch_send() as mock_send, patch(
+            "app.services.email_service.settings.SUPPORT_EMAIL", None
+        ):
+            await EmailService().notify_deployment_invite(
+                make_db(recipient), make_deployment(), recipient.id
+            )
+
+        body = sent_message(mock_send).get_payload()
+        assert "contact your system administrator." in body
+
 
 class TestNotifyDeploymentInviteOnce:
     async def test_sends_and_records_sent(self):
