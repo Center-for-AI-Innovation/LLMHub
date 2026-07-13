@@ -887,10 +887,13 @@ export async function getPendingDeploymentInvitesByDeploymentId(
 
 /**
  * Convert any pending invites for the given email into AuthorizedUsers
- * rows for the given user. Returns the number of invites that were claimed.
+ * rows for the given user. Returns the number of invites that were claimed
+ * plus the invites that produced a new AuthorizedUsers row, so callers can
+ * notify the user about their newly granted access.
  *
  * Safe to call multiple times — invites are deleted as they're claimed and
- * unique-constraint violations from existing AuthorizedUsers rows are ignored.
+ * unique-constraint violations from existing AuthorizedUsers rows are ignored
+ * (counted as claimed, but not returned in `newlyGranted`).
  */
 export async function claimPendingDeploymentInvitesForUser({
   userId,
@@ -898,10 +901,13 @@ export async function claimPendingDeploymentInvitesForUser({
 }: {
   userId: string;
   email: string;
-}): Promise<number> {
+}): Promise<{
+  claimed: number;
+  newlyGranted: { deploymentId: string; invitedBy: string }[];
+}> {
   const trimmedEmail = email.trim();
   if (!trimmedEmail) {
-    return 0;
+    return { claimed: 0, newlyGranted: [] };
   }
 
   try {
@@ -911,6 +917,7 @@ export async function claimPendingDeploymentInvitesForUser({
       .where(eq(pendingDeploymentInvite.email, trimmedEmail));
 
     let claimed = 0;
+    const newlyGranted: { deploymentId: string; invitedBy: string }[] = [];
     for (const invite of invites) {
       try {
         await db
@@ -921,6 +928,10 @@ export async function claimPendingDeploymentInvitesForUser({
             permission: invite.permission,
           });
         claimed += 1;
+        newlyGranted.push({
+          deploymentId: invite.deploymentId,
+          invitedBy: invite.invitedBy,
+        });
       } catch (error) {
         const errorCode =
           typeof error === 'object' && error !== null && 'code' in error
@@ -944,7 +955,7 @@ export async function claimPendingDeploymentInvitesForUser({
       }
     }
 
-    return claimed;
+    return { claimed, newlyGranted };
   } catch (error) {
     console.error('Failed to claim pending deployment invites', error);
     throw error;

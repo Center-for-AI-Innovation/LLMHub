@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     SMTP_HOST: str = os.getenv("SMTP_HOST", "outbound-relays.techservices.illinois.edu")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "25"))
     SMTP_FROM: str = os.getenv("SMTP_FROM", "no-reply@illinois.edu")
+    FRONTEND_URL: Optional[str] = os.getenv("FRONTEND_URL")  # Base URL of the Next.js frontend, linked in notification emails when set
     
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 

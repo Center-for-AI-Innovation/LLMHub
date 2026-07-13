@@ -5,8 +5,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.models.user import User
 from app.repositories.session import get_db
 from app.schemas.model_deployment import (
+    DeploymentNotifyAccessRequest,
     ModelDeploymentCreate,
     ModelDeploymentResponse,
     ModelDeploymentUpdate,
@@ -16,11 +18,13 @@ from app.schemas.model_request import (
     ModelRequestResponse,
     ModelRequestUpdate,
 )
+from app.services.email_service import EmailService
 from app.services.model_service import ModelService
 from app.utils.infrastructure import InfrastructureManager
 
 router = APIRouter()
 model_service = ModelService()
+email_service = EmailService()
 logger = logging.getLogger(__name__)
 
 # Model Endpoints
@@ -225,6 +229,45 @@ def shutdown_deployment(
             detail="Model deployment not found",
         )
     return db_deployment
+
+
+@router.post("/deployments/{deployment_id}/notify-access", response_model=Dict[str, Any])
+async def notify_deployment_access(
+    deployment_id: UUID,
+    request: DeploymentNotifyAccessRequest,
+    db: Session = Depends(get_db),
+) -> Any:
+    """Send an access-granted email to a user who was added to a deployment.
+
+    Called by the Next.js API after it writes an AuthorizedUsers row (sharing,
+    or a pending invite claimed on signup). Deduplicated per (deployment, user)
+    via EmailNotification, so repeat calls return "duplicate" without sending.
+    """
+    deployment = model_service.get_deployment(db=db, deployment_id=deployment_id)
+    if not deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model deployment not found",
+        )
+
+    user = db.query(User).filter(User.id == request.userId).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    result = await email_service.notify_deployment_invite_once(
+        db=db,
+        deployment=deployment,
+        user_id=request.userId,
+        shared_by_user_id=request.sharedByUserId,
+    )
+    return {
+        "deploymentId": str(deployment_id),
+        "userId": str(request.userId),
+        "status": result,
+    }
 
 
 @router.put("/deployments/{deployment_id}/extend", response_model=ModelDeploymentResponse)

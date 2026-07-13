@@ -1,13 +1,15 @@
-"""Email notification service for deployment lifecycle events."""
+"""Email notification service for deployment lifecycle and access events."""
 
 import uuid
 from email.mime.text import MIMEText
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 import aiosmtplib
 
 from app.config.config import settings
 from app.config.logging import get_logger
+from app.models.email_notification import EmailNotification
 from app.models.model_deployment import ModelDeployment
 from app.models.user import User
 
@@ -46,9 +48,31 @@ If you need continued access, please submit a new deployment request.
 If you have questions, contact your system administrator.
 """
 
+_INVITE_SUBJECT = "[LLMHub] You have been granted access to {model_name}"
+_INVITE_BODY = """\
+You have been granted access to a model deployment on LLMHub.
+
+  Model:      {model_name}
+  Granted by: {granted_by}
+  Status:     {status}
+
+{access_instructions}
+
+If you were not expecting this access, please contact your system administrator.
+"""
+
+_INVITE_ACCESS_WITH_URL = (
+    "Sign in at {frontend_url} and select {model_name} in the chat interface "
+    "to start using it."
+)
+_INVITE_ACCESS_DEFAULT = (
+    "Sign in to LLMHub and select {model_name} in the chat interface "
+    "to start using it."
+)
+
 
 class EmailService:
-    """Sends deployment lifecycle notification emails via the campus SMTP relay."""
+    """Sends deployment notification emails via the campus SMTP relay."""
 
     async def notify_deployment_ready(
         self,
@@ -135,6 +159,95 @@ class EmailService:
         body = _COMPLETED_BODY.format(model_name=deployment.modelName, deployment_id=deployment.id)
         return await self._send(recipient, subject, body)
 
+    async def notify_deployment_invite(
+        self,
+        db: Session,
+        deployment: ModelDeployment,
+        user_id: uuid.UUID,
+        shared_by_user_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Send a notification email when a user is granted access to a deployment.
+
+        Args:
+            db: Active database session used to resolve user email addresses.
+            deployment: The deployment the user was granted access to.
+            user_id: UUID of the user who was granted access.
+            shared_by_user_id: UUID of the user who granted access, if known.
+
+        Returns:
+            True if the email was delivered successfully, False otherwise.
+        """
+        recipient = self._resolve_email(db, deployment, user_id)
+        if not recipient:
+            return False
+
+        granted_by = (
+            self._describe_user(db, shared_by_user_id) or "another LLMHub user"
+        )
+        if settings.FRONTEND_URL:
+            access_instructions = _INVITE_ACCESS_WITH_URL.format(
+                frontend_url=settings.FRONTEND_URL,
+                model_name=deployment.modelName,
+            )
+        else:
+            access_instructions = _INVITE_ACCESS_DEFAULT.format(
+                model_name=deployment.modelName,
+            )
+
+        subject = _INVITE_SUBJECT.format(model_name=deployment.modelName)
+        body = _INVITE_BODY.format(
+            model_name=deployment.modelName,
+            granted_by=granted_by,
+            status=deployment.status,
+            access_instructions=access_instructions,
+        )
+        return await self._send(recipient, subject, body)
+
+    async def notify_deployment_invite_once(
+        self,
+        db: Session,
+        deployment: ModelDeployment,
+        user_id: uuid.UUID,
+        shared_by_user_id: uuid.UUID | None = None,
+    ) -> str:
+        """Send an access-granted email at most once per (deployment, user).
+
+        Inserts the EmailNotification row and flushes to claim the slot
+        atomically via the unique constraint on (deploymentId, userId, type) —
+        the same dedup pattern BackgroundService uses for lifecycle emails —
+        so retried share requests never produce duplicate emails.
+
+        Args:
+            db: Active database session; committed after the send attempt.
+            deployment: The deployment the user was granted access to.
+            user_id: UUID of the user who was granted access.
+            shared_by_user_id: UUID of the user who granted access, if known.
+
+        Returns:
+            "sent" on successful delivery, "failed" if SMTP delivery failed
+            (recorded, not retried), or "duplicate" if a notification was
+            already attempted for this (deployment, user) pair.
+        """
+        notification = EmailNotification(
+            deploymentId=deployment.id,
+            userId=user_id,
+            type="invite",
+            status="pending",
+        )
+        db.add(notification)
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()  # another request already claimed this slot
+            return "duplicate"
+
+        delivered = await self.notify_deployment_invite(
+            db, deployment, user_id, shared_by_user_id
+        )
+        notification.status = "sent" if delivered else "failed"
+        db.commit()
+        return notification.status
+
     def _resolve_email(
         self,
         db: Session,
@@ -167,6 +280,35 @@ class EmailService:
                 user_id,
                 deployment.id,
             )
+            return None
+
+    def _describe_user(
+        self,
+        db: Session,
+        user_id: uuid.UUID | None,
+    ) -> str | None:
+        """Format a user as "Name (email)" for use in email bodies.
+
+        Args:
+            db: Active database session.
+            user_id: UUID of the user to describe, or None.
+
+        Returns:
+            "Name (email)" (or just the email if the name is empty), or None
+            when user_id is None, the user does not exist, or the lookup
+            fails — callers substitute a generic description.
+        """
+        if user_id is None:
+            return None
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                return None
+            if user.name:
+                return f"{user.name} ({user.email})"
+            return user.email
+        except Exception:
+            logger.exception("Failed to resolve user %s for email body", user_id)
             return None
 
     async def _send(self, recipient: str, subject: str, body: str) -> bool:
