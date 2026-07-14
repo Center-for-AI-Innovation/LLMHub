@@ -1,3 +1,6 @@
+packages:
+  - '.'
+
 # These packages ship prebuilt binaries via optionalDependencies; their
 # install scripts are not needed, so decline them to keep installs hermetic.
 allowBuilds:
