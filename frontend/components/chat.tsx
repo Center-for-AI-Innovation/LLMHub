@@ -45,12 +45,16 @@ function getSelectedVllmDeploymentId(model: string): string | null {
 }
 
 function isVllmDeploymentModel(model: string): boolean {
-  return model === 'vllm-model' || model.startsWith(VLLM_DEPLOYMENT_PREFIX);
+  return model.startsWith(VLLM_DEPLOYMENT_PREFIX);
+}
+
+function isAlwaysOnModel(model: string): boolean {
+  return model === 'always-on-model';
 }
 
 // Helper to determine API endpoint based on model and deployment ID
 const getApiEndpoint = (model: string, vllmDeploymentId: string | null) => {
-  if (model === 'guest-vllm-model' || model === 'always-on-model') {
+  if (isAlwaysOnModel(model)) {
     return '/api/public/chat';
   }
 
@@ -58,13 +62,7 @@ const getApiEndpoint = (model: string, vllmDeploymentId: string | null) => {
   if (selectedDeploymentId) {
     return getVllmChatEndpoint(selectedDeploymentId);
   }
-
-  if (model === 'vllm-model') {
-    // vLLM deployment route only. No fallback to legacy static vLLM route.
-    return vllmDeploymentId
-      ? getVllmChatEndpoint(vllmDeploymentId)
-      : '/api/v1/deployment/__missing__/chat/completions';
-  }
+  
   return '/api/chat';
 };
 
@@ -142,11 +140,15 @@ function ensureModelReadyForSend({
     return true;
   }
 
+  if (isAlwaysOnModel(selectedModel)) {
+    return true;
+  }
+
   if (!isVllmDeploymentModel(selectedModel)) {
     return true;
   }
 
-  // Deployment-specific options include the job ID directly.
+  // Deployment-specific options include the deployment ID directly.
   if (getSelectedVllmDeploymentId(selectedModel)) {
     return true;
   }
@@ -578,7 +580,7 @@ export function Chat({
   onResolvedChatId?: (chatId: string) => void;
 }) {
   const { selectedModel, setSelectedModel } = useModelSelector();
-  const effectiveSelectedModel = isGuestMode ? 'guest-vllm-model' : selectedModel;
+  const effectiveSelectedModel = isGuestMode ? 'always-on-model' : selectedModel;
   const { deploymentId: vllmDeploymentId } = useVllmJob(!isGuestMode);
   const isTemporaryChat = id === 'new';
   const chatKey = isTemporaryChat ? `new:${resetVersion}` : `id:${id}`;

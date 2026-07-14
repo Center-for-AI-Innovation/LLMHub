@@ -42,7 +42,7 @@ export const myProvider = customProvider({
     // vLLM model - uses local vLLM server
     // vLLM/OpenAI-compatible servers typically implement /v1/chat/completions, not /v1/responses.
     ...(VLLM_MODEL && vllmBaseURL
-      ? { 'vllm-model': vllmProvider.chat(VLLM_MODEL) }
+      ? { 'always-on-model': vllmProvider.chat(VLLM_MODEL) }
       : {}),
   }
 });
@@ -56,7 +56,7 @@ interface ChatModel {
 export const chatModels: Array<ChatModel> = VLLM_MODEL
   ? [
       {
-        id: 'vllm-model',
+        id: 'always-on-model',
         name: VLLM_MODEL,
         description: `Deployed vLLM model (${VLLM_MODEL})`,
       },
