@@ -132,7 +132,7 @@ export async function handleChatCompletions(
   const modelName = deployment.modelName;
   if (!modelName) {
     return createErrorResponse(
-      'Deployment ${deployment.id} has no model name configured.',
+      `Deployment ${deployment.id} has no model name configured.`,
       500,
     );
   }
