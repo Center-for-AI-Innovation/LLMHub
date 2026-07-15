@@ -1,11 +1,11 @@
 /**
  * vLLM Job Management API
  * 
- * Route for hook use-vllm-job to get user active vLLM job
- * Manages vLLM job IDs for the authenticated user.
+ * Route for hook use-vllm-deployment to get user active vLLM deployment
+ * Manages vLLM deployment IDs for the authenticated user.
  * Fetches job information from the ModelDeployment table.
  * 
- * GET: Fetch user's active vLLM job from ModelDeployment table
+ * GET: Fetch user's active vLLM deployment from ModelDeployment table
  * POST: Refresh/revalidate the deployment info
  */
 
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 /**
- * GET - Get user's active vLLM job from ModelDeployment table
+ * GET - Get user's active vLLM deployment from ModelDeployment table
  */
 export async function GET() {
   try {
@@ -25,7 +25,7 @@ export async function GET() {
     
     if (!session?.user?.id) {
       return NextResponse.json(
-        { error: 'Unauthorized', jobId: null },
+        { error: 'Unauthorized', deploymentId: null },
         { status: 401 }
       );
     }
@@ -38,12 +38,12 @@ export async function GET() {
       
       if (activeDeployment) {
         // Found an active deployment in ModelDeployment table
-        // proxyUrl is built inline - clients can also use getVllmChatEndpoint from use-vllm-job hook
+        // proxyUrl is built inline using the deployment ID - clients can also use getVllmChatEndpoint from use-vllm-deployment hook
         return NextResponse.json({
-          jobId: activeDeployment.slurmJobId,
           deploymentId: activeDeployment.id,
+          slurmJobId: activeDeployment.slurmJobId,
           modelId: activeDeployment.modelId,
-          proxyUrl: `/api/v1/job/${activeDeployment.slurmJobId}/chat/completions`,
+          proxyUrl: `/api/v1/deployment/${activeDeployment.id}/chat/completions`,
           endpointUrl: activeDeployment.endpointUrl,
           modelName: activeDeployment.modelName,
           status: activeDeployment.status,
@@ -53,23 +53,23 @@ export async function GET() {
       }
     } catch (error) {
       // ModelDeployment table might not exist or query failed
-      console.error('[vLLM Job API] ModelDeployment query failed:', error);
+      console.error('[vLLM Deployment API] ModelDeployment query failed:', error);
       return NextResponse.json(
-        { error: 'Failed to query deployments', jobId: null },
+        { error: 'Failed to query deployments', deploymentId: null },
         { status: 500 }
       );
     }
 
     // No active deployment found
     return NextResponse.json({
-      jobId: null,
+      deploymentId: null,
       message: 'No active vLLM deployment. Please launch a model first.',
     });
 
   } catch (error) {
-    console.error('[vLLM Job API] Error:', error);
+    console.error('[vLLM Deployment API] Error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error', jobId: null },
+      { error: error instanceof Error ? error.message : 'Internal server error', deploymentId: null },
       { status: 500 }
     );
   }
@@ -85,7 +85,7 @@ export async function POST() {
     
     if (!session?.user?.id) {
       return NextResponse.json(
-        { error: 'Unauthorized', jobId: null },
+        { error: 'Unauthorized', deploymentId: null },
         { status: 401 }
       );
     }
@@ -98,10 +98,10 @@ export async function POST() {
       
       if (activeDeployment) {
         return NextResponse.json({
-          jobId: activeDeployment.slurmJobId,
+          slurmJobId: activeDeployment.slurmJobId,
           deploymentId: activeDeployment.id,
           modelId: activeDeployment.modelId,
-          proxyUrl: `/api/v1/job/${activeDeployment.slurmJobId}/chat/completions`,
+          proxyUrl: `/api/v1/deployment/${activeDeployment.id}/chat/completions`,
           endpointUrl: activeDeployment.endpointUrl,
           modelName: activeDeployment.modelName,
           status: activeDeployment.status,
@@ -111,19 +111,19 @@ export async function POST() {
         });
       }
     } catch (error) {
-      console.error('[vLLM Job API] Failed to refresh deployment:', error);
+      console.error('[vLLM Deployment API] Failed to refresh deployment:', error);
     }
 
     return NextResponse.json({
-      jobId: null,
+      deploymentId: null,
       message: 'No active vLLM deployment found. Please launch a model first.',
       refreshed: true,
     });
 
   } catch (error) {
-    console.error('[vLLM Job API] Error:', error);
+    console.error('[vLLM Deployment API] Error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error', jobId: null },
+      { error: error instanceof Error ? error.message : 'Internal server error', deploymentId: null },
       { status: 500 }
     );
   }

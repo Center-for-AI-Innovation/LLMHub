@@ -164,9 +164,9 @@ const ActiveModelCard = memo(({
               href={`/chat?model=${model.id}`}
               onClick={(event) => {
                 event.stopPropagation();
-                const preferredModelId = deployment?.slurmJobId
-                  ? `vllm-job:${deployment.slurmJobId}`
-                  : 'vllm-model';
+                const preferredModelId = deployment?.id
+                  ? `vllm-deployment:${deployment.id}`
+                  : 'always-on-model';
                 setPreferredChatModel(preferredModelId);
               }}
             >
