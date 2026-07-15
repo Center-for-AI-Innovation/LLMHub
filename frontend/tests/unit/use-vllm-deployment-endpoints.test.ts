@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getVllmChatEndpoint,
   getVllmModelsEndpoint,
-} from '@/hooks/use-vllm-job';
+} from '@/hooks/use-vllm-deployment';
 
 describe('getVllmChatEndpoint', () => {
   it('builds the deployment-scoped chat completions path', () => {

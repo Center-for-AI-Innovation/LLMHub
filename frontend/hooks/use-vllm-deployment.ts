@@ -43,7 +43,7 @@ const fetchVllmDeployment = async (): Promise<VllmDeploymentResponse> => {
  *
  * @returns Object with deploymentId, deployment info, refresh function, and loading state
  */
-export function useVllmJob(enabled = true) {
+export function useVllmDeployment(enabled = true) {
   const queryClient = useQueryClient();
   const { data, error, isLoading } = useQuery({
     queryKey: VLLM_DEPLOYMENT_QUERY_KEY,

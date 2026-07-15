@@ -1,7 +1,7 @@
 /**
  * vLLM Job Management API
  * 
- * Route for hook use-vllm-job to get user active vLLM deployment
+ * Route for hook use-vllm-deployment to get user active vLLM deployment
  * Manages vLLM deployment IDs for the authenticated user.
  * Fetches job information from the ModelDeployment table.
  * 
@@ -38,7 +38,7 @@ export async function GET() {
       
       if (activeDeployment) {
         // Found an active deployment in ModelDeployment table
-        // proxyUrl is built inline using the deployment ID - clients can also use getVllmChatEndpoint from use-vllm-job hook
+        // proxyUrl is built inline using the deployment ID - clients can also use getVllmChatEndpoint from use-vllm-deployment hook
         return NextResponse.json({
           deploymentId: activeDeployment.id,
           slurmJobId: activeDeployment.slurmJobId,

@@ -28,7 +28,10 @@ import {
 } from '@/lib/guest-chat';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useDocumentCache } from '@/hooks/use-document-cache';
-import { useVllmJob, getVllmChatEndpoint } from '@/hooks/use-vllm-job';
+import {
+  useVllmDeployment,
+  getVllmChatEndpoint,
+} from '@/hooks/use-vllm-deployment';
 import { useNewChat } from '@/hooks/use-new-chat';
 import { usePendingChat } from '@/hooks/use-pending-chat';
 import type { DataStreamDelta } from '@/lib/ai/data-stream';
@@ -368,6 +371,7 @@ function ChatInner({
     message?: any,
     options?: ChatRequestOptions,
   ): Promise<void> => {
+    console.log('selectedModel', selectedModel, 'vllmDeploymentId', vllmDeploymentId);
     if (!ensureModelReadyForSend({ isGuestMode, selectedModel, vllmDeploymentId })) {
       return;
     }
@@ -581,7 +585,7 @@ export function Chat({
 }) {
   const { selectedModel, setSelectedModel } = useModelSelector();
   const effectiveSelectedModel = isGuestMode ? 'always-on-model' : selectedModel;
-  const { deploymentId: vllmDeploymentId } = useVllmJob(!isGuestMode);
+  const { deploymentId: vllmDeploymentId } = useVllmDeployment(!isGuestMode);
   const isTemporaryChat = id === 'new';
   const chatKey = isTemporaryChat ? `new:${resetVersion}` : `id:${id}`;
   const [chatIdentity, setChatIdentity] = useState(() => ({
