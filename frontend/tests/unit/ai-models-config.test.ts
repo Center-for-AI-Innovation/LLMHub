@@ -18,18 +18,18 @@ describe('lib/ai/models', () => {
     expect(DEFAULT_CHAT_MODEL).toBe('always-on-model');
   });
 
-  it('registers no vllm-model and exposes no chat models when always-on is unconfigured', async () => {
+  it('registers no always-on model and exposes no chat models when always-on is unconfigured', async () => {
     const { chatModels, myProvider } = await loadModels({});
     expect(chatModels).toEqual([]);
-    expect(() => myProvider.languageModel('vllm-model')).toThrow();
+    expect(() => myProvider.languageModel('always-on-model')).toThrow();
   });
 
-  it('does not register vllm-model when only the model name is set (no base URL)', async () => {
+  it('does not register the always-on model when only the model name is set (no base URL)', async () => {
     const { myProvider } = await loadModels({ model: 'qwen' });
-    expect(() => myProvider.languageModel('vllm-model')).toThrow();
+    expect(() => myProvider.languageModel('always-on-model')).toThrow();
   });
 
-  it('registers vllm-model when both always-on model and base URL are set', async () => {
+  it('registers always-on-model when both always-on model and base URL are set', async () => {
     const { chatModels, myProvider } = await loadModels({
       model: 'Qwen/Qwen2.5-1.5B-Instruct',
       baseUrl: 'http://localhost:8000/v1',
@@ -37,11 +37,11 @@ describe('lib/ai/models', () => {
 
     expect(chatModels).toEqual([
       {
-        id: 'vllm-model',
+        id: 'always-on-model',
         name: 'Qwen/Qwen2.5-1.5B-Instruct',
         description: 'Deployed vLLM model (Qwen/Qwen2.5-1.5B-Instruct)',
       },
     ]);
-    expect(() => myProvider.languageModel('vllm-model')).not.toThrow();
+    expect(() => myProvider.languageModel('always-on-model')).not.toThrow();
   });
 });
