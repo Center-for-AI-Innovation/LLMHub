@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 import os
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -24,7 +25,16 @@ class Settings(BaseSettings):
     VEC_INF_ACCOUNT: Optional[str] = None  # SLURM account for vec-inf (can override SLURM_ACCOUNT)
     VEC_INF_WORK_DIR: Optional[str] = None  # Working directory for vec-inf jobs
     VEC_INF_ENV: Optional[str] = None  # Environment variables for container jobs (comma-separated KEY=VALUE pairs)
-    
+    VEC_INF_LOG_DIR: Optional[str] = None  # Shared vec-inf log directory override
+    VEC_INF_SHARED_WORK_ROOT: Optional[str] = None  # Parent directory for impersonated per-user logs/scripts
+    VEC_INF_EXECUTION_MODE: str = "direct"  # direct or impersonate
+    VEC_INF_IMPERSONATE_SCRIPT: str = str(
+        Path(__file__).resolve().parents[2] / "scripts" / "impersonate-wrapper.py"
+    )
+    VEC_INF_IMPERSONATE_PYTHON: Optional[str] = None  # Shared interpreter path for impersonated shim launches
+    VEC_INF_IMPERSONATE_LOGIN_SHELL: bool = True  # Run impersonated launches in a login shell by default
+    VEC_INF_ACCOUNTS_SCRIPT: str = "/sw/user/scripts/accounts"  # Helper to resolve a user's Slurm accounts
+
     # Background service settings
     SYNC_INTERVAL: int = int(os.getenv("SYNC_INTERVAL", "60"))  # deployment sync interval in seconds
     EXPIRY_CHECK_INTERVAL: int = int(os.getenv("EXPIRY_CHECK_INTERVAL", "300"))  # expiry check interval in seconds
