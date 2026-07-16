@@ -73,12 +73,16 @@ export function ShareDeploymentDialog({
   const [selected, setSelected] = useState<UserSearchResult[]>([]);
   const [query, setQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ShareDeploymentResultEntry[] | null>(
     null,
   );
 
   const comboboxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  const ignoreMouseHighlightRef = useRef(false);
   useOnClickOutside(comboboxRef as RefObject<HTMLElement>, () =>
     setShowSuggestions(false),
   );
@@ -96,6 +100,7 @@ export function ShareDeploymentDialog({
       setSelected([]);
       setQuery('');
       setShowSuggestions(false);
+      setHighlightedIndex(-1);
       setError(null);
       setResults(null);
     }
@@ -125,6 +130,28 @@ export function ShareDeploymentDialog({
     [searchResults, unavailableEmails],
   );
 
+  const showDropdown = showSuggestions && query.trim().length > 0;
+
+  // Keep highlight in range when the suggestion list changes.
+  useEffect(() => {
+    if (!showDropdown || suggestions.length === 0) {
+      setHighlightedIndex(-1);
+      return;
+    }
+    setHighlightedIndex((current) =>
+      current < 0 || current >= suggestions.length ? 0 : current,
+    );
+  }, [showDropdown, suggestions]);
+
+  // Scroll the highlighted option into view inside the dropdown.
+  useEffect(() => {
+    if (highlightedIndex < 0 || !listRef.current) return;
+    const option = listRef.current.children[highlightedIndex] as
+      | HTMLElement
+      | undefined;
+    option?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedIndex]);
+
   const hasSelection = selected.length > 0;
   const canSubmit = useMemo(
     () => Boolean(deploymentId) && hasSelection && !isPending && !disabled,
@@ -137,6 +164,7 @@ export function ShareDeploymentDialog({
     );
     setQuery('');
     setShowSuggestions(false);
+    setHighlightedIndex(-1);
     setError(null);
   }
 
@@ -145,12 +173,44 @@ export function ShareDeploymentDialog({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === 'Enter' && showDropdown && suggestions.length > 0) {
-      event.preventDefault();
-      selectUser(suggestions[0]);
-    } else if (event.key === 'Escape') {
+    if (event.key === 'Escape') {
       setShowSuggestions(false);
+      setHighlightedIndex(-1);
+      return;
     }
+
+    if (!showDropdown || suggestions.length === 0) return;
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        ignoreMouseHighlightRef.current = true;
+        setHighlightedIndex((current) =>
+          current < suggestions.length - 1 ? current + 1 : 0,
+        );
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        ignoreMouseHighlightRef.current = true;
+        setHighlightedIndex((current) =>
+          current > 0 ? current - 1 : suggestions.length - 1,
+        );
+        break;
+      case 'Enter':
+        if (highlightedIndex >= 0 && highlightedIndex < suggestions.length) {
+          event.preventDefault();
+          selectUser(suggestions[highlightedIndex]);
+        }
+        break;
+    }
+  }
+
+  function handleOptionPointerMove(index: number) {
+    if (ignoreMouseHighlightRef.current) {
+      ignoreMouseHighlightRef.current = false;
+      return;
+    }
+    setHighlightedIndex((current) => (current === index ? current : index));
   }
 
   async function handleSubmit() {
@@ -254,7 +314,6 @@ export function ShareDeploymentDialog({
 
   const authorizedUsers = sharing?.authorizedUsers ?? [];
   const pendingInvites = sharing?.pendingInvites ?? [];
-  const showDropdown = showSuggestions && query.trim().length > 0;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -327,18 +386,30 @@ export function ShareDeploymentDialog({
                       No matching users found.
                     </div>
                   ) : (
-                    <ul className="max-h-56 overflow-y-auto py-1">
-                      {suggestions.map((user) => (
+                    <ul ref={listRef} className="max-h-56 overflow-y-auto py-1">
+                      {suggestions.map((user, index) => (
                         <li key={user.id}>
                           <button
                             type="button"
                             onClick={() => selectUser(user)}
-                            className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent"
+                            onMouseMove={() => handleOptionPointerMove(index)}
+                            className={cn(
+                              'flex w-full flex-col items-start px-3 py-1.5 text-left',
+                              index === highlightedIndex &&
+                                'bg-accent text-accent-foreground',
+                            )}
                           >
                             <span className="text-sm font-medium">
                               {user.name}
                             </span>
-                            <span className="text-xs text-muted-foreground">
+                            <span
+                              className={cn(
+                                'text-xs',
+                                index === highlightedIndex
+                                  ? 'text-accent-foreground/80'
+                                  : 'text-muted-foreground',
+                              )}
+                            >
                               {user.email}
                             </span>
                           </button>
