@@ -43,11 +43,11 @@
         --popover-foreground: 217 85% 15%;
         --primary: 217 85% 15%;
         --primary-foreground: 0 0% 98%;
-        --secondary: 16 95% 50%;
+        --secondary: 16 90% 42%;
         --secondary-foreground: 0 0% 98%;
         --muted: 217 45% 95%;
         --muted-foreground: 217 45% 46.1%;
-        --accent: 16 95% 50%;
+        --accent: 16 90% 42%;
         --accent-foreground: 0 0% 98%;
         --destructive: 0 84.2% 60.2%;
         --destructive-foreground: 0 0% 98%;
@@ -79,6 +79,7 @@
         --sidebar-foreground: 217 85% 15%;
         --sidebar-primary: 217 85% 15%;
         --sidebar-primary-foreground: 0 0% 98%;
+        --sidebar-accent: 16 90% 42%;
         --sidebar-accent-foreground: 0 0% 98%;
         --sidebar-hover: 217 35% 94%;
         --sidebar-hover-foreground: 217 85% 15%;
