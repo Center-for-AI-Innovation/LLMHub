@@ -58,7 +58,7 @@ const statusConfig: Record<
   pending: {
     label: 'Pending',
     icon: Clock,
-    color: 'text-secondary',
+    color: 'text-illinois-altgeld',
     bgColor: 'bg-secondary/10',
     animate: false,
   },
@@ -140,7 +140,7 @@ function LogLine({ line, index }: { line: string; index: number }) {
         className={cn(
           'whitespace-pre-wrap break-all',
           isError && 'text-destructive',
-          isWarning && 'text-secondary',
+          isWarning && 'text-illinois-altgeld',
           isSuccess && 'text-status-success',
           !isError && !isWarning && !isSuccess && 'text-foreground',
         )}
@@ -388,7 +388,7 @@ export function DeploymentLogsPanel({
                       </div>
                     </div>
                     <div className="text-center">
-                      <p className="text-sm text-secondary font-medium">
+                      <p className="text-sm text-illinois-altgeld font-medium">
                         Job is queued
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">

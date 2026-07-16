@@ -25,7 +25,7 @@ export function getDeploymentStatusInfo(status: string): DeploymentStatusInfo {
     case 'pending':
       return {
         label: 'Pending',
-        colorClass: 'bg-secondary/10 text-secondary',
+        colorClass: 'bg-secondary/10 text-illinois-altgeld',
         icon: Clock,
       };
     case 'launching':
@@ -63,7 +63,7 @@ export function getDeploymentStatusInfo(status: string): DeploymentStatusInfo {
     default:
       return {
         label: 'Pending',
-        colorClass: 'bg-secondary/10 text-secondary',
+        colorClass: 'bg-secondary/10 text-illinois-altgeld',
         icon: Clock,
       };
   }

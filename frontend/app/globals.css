@@ -58,11 +58,11 @@
         /* ── Status / data-vis tokens (HSL, support opacity modifiers) ───────
          *  status-success  ≈ UIUC Patina   (#007E8E)
          *  status-info     ≈ UIUC Industrial (#1D58A7)
-         *  status-neutral  ≈ UIUC Harvest  (#FCB316)
+         *  status-neutral  ≈ UIUC Harvest  (#FCB316), darkened for AA text contrast on light backgrounds
          */
         --status-success: 186 100% 28%;
         --status-info: 214 70% 38%;
-        --status-neutral: 40 97% 53%;
+        --status-neutral: 38 96% 35%;
 
         /* ── Chart tokens ─────────────────────────────────────────────────── */
         --chart-1: 16 95% 50%;
