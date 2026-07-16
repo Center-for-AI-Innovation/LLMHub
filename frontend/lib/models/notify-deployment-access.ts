@@ -1,3 +1,5 @@
+import 'server-only';
+
 // Server-side helper that asks the Python backend to send an access-granted
 // email after a user is added to a deployment's AuthorizedUsers table.
 // The backend deduplicates per (deployment, user), so calling this more than
@@ -26,6 +28,9 @@ export async function notifyDeploymentAccessGranted({
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Bound the wait: the backend sends the email synchronously and its
+        // SMTP timeout is 20s. Aborting the fetch does not cancel the send.
+        signal: AbortSignal.timeout(5_000),
         body: JSON.stringify({
           userId,
           sharedByUserId: sharedByUserId ?? null,

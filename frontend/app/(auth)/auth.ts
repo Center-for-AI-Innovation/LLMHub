@@ -140,14 +140,18 @@ export const betterAuthInstance = betterAuth({
               );
             }
             // Invitees who signed up after the deployment's lifecycle emails
-            // went out would otherwise never hear about their access.
-            for (const invite of newlyGranted) {
-              await notifyDeploymentAccessGranted({
-                deploymentId: invite.deploymentId,
-                userId,
-                sharedByUserId: invite.invitedBy,
-              });
-            }
+            // went out would otherwise never hear about their access. Sent
+            // concurrently so signup latency is bounded by one request, and
+            // awaited so the work isn't dropped when the response is sent.
+            await Promise.allSettled(
+              newlyGranted.map((invite) =>
+                notifyDeploymentAccessGranted({
+                  deploymentId: invite.deploymentId,
+                  userId,
+                  sharedByUserId: invite.invitedBy,
+                }),
+              ),
+            );
           } catch (error) {
             console.error(
               'Failed to claim pending deployment invites for new user',

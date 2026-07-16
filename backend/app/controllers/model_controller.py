@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.models.authorized_users import AuthorizedUsers
 from app.models.user import User
 from app.repositories.session import get_db
 from app.schemas.model_deployment import (
@@ -255,6 +256,19 @@ async def notify_deployment_access(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
+        )
+
+    # Only notify about access that actually exists: the email asserts the
+    # user was granted access, so refuse if there is no AuthorizedUsers row.
+    has_access = (
+        db.query(AuthorizedUsers)
+        .filter_by(deploymentId=deployment_id, userId=request.userId)
+        .first()
+    )
+    if not has_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not have access to this deployment",
         )
 
     result = await email_service.notify_deployment_invite_once(

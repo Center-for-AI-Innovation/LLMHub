@@ -27,7 +27,7 @@ class EmailNotification(Base):
     )
     userId = Column(UUID(as_uuid=True), nullable=False)
     type = Column(String, nullable=False)    # "ready" | "failed" | "completed" | "invite"
-    status = Column(String, nullable=False)  # "sent"  | "failed"
+    status = Column(String, nullable=False)  # "pending" | "sent" | "failed"
 
     __table_args__ = (
         # Also creates an index on the deploymentId, userId, and type columns

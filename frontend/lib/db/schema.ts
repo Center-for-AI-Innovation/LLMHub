@@ -349,7 +349,9 @@ export const emailNotification = pgTable(
     type: varchar('type', {
       enum: ['ready', 'failed', 'completed', 'invite'],
     }).notNull(),
-    status: varchar('status', { enum: ['sent', 'failed'] }).notNull(),
+    status: varchar('status', {
+      enum: ['pending', 'sent', 'failed'],
+    }).notNull(),
   },
   (table) => ({
     deploymentUserTypeUnique: unique('uq_emailnotification_deployment_userid_type').on(
