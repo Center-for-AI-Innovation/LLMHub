@@ -114,7 +114,7 @@ function CopyButton({
 }
 
 function getPublicApiBaseUrl(origin: string, deployment: ModelDeployment) {
-  return `${origin}/api/public/v1/job/${deployment.slurmJobId}`;
+  return `${origin}/api/public/v1/deployment/${deployment.id}`;
 }
 
 function getDeploymentDisplayLabel(deployment: ModelDeployment) {

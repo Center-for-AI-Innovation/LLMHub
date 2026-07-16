@@ -817,7 +817,7 @@ models:
     vllm_args:
       --max-model-len: 4096
   bge-base-en-v1.5:
-    model_family: bge
+    model_family: BAAI
     model_variant: base-en-v1.5
     model_type: Text_Embedding
     gpus_per_node: 1
@@ -828,7 +828,7 @@ models:
     vllm_args:
       --max-model-len: 512
   all-MiniLM-L6-v2:
-    model_family: all-MiniLM
+    model_family: sentence-transformers
     model_variant: L6-v2
     model_type: Text_Embedding
     gpus_per_node: 1
@@ -887,7 +887,7 @@ models:
       --tensor-parallel-size: 2
       --max-model-len: 8192
   DeepSeek-R1-Distill-Llama-70B:
-    model_family: DeepSeek-R1
+    model_family: DeepSeek-AI
     model_variant: Distill-Llama-70B
     model_type: LLM
     gpus_per_node: 4
@@ -899,7 +899,7 @@ models:
       --tensor-parallel-size: 4
       --max-model-len: 65536
   DeepSeek-R1-Distill-Llama-8B:
-    model_family: DeepSeek-R1
+    model_family: DeepSeek-AI
     model_variant: Distill-Llama-8B
     model_type: LLM
     gpus_per_node: 1
@@ -910,7 +910,7 @@ models:
     vllm_args:
       --max-model-len: 131072
   DeepSeek-R1-Distill-Qwen-32B:
-    model_family: DeepSeek-R1
+    model_family: DeepSeek-AI
     model_variant: Distill-Qwen-32B
     model_type: LLM
     gpus_per_node: 2
@@ -922,7 +922,7 @@ models:
       --tensor-parallel-size: 2
       --max-model-len: 65536
   DeepSeek-R1-Distill-Qwen-14B:
-    model_family: DeepSeek-R1
+    model_family: DeepSeek-AI
     model_variant: Distill-Qwen-14B
     model_type: LLM
     gpus_per_node: 1
@@ -933,7 +933,7 @@ models:
     vllm_args:
       --max-model-len: 65536
   DeepSeek-R1-Distill-Qwen-7B:
-    model_family: DeepSeek-R1
+    model_family: DeepSeek-AI
     model_variant: Distill-Qwen-7B
     model_type: LLM
     gpus_per_node: 1
@@ -944,7 +944,7 @@ models:
     vllm_args:
       --max-model-len: 131072
   DeepSeek-R1-Distill-Qwen-1.5B:
-    model_family: DeepSeek-R1
+    model_family: DeepSeek-AI
     model_variant: Distill-Qwen-1.5B
     model_type: LLM
     gpus_per_node: 1
@@ -1067,3 +1067,21 @@ models:
     vllm_args:
       --tensor-parallel-size: 2
       --max-model-len: 32768
+  medgemma-4b-it:
+    model_family: google
+    model_variant: 4b-it
+    model_type: VLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 262208
+  medgemma-27b-it:
+    model_family: google
+    model_variant: 27b-it
+    model_type: VLM
+    gpus_per_node: 2
+    num_nodes: 1
+    vocab_size: 262208
+    vllm_args:
+      --tensor-parallel-size: 2
+    sglang_args:
+      --tensor-parallel-size: 2

@@ -4,10 +4,6 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
-const DEFAULT_LAUNCH_RESOURCE_TYPE = 'nvidia_a40';
-const DEFAULT_LAUNCH_PARTITION = 'gpuA40x4';
-const DEFAULT_LAUNCH_TIME = '00:30:00';
-
 function getDeploymentId(payload: unknown): string | null {
   if (payload && typeof payload === 'object') {
     const directId = (payload as { id?: unknown }).id;
@@ -99,7 +95,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await fetch(`${BACKEND_API_URL}/api/models/deployments`, {
+    if (
+      body.time == null ||
+      body.partition == null ||
+      body.resource_type == null
+    ) {
+      return NextResponse.json(
+        { error: 'Time, partition, and resource type are required' },
+        { status: 400 },
+      );
+    }
+
+    const response = await fetch(`${BACKEND_API_URL}/api/models/deployments`, {  
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -112,9 +119,9 @@ export async function POST(request: NextRequest) {
         modelId,
         userId,
         hf_model: body.hf_model || modelId,
-        time: body.time || DEFAULT_LAUNCH_TIME,
-        partition: body.partition || DEFAULT_LAUNCH_PARTITION,
-        resource_type: body.resource_type || DEFAULT_LAUNCH_RESOURCE_TYPE,
+        time: body.time,
+        partition: body.partition,
+        resource_type: body.resource_type,
       }),
     });
 
