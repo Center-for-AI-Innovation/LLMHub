@@ -36,6 +36,6 @@ yarn-error.log*
 next-env.d.ts
 
 # apptainers
-devops/apptainers/*.sif
-devops/apptainers/*.out
-devops/apptainers/*.err
+infra/magic-castle/apptainers/*.sif
+infra/magic-castle/apptainers/*.out
+infra/magic-castle/apptainers/*.err
