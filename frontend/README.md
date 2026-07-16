@@ -1,7 +1,5 @@
-<a href="https://chat.vercel.ai/">
-  <img alt="Next.js 14 and App Router-ready LLMHub Frontend." src="app/(chat)/opengraph-image.png">
-  <h1 align="center">LLMHub Frontend</h1>
-</a>
+<h1 align="center">LLMHub Frontend</h1>
+
 
 <p align="center">
   LLMHub frontend built with Next.js and Vercel AI SDK
