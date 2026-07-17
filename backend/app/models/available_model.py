@@ -19,6 +19,7 @@ class AvailableModel(Base):
     specs = Column(JSON, nullable=False)
     vocabSize = Column(Integer, nullable=True)
     huggingfaceId = Column(String(255), nullable=True)
+    gated = Column(String(50), nullable=True)
     createdAt = Column(DateTime, default=func.now(), nullable=False)
     updatedAt = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
 

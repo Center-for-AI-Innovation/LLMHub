@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, Dict, Any
 from uuid import UUID
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas._base import ORMBaseModel
 
@@ -29,6 +29,11 @@ class ModelDeploymentCreate(BaseModel):
     resource_type: Optional[str] = None  # GPU type (e.g., "l40s", "h100", "A100", "H200")
     work_dir: Optional[str] = None  # Optional working directory for vec-inf jobs
     hf_model: Optional[str] = None  # HuggingFace model ID (e.g., "Qwen/Qwen2.5-3B-Instruct")
+    hf_token: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="User HF token for gated/private weights; verified with auth_check before launch",
+    )
     vllm_args: Optional[str] = None  # Additional vLLM args (comma-separated, e.g., "--max-model-len=4096,--max-num-seqs=64")
     model_weights_parent_dir: Optional[str] = None  # Parent directory for model weights
     enable_cloudflare_tunnel: Optional[bool] = False  # Added flag for enabling Cloudflare tunnel
