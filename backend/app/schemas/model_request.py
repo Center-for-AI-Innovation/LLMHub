@@ -1,14 +1,15 @@
 from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel
 
 from app.schemas._base import ORMBaseModel
 
 
 class ModelRequestBase(BaseModel):
     """Base model request schema."""
-    
+
     name: str
     email: str
     department: str
@@ -21,28 +22,29 @@ class ModelRequestBase(BaseModel):
 
 class ModelRequestCreate(ModelRequestBase):
     """Schema for creating a model request."""
-    
+
     userId: UUID
 
 
 class ModelRequestUpdate(BaseModel):
     """Schema for updating a model request."""
-    
+
     status: Optional[str] = None
 
 
 class ModelRequestInDB(ModelRequestBase):
     """Schema for a model request in the database."""
-    
+
     id: UUID
     userId: UUID
     status: str
     createdAt: datetime
     updatedAt: datetime
-    
+
     model_config = ORMBaseModel.model_config
 
 
 class ModelRequestResponse(ModelRequestInDB):
     """Schema for a model request response."""
-    pass 
+
+    pass

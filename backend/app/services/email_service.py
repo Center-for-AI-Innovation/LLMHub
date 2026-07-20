@@ -3,14 +3,13 @@
 import uuid
 from email.mime.text import MIMEText
 
-from sqlalchemy.orm import Session
 import aiosmtplib
+from sqlalchemy.orm import Session
 
 from app.config.config import settings
 from app.config.logging import get_logger
 from app.models.model_deployment import ModelDeployment
 from app.models.user import User
-
 
 logger = get_logger("email_service")
 
@@ -131,8 +130,12 @@ class EmailService:
         recipient = self._resolve_email(db, deployment, user_id)
         if not recipient:
             return False
-        subject = _COMPLETED_SUBJECT.format(model_name=deployment.modelName,)
-        body = _COMPLETED_BODY.format(model_name=deployment.modelName, deployment_id=deployment.id)
+        subject = _COMPLETED_SUBJECT.format(
+            model_name=deployment.modelName,
+        )
+        body = _COMPLETED_BODY.format(
+            model_name=deployment.modelName, deployment_id=deployment.id
+        )
         return await self._send(recipient, subject, body)
 
     def _resolve_email(
@@ -195,12 +198,10 @@ class EmailService:
                 msg,
                 hostname=settings.SMTP_HOST,
                 port=settings.SMTP_PORT,
-                start_tls=False,   # port 25 relay, no TLS
+                start_tls=False,  # port 25 relay, no TLS
                 timeout=20,
             )
-            logger.info(
-                "Sent notification email to=%s subject=%r", recipient, subject
-            )
+            logger.info("Sent notification email to=%s subject=%r", recipient, subject)
             return True
         except Exception:
             logger.exception(
