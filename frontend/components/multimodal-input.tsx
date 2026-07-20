@@ -295,7 +295,7 @@ function PureAttachmentsButton({
 }) {
   return (
     <Button
-      className="rounded-md rounded-bl-lg p-[7px] h-fit border-border hover:bg-muted"
+      className="rounded-md rounded-bl-lg p-[7px] h-fit hover:bg-muted"
       onClick={(event) => {
         event.preventDefault();
         fileInputRef.current?.click();
