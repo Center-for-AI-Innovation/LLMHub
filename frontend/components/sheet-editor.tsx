@@ -26,8 +26,8 @@ const SPREADSHEET_COLUMNS = (() => {
     frozen: true,
     width: 50,
     renderCell: ({ rowIdx }: { rowIdx: number }) => rowIdx + 1,
-    cellClass: 'border-t border-r dark:bg-background dark:text-foreground',
-    headerCellClass: 'border-t border-r dark:bg-muted dark:text-foreground',
+    cellClass: 'border-t border-r border-border dark:bg-background dark:text-foreground',
+    headerCellClass: 'border-t border-r border-border dark:bg-muted dark:text-foreground',
   };
 
   const dataColumns = Array.from({ length: MIN_COLS }, (_, i) => ({
@@ -35,10 +35,10 @@ const SPREADSHEET_COLUMNS = (() => {
     name: String.fromCharCode(65 + i),
     renderEditCell: renderTextEditor,
     width: 120,
-    cellClass: cn(`border-t dark:bg-background dark:text-foreground`, {
+    cellClass: cn('border-t border-border dark:bg-background dark:text-foreground', {
       'border-l': i !== 0,
     }),
-    headerCellClass: cn(`border-t dark:bg-muted dark:text-foreground`, {
+    headerCellClass: cn('border-t border-border dark:bg-muted dark:text-foreground', {
       'border-l': i !== 0,
     }),
   }));

@@ -88,26 +88,28 @@ const config: Config = {
         // ── Illinois brand palette (hex CSS vars from CDN illinois.css) ───────
         // ⚠  These are hex values and do NOT support Tailwind opacity modifiers.
         //    Use the semantic tokens above when /opacity is needed.
+        // Fallback hex values guard against the CDN stylesheet failing to
+        // load (see layout.tsx), so these colors stay valid even then.
         illinois: {
           // Primary
-          orange: 'var(--il-orange)',           // #FF5F05  Illini Orange
-          blue: 'var(--il-blue)',               // #13294B  Illini Blue
+          orange: 'var(--il-orange, #FF5F05)',           // Illini Orange
+          blue: 'var(--il-blue, #13294B)',               // Illini Blue
           // Accessible orange (higher contrast for small/body text)
-          altgeld: 'var(--il-altgeld)',         // #C84113
+          altgeld: 'var(--il-altgeld, #C84113)',
           // Storm grays
-          storm: 'var(--il-storm)',             // #707372
-          'storm-60': 'var(--il-storm-60)',     // #8E9090
-          'storm-80': 'var(--il-storm-80)',     // #C6C7C6
-          white: 'var(--il-white)',             // #FFFFFF
-          black: 'var(--il-black)',             // #000000
+          storm: 'var(--il-storm, #707372)',
+          'storm-60': 'var(--il-storm-60, #8E9090)',
+          'storm-80': 'var(--il-storm-80, #C6C7C6)',
+          white: 'var(--il-white, #FFFFFF)',
+          black: 'var(--il-black, #000000)',
           // Supporting (charts, infographics only per brand guidelines)
-          industrial: 'var(--il-industrial)',   // #1D58A7
-          arches: 'var(--il-arches)',           // #009FD4
-          patina: 'var(--il-patina)',           // #007E8E
-          berry: 'var(--il-berry)',             // #5C0E41
-          harvest: 'var(--il-harvest)',         // #FCB316
-          prairie: 'var(--il-prairie)',         // #006230
-          earth: 'var(--il-earth)',             // #7D3E13
+          industrial: 'var(--il-industrial, #1D58A7)',
+          arches: 'var(--il-arches, #009FD4)',
+          patina: 'var(--il-patina, #007E8E)',
+          berry: 'var(--il-berry, #5C0E41)',
+          harvest: 'var(--il-harvest, #FCB316)',
+          prairie: 'var(--il-prairie, #006230)',
+          earth: 'var(--il-earth, #7D3E13)',
         },
       },
       keyframes: {
