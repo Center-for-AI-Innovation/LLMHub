@@ -25,7 +25,7 @@ export function getDeploymentStatusInfo(status: string): DeploymentStatusInfo {
     case 'pending':
       return {
         label: 'Pending',
-        colorClass: 'bg-secondary/10 text-secondary',
+        colorClass: 'bg-secondary/10 text-secondary-accessible',
         icon: Clock,
       };
     case 'launching':
@@ -45,7 +45,7 @@ export function getDeploymentStatusInfo(status: string): DeploymentStatusInfo {
     case 'failed':
       return {
         label: 'Failed',
-        colorClass: 'bg-destructive/10 text-destructive',
+        colorClass: 'bg-destructive/10 text-destructive-accessible',
         icon: XCircle,
       };
     case 'shutdown':
@@ -63,7 +63,7 @@ export function getDeploymentStatusInfo(status: string): DeploymentStatusInfo {
     default:
       return {
         label: 'Pending',
-        colorClass: 'bg-secondary/10 text-secondary',
+        colorClass: 'bg-secondary/10 text-secondary-accessible',
         icon: Clock,
       };
   }

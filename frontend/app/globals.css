@@ -60,9 +60,21 @@
          *  status-info     ≈ UIUC Industrial (#1D58A7)
          *  status-neutral  ≈ UIUC Harvest  (#FCB316), darkened for AA text contrast on light backgrounds
          */
-        --status-success: 186 100% 28%;
+        --status-success: 186 100% 22%;
         --status-info: 214 70% 38%;
-        --status-neutral: 38 96% 35%;
+        --status-neutral: 38 96% 29%;
+
+        /* ── Accessible text variants ──────────────────────────────────────
+         * secondary/destructive are also used as solid CTA backgrounds
+         * (paired with white foreground text), so their DEFAULT lightness
+         * can't be freely darkened/lightened without affecting those
+         * buttons. These variants are darkened (light mode) / lightened
+         * (dark mode) specifically for standalone text and text-on-tint
+         * (e.g. bg-secondary/10 text-secondary-accessible), matching the
+         * WCAG AA 4.5:1 contrast pattern already used for status-*.
+         */
+        --secondary-accessible: 16 90% 38%;
+        --destructive-accessible: 0 84.2% 46%;
 
         /* ── Chart tokens ─────────────────────────────────────────────────── */
         --chart-1: 16 95% 50%;
@@ -112,6 +124,10 @@
         --status-success: 186 70% 55%;
         --status-info: 214 70% 65%;
         --status-neutral: 40 97% 65%;
+
+        /* Accessible text variants — see :root comment above */
+        --secondary-accessible: 16 85% 50%;
+        --destructive-accessible: 0 62.8% 58%;
 
         --chart-1: 16 85% 45%;
         --chart-2: 217 85% 75%;

@@ -43,6 +43,7 @@ const config: Config = {
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
+          accessible: 'hsl(var(--secondary-accessible))',
         },
         muted: {
           DEFAULT: 'hsl(var(--muted))',
@@ -55,6 +56,7 @@ const config: Config = {
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
+          accessible: 'hsl(var(--destructive-accessible))',
         },
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',

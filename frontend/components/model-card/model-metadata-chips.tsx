@@ -17,8 +17,8 @@ export const SCALE_COLORS = {
     iconClass: 'text-status-neutral',
   },
   heavy: {
-    chipClass: 'bg-secondary/15 text-secondary',
-    iconClass: 'text-secondary',
+    chipClass: 'bg-secondary/15 text-secondary-accessible',
+    iconClass: 'text-secondary-accessible',
   },
 } as const satisfies Record<string, ScaleColor>;
 
