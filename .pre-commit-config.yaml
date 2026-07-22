@@ -6,6 +6,9 @@
 # eslint hook is scoped to frontend/**.
 # Tool versions are pinned to match the GitHub Actions workflow.
 
+default_language_version:
+  python: python3.11
+
 repos:
   # ----- Backend (Python) -----
   - repo: https://github.com/psf/black-pre-commit-mirror

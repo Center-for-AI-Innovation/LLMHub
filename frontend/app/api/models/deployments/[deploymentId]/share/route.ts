@@ -7,6 +7,7 @@ import {
   getUserByEmail,
   upsertPendingDeploymentInvite,
 } from '@/lib/db/queries';
+import { notifyDeploymentAccessGranted } from '@/lib/models/notify-deployment-access';
 import { type NextRequest, NextResponse } from 'next/server';
 
 // regex for email validation
@@ -189,6 +190,14 @@ export async function POST(
         });
         existingUserIds.add(targetUser.id);
         results.push({ email, status: 'added' });
+
+        // Access is already granted at this point; the helper logs and
+        // swallows failures so a broken email path never fails the share.
+        await notifyDeploymentAccessGranted({
+          deploymentId,
+          userId: targetUser.id,
+          sharedByUserId: userId,
+        });
       } catch (error) {
         const errorCode =
           typeof error === 'object' && error !== null && 'code' in error
