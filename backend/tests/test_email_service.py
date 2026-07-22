@@ -10,7 +10,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.services.email_service import EmailService
 
-
 pytestmark = pytest.mark.asyncio
 
 MODEL_NAME = "llama-3-8b"
@@ -160,7 +159,9 @@ class TestNotifyDeploymentInvite:
         assert delivered is True
         msg = sent_message(mock_send)
         assert msg["To"] == recipient.email
-        assert msg["Subject"] == f"[LLMHub] You have been granted access to {MODEL_NAME}"
+        assert (
+            msg["Subject"] == f"[LLMHub] You have been granted access to {MODEL_NAME}"
+        )
         body = msg.get_payload()
         assert MODEL_NAME in body
         assert "Owner (owner@illinois.edu)" in body
@@ -199,9 +200,12 @@ class TestNotifyDeploymentInvite:
 
     async def test_frontend_url_included_when_configured(self):
         recipient = make_user()
-        with patch_send() as mock_send, patch(
-            "app.services.email_service.settings.FRONTEND_URL",
-            "https://llmhub.example.edu",
+        with (
+            patch_send() as mock_send,
+            patch(
+                "app.services.email_service.settings.FRONTEND_URL",
+                "https://llmhub.example.edu",
+            ),
         ):
             await EmailService().notify_deployment_invite(
                 make_db(recipient), make_deployment(), recipient.id
@@ -211,9 +215,12 @@ class TestNotifyDeploymentInvite:
 
     async def test_support_email_included_when_configured(self):
         recipient = make_user()
-        with patch_send() as mock_send, patch(
-            "app.services.email_service.settings.SUPPORT_EMAIL",
-            "llmhub-support@illinois.edu",
+        with (
+            patch_send() as mock_send,
+            patch(
+                "app.services.email_service.settings.SUPPORT_EMAIL",
+                "llmhub-support@illinois.edu",
+            ),
         ):
             await EmailService().notify_deployment_invite(
                 make_db(recipient), make_deployment(), recipient.id
@@ -221,14 +228,14 @@ class TestNotifyDeploymentInvite:
 
         body = sent_message(mock_send).get_payload()
         assert (
-            "contact your system administrator at llmhub-support@illinois.edu"
-            in body
+            "contact your system administrator at llmhub-support@illinois.edu" in body
         )
 
     async def test_no_support_email_keeps_generic_contact_line(self):
         recipient = make_user()
-        with patch_send() as mock_send, patch(
-            "app.services.email_service.settings.SUPPORT_EMAIL", None
+        with (
+            patch_send() as mock_send,
+            patch("app.services.email_service.settings.SUPPORT_EMAIL", None),
         ):
             await EmailService().notify_deployment_invite(
                 make_db(recipient), make_deployment(), recipient.id
