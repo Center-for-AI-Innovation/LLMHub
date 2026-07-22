@@ -23,6 +23,7 @@ def make_deployment(**overrides):
         "status": "ready",
         "errorMessage": None,
         "expiresAt": None,
+        "userId": uuid.uuid4(),
     }
     fields.update(overrides)
     return SimpleNamespace(**fields)
@@ -58,9 +59,10 @@ class TestNotifyDeploymentReady:
     async def test_sends_email_with_model_name_and_expiry(self):
         deployment = make_deployment(expiresAt=datetime(2026, 1, 2, 3, 4))
         user = make_user()
+        owner = make_user(name="Owner Name", email="owner@illinois.edu")
         with patch_send() as mock_send:
             delivered = await EmailService().notify_deployment_ready(
-                make_db(user), deployment, user.id
+                make_db(user, owner), deployment, user.id
             )
 
         assert delivered is True
@@ -70,17 +72,28 @@ class TestNotifyDeploymentReady:
         assert "is ready" in msg["Subject"]
         body = msg.get_payload()
         assert MODEL_NAME in body
+        assert "Owner Name (owner@illinois.edu)" in body
         assert "2026-01-02 03:04 UTC" in body
 
     async def test_missing_expiry_renders_not_set(self):
         user = make_user()
         with patch_send() as mock_send:
             delivered = await EmailService().notify_deployment_ready(
-                make_db(user), make_deployment(expiresAt=None), user.id
+                make_db(user, user), make_deployment(expiresAt=None), user.id
             )
 
         assert delivered is True
         assert "not set" in sent_message(mock_send).get_payload()
+
+    async def test_missing_owner_renders_unknown(self):
+        user = make_user()
+        with patch_send() as mock_send:
+            delivered = await EmailService().notify_deployment_ready(
+                make_db(user, None), make_deployment(), user.id
+            )
+
+        assert delivered is True
+        assert "Owner:      unknown" in sent_message(mock_send).get_payload()
 
     async def test_unknown_user_returns_false_without_sending(self):
         with patch_send() as mock_send:
@@ -95,7 +108,7 @@ class TestNotifyDeploymentReady:
         user = make_user()
         with patch_send(side_effect=Exception("relay down")):
             delivered = await EmailService().notify_deployment_ready(
-                make_db(user), make_deployment(), user.id
+                make_db(user, user), make_deployment(), user.id
             )
 
         assert delivered is False
@@ -105,23 +118,26 @@ class TestNotifyDeploymentFailed:
     async def test_includes_error_message(self):
         deployment = make_deployment(status="failed", errorMessage="OOM on node gpu-3")
         user = make_user()
+        owner = make_user(name="Owner Name", email="owner@illinois.edu")
         with patch_send() as mock_send:
             delivered = await EmailService().notify_deployment_failed(
-                make_db(user), deployment, user.id
+                make_db(user, owner), deployment, user.id
             )
 
         assert delivered is True
         msg = sent_message(mock_send)
         assert MODEL_NAME in msg["Subject"]
         assert "failed" in msg["Subject"]
-        assert "OOM on node gpu-3" in msg.get_payload()
+        body = msg.get_payload()
+        assert "OOM on node gpu-3" in body
+        assert "Owner Name (owner@illinois.edu)" in body
 
     async def test_missing_error_message_defaults_to_unknown(self):
         deployment = make_deployment(status="failed", errorMessage=None)
         user = make_user()
         with patch_send() as mock_send:
             await EmailService().notify_deployment_failed(
-                make_db(user), deployment, user.id
+                make_db(user, user), deployment, user.id
             )
 
         assert "unknown error" in sent_message(mock_send).get_payload()
@@ -133,7 +149,7 @@ class TestNotifyDeploymentCompleted:
         user = make_user()
         with patch_send() as mock_send:
             delivered = await EmailService().notify_deployment_completed(
-                make_db(user), deployment, user.id
+                make_db(user, user), deployment, user.id
             )
 
         assert delivered is True

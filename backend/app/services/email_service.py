@@ -15,33 +15,36 @@ from app.models.user import User
 
 logger = get_logger("email_service")
 
-_READY_SUBJECT = "[LLMHub] Your model {model_name} is ready"
+_READY_SUBJECT = "[LLMHub] Model {model_name} is ready"
 # TODO: Add endpoint url to the body so users can directly access the chat page.
 _READY_BODY = """\
-Your model deployment is ready and accepting requests.
+A model deployment you have access to is ready and accepting requests.
 
   Model:      {model_name}
+  Owner:      {owner}
   Expires at: {expires_at}
 
-If you did not request this deployment, please contact {support_contact}.
+If you were not expecting access to this deployment, please contact {support_contact}.
 """
 
-_FAILED_SUBJECT = "[LLMHub] Your model {model_name} deployment failed"
+_FAILED_SUBJECT = "[LLMHub] Model {model_name} deployment failed"
 _FAILED_BODY = """\
-Your model deployment encountered an error and could not start.
+A model deployment you have access to encountered an error and could not start.
 
   Model:  {model_name}
+  Owner:  {owner}
   Reason: {error_message}
 
-Please try launching the model again or contact {support_contact} if the issue persists.
+If you own this deployment, please try launching it again, or contact {support_contact} if the issue persists.
 """
 
-_COMPLETED_SUBJECT = "[LLMHub] Your model {model_name} deployment has completed"
+_COMPLETED_SUBJECT = "[LLMHub] Model {model_name} deployment has completed"
 _COMPLETED_BODY = """\
-Your model deployment created has completed its scheduled run and is no longer active.
+A model deployment you have access to has completed its scheduled run and is no longer active.
 
   Model: {model_name}
-  id: {deployment_id}
+  Owner: {owner}
+  id:    {deployment_id}
 
 If you need continued access, please submit a new deployment request.
 If you have questions, contact {support_contact}.
@@ -109,6 +112,7 @@ class EmailService:
         subject = _READY_SUBJECT.format(model_name=deployment.modelName)
         body = _READY_BODY.format(
             model_name=deployment.modelName,
+            owner=self._describe_user(db, deployment.userId) or "unknown",
             expires_at=expires_at,
             support_contact=_support_contact(),
         )
@@ -138,6 +142,7 @@ class EmailService:
         subject = _FAILED_SUBJECT.format(model_name=deployment.modelName)
         body = _FAILED_BODY.format(
             model_name=deployment.modelName,
+            owner=self._describe_user(db, deployment.userId) or "unknown",
             error_message=deployment.errorMessage or "unknown error",
             support_contact=_support_contact(),
         )
@@ -168,6 +173,7 @@ class EmailService:
         )
         body = _COMPLETED_BODY.format(
             model_name=deployment.modelName,
+            owner=self._describe_user(db, deployment.userId) or "unknown",
             deployment_id=deployment.id,
             support_contact=_support_contact(),
         )
