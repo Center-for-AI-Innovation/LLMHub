@@ -16,7 +16,6 @@ import {
 import { db } from '@/lib/db';
 import { account, session, user, verification } from '@/lib/db/schema';
 import { claimPendingDeploymentInvitesForUser } from '@/lib/db/queries';
-import { notifyDeploymentAccessGranted } from '@/lib/models/notify-deployment-access';
 import type { AuthSession, AuthUser } from '@/lib/auth/types';
 
 function normalizeUserName(email: string) {
@@ -127,11 +126,10 @@ export const betterAuthInstance = betterAuth({
             if (!email || !userId) {
               return;
             }
-            const { claimed, newlyGranted } =
-              await claimPendingDeploymentInvitesForUser({
-                userId,
-                email,
-              });
+            const claimed = await claimPendingDeploymentInvitesForUser({
+              userId,
+              email,
+            });
             if (claimed > 0) {
               console.info(
                 `Claimed ${claimed} pending deployment invite${
@@ -139,19 +137,6 @@ export const betterAuthInstance = betterAuth({
                 } for new user ${email}`,
               );
             }
-            // Invitees who signed up after the deployment's lifecycle emails
-            // went out would otherwise never hear about their access. Sent
-            // concurrently so signup latency is bounded by one request, and
-            // awaited so the work isn't dropped when the response is sent.
-            await Promise.allSettled(
-              newlyGranted.map((invite) =>
-                notifyDeploymentAccessGranted({
-                  deploymentId: invite.deploymentId,
-                  userId,
-                  sharedByUserId: invite.invitedBy,
-                }),
-              ),
-            );
           } catch (error) {
             console.error(
               'Failed to claim pending deployment invites for new user',
