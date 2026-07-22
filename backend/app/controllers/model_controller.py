@@ -9,7 +9,6 @@ from app.repositories.session import get_db
 from app.schemas.model_deployment import (
     ModelDeploymentCreate,
     ModelDeploymentResponse,
-    ModelDeploymentUpdate,
 )
 from app.schemas.model_request import (
     ModelRequestCreate,
@@ -23,13 +22,14 @@ router = APIRouter()
 model_service = ModelService()
 logger = logging.getLogger(__name__)
 
+
 # Model Endpoints
 @router.get("/launch-defaults", response_model=Dict[str, Any])
 def get_launch_defaults() -> Dict[str, Any]:
     """Return infrastructure-specific default launch parameters from environment.yaml."""
     mgr = InfrastructureManager()
     env_config = mgr.get_environment_config()
-    default_args = ((env_config or {}).get("default_args") or {})
+    default_args = (env_config or {}).get("default_args") or {}
 
     partition = default_args.get("partition")
     resource_type = default_args.get("resource_type")
@@ -60,7 +60,9 @@ def sync_models(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
 
 # Model Request Endpoints
-@router.post("/request", response_model=ModelRequestResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/request", response_model=ModelRequestResponse, status_code=status.HTTP_201_CREATED
+)
 def create_model_request(
     request: ModelRequestCreate,
     db: Session = Depends(get_db),
@@ -126,12 +128,17 @@ def _launch_model(
     if getattr(db_deployment, "status", None) == "failed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=getattr(db_deployment, "errorMessage", None) or "Failed to launch model",
+            detail=getattr(db_deployment, "errorMessage", None)
+            or "Failed to launch model",
         )
     return db_deployment
 
 
-@router.post("/deployments", response_model=ModelDeploymentResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/deployments",
+    response_model=ModelDeploymentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_deployment(
     deployment: ModelDeploymentCreate,
     db: Session = Depends(get_db),
@@ -149,7 +156,7 @@ def list_deployments(
     db: Session = Depends(get_db),
 ) -> Any:
     """List model deployments with optional filters.
-    
+
     Note: Deployments are retrieved from the database, not from vec-inf.
     The vec-inf package does not have a 'list deployments' command.
     """
@@ -170,9 +177,11 @@ def get_deployment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Model deployment not found",
         )
-    
+
     # Update the deployment status
-    db_deployment = model_service.update_deployment_status(db=db, deployment_id=deployment_id)
+    db_deployment = model_service.update_deployment_status(
+        db=db, deployment_id=deployment_id
+    )
     return db_deployment
 
 
@@ -198,12 +207,14 @@ def get_deployment_logs(
     db: Session = Depends(get_db),
 ) -> Any:
     """Get logs for a specific model deployment.
-    
+
     Args:
         deployment_id: UUID of the deployment
         tail: Number of lines to return from the end (default 100, 0 for all)
     """
-    result = model_service.get_deployment_logs(db=db, deployment_id=deployment_id, tail=tail)
+    result = model_service.get_deployment_logs(
+        db=db, deployment_id=deployment_id, tail=tail
+    )
     if not result.get("success", False):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -218,7 +229,9 @@ def shutdown_deployment(
     db: Session = Depends(get_db),
 ) -> Any:
     """Shutdown a model deployment."""
-    db_deployment = model_service.shutdown_deployment(db=db, deployment_id=deployment_id)
+    db_deployment = model_service.shutdown_deployment(
+        db=db, deployment_id=deployment_id
+    )
     if not db_deployment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -227,7 +240,9 @@ def shutdown_deployment(
     return db_deployment
 
 
-@router.put("/deployments/{deployment_id}/extend", response_model=ModelDeploymentResponse)
+@router.put(
+    "/deployments/{deployment_id}/extend", response_model=ModelDeploymentResponse
+)
 def extend_deployment(
     deployment_id: UUID,
     extension_hours: int,
@@ -249,4 +264,4 @@ def extend_deployment(
 @router.get("/{model_name}", response_model=Dict[str, Any])
 def get_model_details(model_name: str) -> Dict[str, Any]:
     """Get details of a specific model."""
-    return model_service.get_model_details(model_name) 
+    return model_service.get_model_details(model_name)
