@@ -8,8 +8,6 @@
 
 default_language_version:
   python: python3.11
-  node: 22.13.1
-
 
 repos:
   # ----- Backend (Python) -----
