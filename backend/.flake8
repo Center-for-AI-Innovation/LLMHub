@@ -1,0 +1,9 @@
+[flake8]
+# Keep flake8 compatible with black's formatting (line length + slicing/line-break rules).
+max-line-length = 88
+# E203 / W503 conflict with black; E501 (line length) is enforced by black, not flake8.
+extend-ignore = E203, W503, E501
+exclude =
+    .venv,
+    __pycache__,
+    migrations

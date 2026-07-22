@@ -129,7 +129,13 @@ export async function handleChatCompletions(
 
   // Create dynamic provider for this deployment
   const vllmProvider = createVllmProvider(deployment);
-  const modelName = deployment.modelName ?? process.env.VLLM_MODEL;
+  const modelName = deployment.modelName;
+  if (!modelName) {
+    return createErrorResponse(
+      `Deployment ${deployment.id} has no model name configured.`,
+      500,
+    );
+  }
 
   const modelMessages = await convertToModelMessages(messages);
   const stream = createUIMessageStream({
@@ -140,7 +146,7 @@ export async function handleChatCompletions(
       const result = streamText({
         // vLLM/OpenAI-compatible servers typically implement /v1/chat/completions, not /v1/responses.
         model: vllmProvider.chat(modelName),
-        system: systemPrompt({ selectedChatModel: 'vllm-model' }),
+        system: systemPrompt({ selectedChatModel: 'always-on-model' }),
         messages: modelMessages,
         stopWhen: stepCountIs(5),
         experimental_transform: smoothStream({ chunking: 'word' }),

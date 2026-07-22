@@ -2,15 +2,17 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from app.config.logging import get_logger
 from app.config.config import settings
+from app.config.logging import get_logger
 from app.utils.infrastructure import get_vec_inf_log_base_dir
 
 # IMPORTANT: Set VEC_INF env vars BEFORE importing vec-inf.
 # vec-inf loads/caches config at import time.
 if getattr(settings, "VEC_INF_CONFIG_DIR", None):
     os.environ["VEC_INF_CONFIG_DIR"] = str(settings.VEC_INF_CONFIG_DIR)
-if getattr(settings, "VEC_INF_ACCOUNT", None) or getattr(settings, "SLURM_ACCOUNT", None):
+if getattr(settings, "VEC_INF_ACCOUNT", None) or getattr(
+    settings, "SLURM_ACCOUNT", None
+):
     os.environ["VEC_INF_ACCOUNT"] = str(
         getattr(settings, "VEC_INF_ACCOUNT", None) or settings.SLURM_ACCOUNT
     )
@@ -33,8 +35,10 @@ class LLMInferenceClient:
             logger.info("Using VEC_INF_CONFIG_DIR: %s", vec_inf_config_dir)
             self._verify_config_files(vec_inf_config_dir)
         else:
-            logger.info("VEC_INF_CONFIG_DIR not set, using vec-inf default config location")
-        
+            logger.info(
+                "VEC_INF_CONFIG_DIR not set, using vec-inf default config location"
+            )
+
         # MODEL_CONFIG_PATH can still be used for explicit models.yaml path override
         config_path = getattr(settings, "MODEL_CONFIG_PATH", None)
         if config_path:
@@ -43,7 +47,7 @@ class LLMInferenceClient:
             if not os.getenv("VEC_INF_MODEL_CONFIG"):
                 os.environ["VEC_INF_MODEL_CONFIG"] = str(config_path)
                 logger.info("Set VEC_INF_MODEL_CONFIG to: %s", config_path)
-        
+
         # Initialize VecInfClient - it will use VEC_INF_CONFIG_DIR if set
         self.client = VecInfClient()
         self.slurm_account = settings.SLURM_ACCOUNT
@@ -92,7 +96,9 @@ class LLMInferenceClient:
                 minutes = (time_value % 3600) // 60
                 seconds = time_value % 60
                 mapped["time"] = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-                logger.info(f"Converted time from {time_value} seconds to {mapped['time']}")
+                logger.info(
+                    f"Converted time from {time_value} seconds to {mapped['time']}"
+                )
             elif isinstance(time_value, str):
                 # Already in string format, use as-is
                 mapped["time"] = time_value
@@ -150,7 +156,9 @@ class LLMInferenceClient:
 
         return LaunchOptions(**mapped)
 
-    def launch_model(self, model_name: str, enable_cloudflare_tunnel: bool = False, **params):
+    def launch_model(
+        self, model_name: str, enable_cloudflare_tunnel: bool = False, **params
+    ):
         """Launch a model using the llm-inference Python API."""
         _ = enable_cloudflare_tunnel  # SDK tunnel support is handled externally for now.
         try:
@@ -158,7 +166,11 @@ class LLMInferenceClient:
             resp = self.client.launch_model(model_name, options=options)
             slurm_job_id = getattr(resp, "slurm_job_id", None)
             logger.info(f"Launched model {model_name} -> {slurm_job_id}")
-            return {"success": True, "slurm_job_id": slurm_job_id, "job_id": slurm_job_id}
+            return {
+                "success": True,
+                "slurm_job_id": slurm_job_id,
+                "job_id": slurm_job_id,
+            }
         except Exception as e:
             logger.error(f"Failed to launch model: {e}")
             return {"success": False, "error": str(e)}
@@ -186,7 +198,10 @@ class LLMInferenceClient:
     def get_model_metrics(self, slurm_job_id: str):
         try:
             metrics = self.client.get_metrics(slurm_job_id)
-            return {"success": True, **(metrics if isinstance(metrics, dict) else {"metrics": metrics})}
+            return {
+                "success": True,
+                **(metrics if isinstance(metrics, dict) else {"metrics": metrics}),
+            }
         except Exception as e:
             logger.error(f"Failed to get model metrics: {e}")
             return {"success": False, "error": str(e)}
@@ -206,6 +221,7 @@ class LLMInferenceClient:
             user_config_path = self._resolve_user_models_config_path()
             if user_config_path:
                 import yaml as _yaml
+
                 with open(user_config_path) as fh:
                     raw = _yaml.safe_load(fh) or {}
                 names = list(raw.get("models", {}).keys())
@@ -257,12 +273,12 @@ class LLMInferenceClient:
         config_path = Path(config_dir)
         env_file = config_path / "environment.yaml"
         models_file = config_path / "models.yaml"
-        
+
         if env_file.exists():
             logger.info("Found environment.yaml at: %s", env_file)
         else:
             logger.warning("environment.yaml not found at: %s", env_file)
-        
+
         if models_file.exists():
             logger.info("Found models.yaml at: %s", models_file)
         else:
@@ -283,11 +299,14 @@ class LLMInferenceClient:
         # This may need to be implemented based on how the Python API exposes tunnel URLs
         # For now, fallback to the log file method if needed
         import os
+
         log_base = get_vec_inf_log_base_dir()
         if not log_base:
             logger.error("Vec-inf log directory not configured")
             return None
-        tunnel_url_file = os.path.join(log_base, f"{job_name}.{slurm_job_id}.tunnel_url")
+        tunnel_url_file = os.path.join(
+            log_base, f"{job_name}.{slurm_job_id}.tunnel_url"
+        )
         try:
             if os.path.exists(tunnel_url_file):
                 with open(tunnel_url_file, "r") as f:
