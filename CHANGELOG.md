@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - GitHub Actions CI workflow and pre-commit hooks (black, isort, ESLint) for linting and formatting, which surfaced and applied linting/formatting changes across the backend and frontend. ([#22](https://github.com/Center-for-AI-Innovation/LLMHub/issues/22))
+- Access-granted email notification: users now receive an email when they are added to a deployment, whether shared directly or via a pending invite claimed at signup. Sent through a new `POST /api/models/deployments/{id}/notify-access` backend endpoint, which verifies the user actually has access before sending and deduplicates per (deployment, user) so retries never double-send.
 
 ### Fixed
 
