@@ -224,6 +224,11 @@ export function DeploymentLogsPanel({
     }
   }
 
+  // This panel intentionally keeps illinois-* utilities for dark-mode accents
+  // (gradient stop, header icon tile, tab/heading text) instead of the
+  // semantic layer. There's no semantic equivalent for these specific solid
+  // dark-mode fills/text without adding new tokens, and illinois-* is
+  // explicitly allowed for solid (non-opacity) fills per docs/04-design-system.md.
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
