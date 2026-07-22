@@ -3,16 +3,15 @@
 import uuid
 from email.mime.text import MIMEText
 
+import aiosmtplib
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-import aiosmtplib
 
 from app.config.config import settings
 from app.config.logging import get_logger
 from app.models.email_notification import EmailNotification
 from app.models.model_deployment import ModelDeployment
 from app.models.user import User
-
 
 logger = get_logger("email_service")
 
@@ -164,7 +163,9 @@ class EmailService:
         recipient = self._resolve_email(db, deployment, user_id)
         if not recipient:
             return False
-        subject = _COMPLETED_SUBJECT.format(model_name=deployment.modelName,)
+        subject = _COMPLETED_SUBJECT.format(
+            model_name=deployment.modelName,
+        )
         body = _COMPLETED_BODY.format(
             model_name=deployment.modelName,
             deployment_id=deployment.id,
@@ -194,9 +195,7 @@ class EmailService:
         if not recipient:
             return False
 
-        granted_by = (
-            self._describe_user(db, shared_by_user_id) or "another LLMHub user"
-        )
+        granted_by = self._describe_user(db, shared_by_user_id) or "another LLMHub user"
         if settings.FRONTEND_URL:
             access_instructions = _INVITE_ACCESS_WITH_URL.format(
                 frontend_url=settings.FRONTEND_URL,
@@ -351,12 +350,10 @@ class EmailService:
                 msg,
                 hostname=settings.SMTP_HOST,
                 port=settings.SMTP_PORT,
-                start_tls=False,   # port 25 relay, no TLS
+                start_tls=False,  # port 25 relay, no TLS
                 timeout=20,
             )
-            logger.info(
-                "Sent notification email to=%s subject=%r", recipient, subject
-            )
+            logger.info("Sent notification email to=%s subject=%r", recipient, subject)
             return True
         except Exception:
             logger.exception(

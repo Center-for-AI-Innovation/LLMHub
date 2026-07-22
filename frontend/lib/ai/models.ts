@@ -6,7 +6,7 @@ import {
   wrapLanguageModel,
 } from 'ai';
 
-export const DEFAULT_CHAT_MODEL: string = 'vllm-model';
+export const DEFAULT_CHAT_MODEL: string = 'always-on-model';
 
 // TODO: We do not need to support OpenAI models.
 // We will only support models we deploy through SLURM
@@ -16,18 +16,18 @@ export const DEFAULT_CHAT_MODEL: string = 'vllm-model';
 //   apiKey: process.env.NCSA_API_KEY,
 // });
 
-// Create vLLM provider for local vLLM server (OpenAI-compatible)
+// Create vLLM provider for the always-on vLLM server (OpenAI-compatible)
 // TODO: We should use the deployment endpoint URL instead of the base URL
-const vllmBaseURL = process.env.VLLM_BASE_URL || 'http://localhost:8000/v1';
-const vllmApiKey = process.env.VLLM_API_KEY || 'dummy-key'; // vLLM doesn't require API key by default
+const vllmBaseURL = process.env.ALWAYS_ON_VLLM_BASE_URL;
+const vllmApiKey = process.env.ALWAYS_ON_VLLM_API_KEY || 'dummy-key'; // vLLM doesn't require API key by default
 
 export const vllmProvider = createOpenAI({
   baseURL: vllmBaseURL,
   apiKey: vllmApiKey,
 });
 
-// Default vLLM model
-export const VLLM_MODEL = process.env.VLLM_MODEL || 'Qwen/Qwen2.5-1.5B-Instruct';
+// Always-on vLLM model; undefined when not configured
+export const VLLM_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
 
 export const myProvider = customProvider({
   languageModels: {
@@ -41,7 +41,9 @@ export const myProvider = customProvider({
     // 'artifact-model': openai('gpt-4o-mini'),
     // vLLM model - uses local vLLM server
     // vLLM/OpenAI-compatible servers typically implement /v1/chat/completions, not /v1/responses.
-    'vllm-model': vllmProvider.chat(VLLM_MODEL),
+    ...(VLLM_MODEL && vllmBaseURL
+      ? { 'always-on-model': vllmProvider.chat(VLLM_MODEL) }
+      : {}),
   }
 });
 
@@ -51,10 +53,12 @@ interface ChatModel {
   description: string;
 }
 
-export const chatModels: Array<ChatModel> = [
-  {
-    id: 'vllm-model',
-    name: `${VLLM_MODEL}`,
-    description: `Deployed vLLM model (${VLLM_MODEL})`,
-  },
-];
+export const chatModels: Array<ChatModel> = VLLM_MODEL
+  ? [
+      {
+        id: 'always-on-model',
+        name: VLLM_MODEL,
+        description: `Deployed vLLM model (${VLLM_MODEL})`,
+      },
+    ]
+  : [];

@@ -2,6 +2,7 @@
 App entry point. Infrastructure is resolved first so VEC_INF_CONFIG_DIR is set
 before any code (e.g. llm_inference) reads it at import time.
 """
+
 import logging
 import os
 
@@ -41,11 +42,11 @@ if not os.getenv("VEC_INF_MODEL_CONFIG"):
             _shared_models_path,
         )
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from app.router import api_router
-from app.services.background_service import background_service
+from app.router import api_router  # noqa: E402
+from app.services.background_service import background_service  # noqa: E402
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -80,4 +81,4 @@ async def shutdown_event():
 @app.get("/")
 def root():
     """Root endpoint."""
-    return {"message": "Welcome to the AI Inference Backend API"} 
+    return {"message": "Welcome to the AI Inference Backend API"}

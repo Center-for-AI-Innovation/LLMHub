@@ -108,6 +108,38 @@ export async function getUserByApiKeyHash(apiKeyHash: string) {
   }
 }
 
+// Minimum characters required before a user search runs, and the longest
+// query we'll process. These bound both abuse (enumeration/broad matches) and
+// the cost of the ILIKE scan.
+const USER_SEARCH_MIN_QUERY_LENGTH = 2;
+const USER_SEARCH_MAX_QUERY_LENGTH = 100;
+
+// Escape LIKE/ILIKE wildcards so user input is matched literally instead of as
+// a pattern (e.g. a bare `%` shouldn't match every user).
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+export async function searchUsers({ query }: { query: string }) {
+  try {
+    const normalized = query.trim().slice(0, USER_SEARCH_MAX_QUERY_LENGTH);
+    if (normalized.length < USER_SEARCH_MIN_QUERY_LENGTH) {
+      return [];
+    }
+
+    const pattern = `%${escapeLikePattern(normalized)}%`;
+    return await db
+      .select({ id: user.id, name: user.name, email: user.email })
+      .from(user)
+      .where(or(ilike(user.name, pattern), ilike(user.email, pattern)))
+      .orderBy(asc(user.name))
+      .limit(20);
+  } catch (error) {
+    console.error('Failed to search users in database');
+    throw error;
+  }
+}
+
 
 // Chat and Message Utility Functions
 // ==========================================
@@ -703,13 +735,17 @@ export async function removeUserFromDeployment({
 /**
  * Return all access rows for a given deployment (owner + shared users).
  */
-export async function getAuthorizedUsersByDeploymentId(
-  deploymentId: string,
-): Promise<AuthorizedUsers[]> {
+export async function getAuthorizedUsersByDeploymentId(deploymentId: string) {
   try {
     return await db
-      .select()
+      .select({
+        userId: authorizedUsers.userId,
+        permission: authorizedUsers.permission,
+        name: user.name,
+        email: user.email,
+      })
       .from(authorizedUsers)
+      .innerJoin(user, eq(authorizedUsers.userId, user.id))
       .where(eq(authorizedUsers.deploymentId, deploymentId));
   } catch (error) {
     console.error('Failed to get authorized users by deployment id from database', error);
