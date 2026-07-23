@@ -17,7 +17,7 @@
 - `flake8`: lint Python code.
 
 ## Coding Style & Naming Conventions
-- Python 3.11+, Black/isort formatting (`line-length = 88`).
+- Python 3.11, Black/isort formatting (`line-length = 88`).
 - Use snake_case for variables/functions; clear schema names for request/response models.
 - Keep controller logic thin; place workflow/state handling in `app/services`.
 - Keep deployment API naming consistent (`/api/models/deployments` for core actions).

@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Raised the backend Python requirement to 3.11+ (requires-python, READMEs, AGENTS.md) and pinned pre-commit’s default Python to 3.11 so Black’s env meets its runtime requirement.
+- Restricted the backend Python requirement to 3.11 only (requires-python, READMEs, AGENTS.md, CI), and pinned pre-commit’s default Python to 3.11 so Black’s env meets its runtime requirement.
 - Renamed the `frontend/app/(marketing)` route group to `frontend/app/(home)` for clarity — it's the root `/` landing page.
 
 ### Fixed

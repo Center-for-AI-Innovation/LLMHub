@@ -18,7 +18,7 @@ The project follows the controller-service-repository pattern:
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.11
 - PostgreSQL database (managed by the NextJS frontend using Drizzle)
 - uv (Python package manager)
 
