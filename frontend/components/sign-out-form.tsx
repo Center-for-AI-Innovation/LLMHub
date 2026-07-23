@@ -16,7 +16,7 @@ export const SignOutForm = () => {
     >
       <button
         type="submit"
-        className="w-full text-left px-1 py-0.5 text-destructive"
+        className="w-full text-left px-1 py-0.5 text-destructive-accessible"
       >
         Sign out
       </button>

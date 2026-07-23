@@ -184,7 +184,7 @@ export default function ContrastHarnessPage() {
         <div className="bg-popover text-popover-foreground p-2 rounded-lg border border-border w-48">
           <button
             type="button"
-            className="w-full text-left px-1 py-0.5 text-destructive"
+            className="w-full text-left px-1 py-0.5 text-destructive-accessible"
           >
             Sign out
           </button>

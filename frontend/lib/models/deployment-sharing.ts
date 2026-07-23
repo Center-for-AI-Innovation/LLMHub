@@ -40,5 +40,5 @@ export const SHARE_STATUS_TONE: Record<ShareDeploymentStatus, string> = {
   invited: 'text-status-info',
   already_invited: 'text-muted-foreground',
   invalid: 'text-status-neutral',
-  failed: 'text-destructive',
+  failed: 'text-destructive-accessible',
 };

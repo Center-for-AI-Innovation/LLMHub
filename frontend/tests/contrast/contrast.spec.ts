@@ -74,7 +74,7 @@ for (const theme of THEMES) {
   });
 
   test.describe(`real pages (${theme} mode)`, () => {
-    test(`marketing landing page — contrast check`, async ({ page }) => {
+    test(`home landing page — contrast check`, async ({ page }) => {
       await goto(page, theme, '/');
       await expectNoContrastViolations(page);
     });

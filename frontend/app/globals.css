@@ -49,7 +49,7 @@
         --muted-foreground: 217 45% 46.1%;
         --accent: 16 90% 42%;
         --accent-foreground: 0 0% 98%;
-        --destructive: 0 84.2% 60.2%;
+        --destructive: 0 84.2% 46%;
         --destructive-foreground: 0 0% 98%;
         --border: 217 45% 90%;
         --input: 217 45% 90%;
@@ -74,7 +74,7 @@
          * WCAG AA 4.5:1 contrast pattern already used for status-*.
          */
         --secondary-accessible: 16 90% 38%;
-        --destructive-accessible: 0 84.2% 44%;
+        --destructive-accessible: 0 84.2% 40%;
 
         /* ── Chart tokens ─────────────────────────────────────────────────── */
         --chart-1: 16 95% 50%;
@@ -108,7 +108,7 @@
         --popover-foreground: 217 45% 98%;
         --primary: 217 45% 98%;
         --primary-foreground: 217 85% 15%;
-        --secondary: 16 85% 45%;
+        --secondary: 16 85% 41%;
         --secondary-foreground: 0 0% 98%;
         --muted: 217 85% 15%;
         --muted-foreground: 217 45% 75%;
