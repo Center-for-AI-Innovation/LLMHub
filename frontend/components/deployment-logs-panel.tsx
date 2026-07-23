@@ -58,7 +58,7 @@ const statusConfig: Record<
   pending: {
     label: 'Pending',
     icon: Clock,
-    color: 'text-secondary',
+    color: 'text-secondary-accessible',
     bgColor: 'bg-secondary/10',
     animate: false,
   },
@@ -84,7 +84,7 @@ const statusConfig: Record<
   failed: {
     label: 'Failed',
     icon: XCircle,
-    color: 'text-destructive',
+    color: 'text-destructive-accessible',
     bgColor: 'bg-destructive/10',
   },
   shutdown: {
@@ -101,7 +101,7 @@ const statusConfig: Record<
   },
 };
 
-function StatusBadge({ status }: { status: DeploymentStatus }) {
+export function StatusBadge({ status }: { status: DeploymentStatus }) {
   const config = statusConfig[status] || statusConfig.pending;
   const Icon = config.icon;
 
@@ -119,7 +119,7 @@ function StatusBadge({ status }: { status: DeploymentStatus }) {
   );
 }
 
-function LogLine({ line, index }: { line: string; index: number }) {
+export function LogLine({ line, index }: { line: string; index: number }) {
   const isError = /error|fail|exception|traceback/i.test(line);
   const isWarning = /warn|warning/i.test(line);
   const isSuccess = /ready|success|complete|started/i.test(line);
@@ -139,8 +139,8 @@ function LogLine({ line, index }: { line: string; index: number }) {
       <span
         className={cn(
           'whitespace-pre-wrap break-all',
-          isError && 'text-destructive',
-          isWarning && 'text-secondary',
+          isError && 'text-destructive-accessible',
+          isWarning && 'text-secondary-accessible',
           isSuccess && 'text-status-success',
           !isError && !isWarning && !isSuccess && 'text-foreground',
         )}
@@ -258,7 +258,7 @@ export function DeploymentLogsPanel({
             <div className="mt-3 p-3 rounded-lg bg-destructive/10 border border-destructive/25">
               <div className="flex items-start gap-2">
                 <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-                <p className="text-xs text-destructive">
+                <p className="text-xs text-destructive-accessible">
                   {displayErrorMessage}
                 </p>
               </div>
@@ -368,7 +368,7 @@ export function DeploymentLogsPanel({
             ) : error ? (
               <div className="flex flex-col items-center justify-center h-full gap-3 p-4">
                 <XCircle className="size-6 text-destructive" />
-                <p className="text-sm text-destructive text-center">
+                <p className="text-sm text-destructive-accessible text-center">
                   {error instanceof Error
                     ? error.message
                     : 'Failed to load logs'}

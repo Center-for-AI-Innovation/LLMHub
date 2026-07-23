@@ -25,7 +25,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { type ShareDeploymentResultEntry } from '@/lib/models/deployment-sharing';
+import {
+  type ShareDeploymentResultEntry,
+  SHARE_STATUS_LABEL as STATUS_LABEL,
+  SHARE_STATUS_TONE as STATUS_TONE,
+} from '@/lib/models/deployment-sharing';
 import {
   useShareDeployment,
   useUserSearch,
@@ -33,24 +37,6 @@ import {
   type UserSearchResult,
 } from '@/hooks/use-models';
 import { useOnClickOutside } from '@/hooks/use-on-click-outside';
-
-const STATUS_LABEL: Record<ShareDeploymentResultEntry['status'], string> = {
-  added: 'Access granted',
-  already_shared: 'Already had access',
-  invited: 'Invited (pending signup)',
-  already_invited: 'Already invited',
-  invalid: 'Invalid email',
-  failed: 'Failed',
-};
-
-const STATUS_TONE: Record<ShareDeploymentResultEntry['status'], string> = {
-  added: 'text-status-success',
-  already_shared: 'text-muted-foreground',
-  invited: 'text-status-info',
-  already_invited: 'text-muted-foreground',
-  invalid: 'text-status-neutral',
-  failed: 'text-destructive',
-};
 
 type ShareDeploymentDialogProps = {
   deploymentId: string | undefined;

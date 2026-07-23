@@ -74,7 +74,7 @@
          * WCAG AA 4.5:1 contrast pattern already used for status-*.
          */
         --secondary-accessible: 16 90% 38%;
-        --destructive-accessible: 0 84.2% 46%;
+        --destructive-accessible: 0 84.2% 44%;
 
         /* ── Chart tokens ─────────────────────────────────────────────────── */
         --chart-1: 16 95% 50%;
@@ -126,8 +126,8 @@
         --status-neutral: 40 97% 65%;
 
         /* Accessible text variants — see :root comment above */
-        --secondary-accessible: 16 85% 50%;
-        --destructive-accessible: 0 62.8% 58%;
+        --secondary-accessible: 16 85% 52%;
+        --destructive-accessible: 0 62.8% 61%;
 
         --chart-1: 16 85% 45%;
         --chart-2: 217 85% 75%;

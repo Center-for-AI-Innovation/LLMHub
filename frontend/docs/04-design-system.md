@@ -140,11 +140,16 @@ This adapts automatically in dark mode.
 
 | State | Tailwind classes |
 |---|---|
-| Pending / warning | `bg-secondary/10 text-secondary` |
+| Pending / warning | `bg-secondary/10 text-secondary-accessible` |
 | Launching / info | `bg-status-info/10 text-status-info` |
 | Running / success | `bg-status-success/10 text-status-success` |
-| Failed / error | `bg-destructive/10 text-destructive` |
+| Failed / error | `bg-destructive/10 text-destructive-accessible` |
 | Shutdown / neutral | `bg-muted text-muted-foreground` |
+
+Use the `-accessible` text variant whenever `secondary`/`destructive` text sits on
+its own `/10` tinted background — the DEFAULT lightness is tuned for solid CTA
+fills (paired with white foreground text) and does not meet WCAG AA (4.5:1)
+for text-on-tint at that opacity.
 
 ---
 
