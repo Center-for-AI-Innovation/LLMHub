@@ -8,7 +8,8 @@ import { ReactScan } from '@/components/react-scan';
 export const metadata: Metadata = {
   metadataBase: new URL('https://chat.vercel.ai'),
   title: 'LLM Hub',
-  description: 'Access and deploy state-of-the-art language models for your research and applications.',
+  description:
+    'Access and deploy state-of-the-art language models for your research and applications.',
 };
 
 export const viewport = {
@@ -52,7 +53,10 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <link rel="stylesheet" href="https://cdn.brand.illinois.edu/illinois.css" />
+        <link
+          rel="stylesheet"
+          href="https://cdn.brand.illinois.edu/illinois.css"
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: THEME_COLOR_SCRIPT,
@@ -60,10 +64,12 @@ export default async function RootLayout({
         />
       </head>
       <ReactScan />
-      <body className="antialiased">
-        <Providers isCilogonEnabled={cilogonEnabled}>
-          {children}
-        </Providers>
+      {/* Browser extensions (e.g. Bitdefender/anti-tracker) inject attributes
+          like `bis_register` / `__bis_skin_checked` onto <body> before React
+          hydrates. suppressHydrationWarning keeps that from tripping the
+          hydration-mismatch overlay, same as on <html> above. */}
+      <body className="antialiased" suppressHydrationWarning>
+        <Providers isCilogonEnabled={cilogonEnabled}>{children}</Providers>
       </body>
     </html>
   );
