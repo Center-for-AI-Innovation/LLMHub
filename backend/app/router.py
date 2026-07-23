@@ -18,5 +18,7 @@ api_router.include_router(
     fit_controller.router, prefix="/fit-estimate", tags=["fit-estimate"]
 )
 api_router.include_router(
-    validate_controller.router, prefix="/validate-config", tags=["validate-config"]
+    validate_controller.router,
+    prefix="/validate-config",
+    tags=["validate-config"],
 )
