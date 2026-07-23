@@ -122,7 +122,7 @@ export function Console({ consoleOutputs, setConsoleOutputs }: ConsoleProps) {
                     'loading_packages',
                   ].includes(consoleOutput.status),
                   'text-status-success': consoleOutput.status === 'completed',
-                  'text-destructive': consoleOutput.status === 'failed',
+                  'text-destructive-accessible': consoleOutput.status === 'failed',
                 })}
               >
                 [{index + 1}]

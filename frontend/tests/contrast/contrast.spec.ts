@@ -67,21 +67,19 @@ async function expectNoContrastViolations(page: Page, includeSelector?: string) 
 
 for (const theme of THEMES) {
   test.describe(`contrast harness (${theme} mode)`, () => {
-    test(`component harness has no contrast violations`, async ({ page }) => {
+    test(`component harness — contrast check`, async ({ page }) => {
       await goto(page, theme, '/contrast-harness');
       await expectNoContrastViolations(page, 'main');
     });
   });
 
   test.describe(`real pages (${theme} mode)`, () => {
-    test(`marketing landing page has no contrast violations`, async ({
-      page,
-    }) => {
+    test(`marketing landing page — contrast check`, async ({ page }) => {
       await goto(page, theme, '/');
       await expectNoContrastViolations(page);
     });
 
-    test(`login page has no contrast violations`, async ({ page }) => {
+    test(`login page — contrast check`, async ({ page }) => {
       await goto(page, theme, '/login');
       await expectNoContrastViolations(page);
     });

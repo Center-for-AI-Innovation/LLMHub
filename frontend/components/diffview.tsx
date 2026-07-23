@@ -29,7 +29,7 @@ const diffSchema = new Schema({
             className = 'bg-status-success/15 text-status-success';
             break;
           case DiffType.Deleted:
-            className = 'bg-destructive/15 line-through text-destructive';
+            className = 'bg-destructive/15 line-through text-destructive-accessible';
             break;
           default:
             className = '';

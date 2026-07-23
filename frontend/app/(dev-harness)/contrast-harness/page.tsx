@@ -172,7 +172,7 @@ export default function ContrastHarnessPage() {
         <h2 className="text-lg font-semibold">Destructive banners</h2>
         {/* Mirrors public-api-dialog.tsx's just-generated-key warning */}
         <div className="bg-background p-4 rounded-lg border border-border">
-          <p className="text-xs text-destructive">
+          <p className="text-xs text-destructive-accessible">
             Your API key will disappear after closing this dialog.
           </p>
         </div>
@@ -197,7 +197,7 @@ export default function ContrastHarnessPage() {
           <span className="bg-status-success/15 text-status-success">
             inserted text
           </span>{' '}
-          <span className="bg-destructive/15 line-through text-destructive">
+          <span className="bg-destructive/15 line-through text-destructive-accessible">
             deleted text
           </span>
         </p>
@@ -260,7 +260,7 @@ export default function ContrastHarnessPage() {
                   status === 'completed'
                     ? 'text-status-success'
                     : status === 'failed'
-                      ? 'text-destructive'
+                      ? 'text-destructive-accessible'
                       : 'text-muted-foreground'
                 }
               >

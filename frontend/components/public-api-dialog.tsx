@@ -447,7 +447,7 @@ if (${streamResponse ? 'true' : 'false'}) {
                     </div>
                   </div>
                   {justGeneratedKey && (
-                    <p className="text-xs text-destructive">
+                    <p className="text-xs text-destructive-accessible">
                       Your API key will disappear after closing this dialog.
                     </p>
                   )}
