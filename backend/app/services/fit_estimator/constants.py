@@ -15,8 +15,16 @@ GIB = 2**30
 # changing this constant.
 DEFAULT_MAX_NUM_SEQS = 256
 
-# LLMHub launch gate historically certified startup with one sequence; gate now
-# uses resolve_max_num_seqs() (effective launch concurrency). Kept for tests/docs.
+# Default expected average sequence length (tokens) for the capacity model's
+# "typical" concurrency figure. Real workloads run far below max_model_len; the
+# UI lets the user override this per launch. Not a calibration result.
+DEFAULT_TYPICAL_SEQ_LEN = 4096
+
+# LLMHub launch gate certifies STARTUP: vLLM allocates a fixed KV pool and aborts
+# at boot if it cannot hold one full-length sequence. The gate therefore sizes KV
+# at max_model_len × 1. Concurrency beyond that queues/preempts (no OOM), so it is
+# reported as capacity (see capacity.py), not gated. See ranking/concurrency for
+# the effective --max-num-seqs actually launched.
 LAUNCH_GATE_MAX_NUM_SEQS = 1
 
 # Bytes per element for the dtypes we care about when sizing weights / KV.

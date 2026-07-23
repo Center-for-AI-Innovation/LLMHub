@@ -23,6 +23,14 @@ class ValidateConfigRequest(BaseModel):
     model_config = _ALLOW_MODEL_NAMES
 
     model_id: str = Field(..., description="Hugging Face model id or path")
+    model_family: Optional[str] = Field(
+        None,
+        description="Catalog model family; used to resolve org/model when model_id has no slash",
+    )
+    huggingface_id: Optional[str] = Field(
+        None,
+        description="Explicit Hugging Face repo id override from the catalog",
+    )
     max_model_len: int = Field(
         ..., gt=0, description="Declared context window (required)"
     )

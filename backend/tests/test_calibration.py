@@ -44,13 +44,14 @@ def test_weights_and_kv_match_calibration(fixture_name, request) -> None:
 
 def test_qwen7b_fits_a40_single_gpu(qwen_7b) -> None:
     # The calibrated worked example: Qwen2.5-7B at seq_len=4096, concurrency=16
-    # fits a single A40 (48 GiB).
+    # fits a single A40 (44.988 GiB usable).
     meta = _meta_from_fixture(qwen_7b)
     est = estimate_fit(
         meta, max_model_len=4096, max_num_seqs=16, kv_assumption="worst_case"
     )
     a40 = next(p for p in est.partitions if p.partition == "gpuA40x4")
     assert a40.fits is True
-    # weights ~14.2 + KV (57344 B/tok x 65536 tok = ~3.5 GiB) + 2 overhead << 48.
+    # weights ~14.2 + KV (57344 B/tok x 65536 tok = ~3.5 GiB) + ~6 overhead
+    # (0.9 utilization reserve + framework) ~= 24 GiB << 44.988.
     assert a40.breakdown.weights_gib == pytest.approx(14.19, rel=0.01)
     assert a40.breakdown.kv_pool_required_gib == pytest.approx(3.5, rel=0.02)

@@ -3,10 +3,14 @@
 LLMHub assigns GPUs from the per-model catalog entry in ``models.yaml``; users
 only override partition and job time at launch. This module resolves that
 catalog + infrastructure defaults into the tuple the validator expects, then
-certifies the config using the **effective** launch concurrency from
-:func:`~app.services.fit_estimator.concurrency.resolve_max_num_seqs` (same
-value the vLLM command will use). Worst-case KV is
-``max_model_len × effective_max_num_seqs``.
+certifies the **startup** contract: vLLM allocates a fixed KV pool from leftover
+VRAM and aborts at boot if that pool cannot hold even one full-length sequence.
+So the gate checks ``weights + KV(max_model_len × 1) + overhead ≤ VRAM``
+(``LAUNCH_GATE_MAX_NUM_SEQS = 1``).
+
+Concurrency does NOT gate here: beyond the pool vLLM queues/preempts rather than
+OOMing, so sustained-concurrency capacity is an informational figure surfaced by
+the fit estimator (see :mod:`.capacity`), not a launch blocker.
 
 If the target partition is absent from the bundled Delta hardware table the gate
 is skipped (returns ``None``) so non-Delta infrastructures are unaffected.
@@ -16,15 +20,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 from app.config.logging import get_logger
+from app.utils.huggingface import resolve_hf_model_id
 from app.utils.infrastructure import InfrastructureManager
 
-from .concurrency import catalog_max_num_seqs, resolve_max_num_seqs
+from .constants import LAUNCH_GATE_MAX_NUM_SEQS
 from .hardware import load_partitions
 from .validator import ConfigValidation, _empty_breakdown, validate_config_for_model
-from app.utils.huggingface import resolve_hf_model_id
 
 logger = get_logger("fit_estimator.launch_gate")
 
@@ -189,11 +193,6 @@ def check_launch_memory_gate(
     if spec is None:
         return None
 
-    effective_seqs = resolve_max_num_seqs(
-        ui_override=max_num_seqs,
-        catalog_value=catalog_max_num_seqs(model_config),
-    )
-
     partition_cap = max_gpus_for_partition(spec.partition)
     if spec.tensor_parallel_size > partition_cap:
         return ConfigValidation(
@@ -206,17 +205,14 @@ def check_launch_memory_gate(
         )
 
     logger.info(
-        "Launch memory gate: model=%s hf=%s partition=%s max_model_len=%s "
-        "tp=%s nodes=%s effective_max_num_seqs=%s (ui_override=%s catalog=%s)",
+        "Launch startup gate: model=%s hf=%s partition=%s max_model_len=%s "
+        "tp=%s nodes=%s (boot contract: KV pool must hold 1 full-context seq)",
         spec.model_name,
         spec.hf_model_id,
         spec.partition,
         spec.max_model_len,
         spec.tensor_parallel_size,
         spec.num_nodes,
-        effective_seqs,
-        max_num_seqs,
-        catalog_max_num_seqs(model_config),
     )
 
     return validate_config_for_model(
@@ -225,7 +221,7 @@ def check_launch_memory_gate(
         tensor_parallel_size=spec.tensor_parallel_size,
         partition=spec.partition,
         num_nodes=spec.num_nodes,
-        max_num_seqs=effective_seqs,
+        max_num_seqs=LAUNCH_GATE_MAX_NUM_SEQS,
     )
 
 

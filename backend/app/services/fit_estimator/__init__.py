@@ -22,6 +22,7 @@ from .estimator import (
     estimate_fit,
     estimate_fit_for_model,
 )
+from .launch_gate import CatalogLaunchSpec, check_launch_memory_gate_for_model
 from .model_metadata import ModelMetadata, fetch_model_metadata, map_config
 from .validator import (
     ConfigValidation,
@@ -42,6 +43,8 @@ __all__ = [
     "estimate_fit_for_model",
     "validate_config",
     "validate_config_for_model",
+    "CatalogLaunchSpec",
+    "check_launch_memory_gate_for_model",
     "fetch_model_metadata",
     "map_config",
 ]

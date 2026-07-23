@@ -26,6 +26,14 @@ class FitEstimateRequest(BaseModel):
     model_config = _ALLOW_MODEL_NAMES
 
     model_id: str = Field(..., description="Hugging Face model id or path")
+    model_family: Optional[str] = Field(
+        None,
+        description="Catalog model family; used to resolve org/model when model_id has no slash",
+    )
+    huggingface_id: Optional[str] = Field(
+        None,
+        description="Explicit Hugging Face repo id override from the catalog",
+    )
     dtype: Optional[str] = Field(
         None, description="Override compute dtype (e.g. float16, bfloat16, fp8)"
     )
@@ -40,6 +48,23 @@ class FitEstimateRequest(BaseModel):
     )
     kv_assumption: KvAssumption = Field(
         "worst_case", description="Which KV assumption is primary; both are returned"
+    )
+    tensor_parallel_size: int = Field(
+        1, ge=1, description="Tensor-parallel size (GPUs per node) for the survey"
+    )
+    typical_seq_len: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Expected average sequence length (tokens) for the capacity 'typical concurrency' figure; defaults to 4096",
+    )
+    duration_hours: Optional[float] = Field(
+        None,
+        gt=0,
+        description="Job walltime in hours; when set, each partition includes estimated_job_su",
+    )
+    time: Optional[str] = Field(
+        None,
+        description="SLURM walltime (HH:MM:SS); alternative to duration_hours for SU estimate",
     )
     revision: str = Field("main", description="Model revision/branch on the Hub")
 
@@ -70,6 +95,33 @@ class PartitionFitSchema(BaseModel):
     breakdown: BreakdownSchema
     kv_assumption_used: str
     both_assumptions: Dict[str, AssumptionResultSchema]
+    su_per_gpu_hour: Optional[int] = None
+    effective_su_per_hour: Optional[int] = Field(
+        default=None,
+        description="Aggregate SU/hour for the requested GPU count (per-GPU rate × num_gpus)",
+    )
+    estimated_job_su: Optional[int] = None
+    # Capacity model (how vLLM actually behaves): does it boot, and how many
+    # concurrent sequences the fixed KV pool sustains — derived, not assumed.
+    starts: Optional[bool] = Field(
+        default=None,
+        description="True when the KV pool holds ≥ 1 full-context sequence (vLLM boot check)",
+    )
+    kv_pool_gib: Optional[float] = Field(
+        default=None,
+        description="Per-GPU VRAM left for the KV pool after weights + overhead",
+    )
+    kv_pool_tokens: Optional[int] = Field(
+        default=None, description="Total tokens the fixed KV pool can hold (per GPU)"
+    )
+    concurrent_at_full_context: Optional[int] = Field(
+        default=None,
+        description="Sustainable concurrent sequences at full max_model_len (capped by max_num_seqs)",
+    )
+    concurrent_at_typical: Optional[int] = Field(
+        default=None,
+        description="Sustainable concurrent sequences at typical_seq_len (capped by max_num_seqs)",
+    )
 
 
 class ModelSummarySchema(BaseModel):
@@ -95,6 +147,10 @@ class FitEstimateResponse(BaseModel):
     kv_assumption: str
     workload_archetype: str
     per_token_kv_bytes: Optional[float]
+    tensor_parallel_size: int
+    duration_hours: Optional[float]
+    cheapest_feasible_partition: Optional[str]
+    typical_seq_len: Optional[int] = None
     warnings: List[str]
     partitions: List[PartitionFitSchema]
 
@@ -129,6 +185,14 @@ def _partition(fit: PartitionFit) -> PartitionFitSchema:
             )
             for name, res in fit.both_assumptions.items()
         },
+        su_per_gpu_hour=fit.su_per_gpu_hour,
+        effective_su_per_hour=fit.effective_su_per_hour,
+        estimated_job_su=fit.estimated_job_su,
+        starts=fit.starts,
+        kv_pool_gib=fit.kv_pool_gib,
+        kv_pool_tokens=fit.kv_pool_tokens,
+        concurrent_at_full_context=fit.concurrent_at_full_context,
+        concurrent_at_typical=fit.concurrent_at_typical,
     )
 
 
@@ -152,6 +216,10 @@ def to_response(estimate: FitEstimate) -> FitEstimateResponse:
         kv_assumption=estimate.kv_assumption,
         workload_archetype=estimate.workload_archetype,
         per_token_kv_bytes=estimate.per_token_kv_bytes,
+        tensor_parallel_size=estimate.tensor_parallel_size,
+        duration_hours=estimate.duration_hours,
+        cheapest_feasible_partition=estimate.cheapest_feasible_partition,
+        typical_seq_len=estimate.typical_seq_len,
         warnings=estimate.warnings,
         partitions=[_partition(p) for p in estimate.partitions],
     )

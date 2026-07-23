@@ -1,21 +1,20 @@
 'use client';
 
-import * as React from 'react';
 import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
   Clock,
   Cpu,
+  Gauge,
   HardDrive,
   Layers,
   Loader2,
   Settings2,
   XCircle,
 } from 'lucide-react';
+import * as React from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Collapsible,
   CollapsibleContent,
@@ -29,6 +28,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -36,35 +37,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { cn } from '@/lib/utils';
 import { useDebounce } from '@/hooks/use-debounce';
 import { useFitEstimate } from '@/hooks/use-fit-estimate';
 import { resolveHfModelId } from '@/lib/models/huggingface';
 import {
   allowedGpuOptionsForPartition,
   clampGpuCount,
+  DEFAULT_TYPICAL_SEQ_LEN,
   durationHoursFromParts,
+  formatCapacityVerdict,
   formatDuration,
   formatFitConfigSummary,
-  formatFitVerdict,
   formatSu,
   formatSuBreakdown,
   GPU_COUNT_OPTIONS,
+  isLaunchPartition,
   LAUNCH_PARTITIONS,
+  type LaunchConfig,
+  type LaunchPartition,
   maxGpusForPartition,
+  resolvePartitionCapacity,
   resourceTypeForPartition,
   VLLM_DEFAULT_MAX_NUM_SEQS,
 } from '@/lib/models/launch-config';
-
-export interface LaunchConfig {
-  time: string;
-  partition: string;
-  resource_type: string;
-  max_model_len: number;
-  /** Set only when the user explicitly changed concurrency. */
-  max_num_seqs?: number;
-  num_gpus: number;
-}
+import { cn } from '@/lib/utils';
 
 interface LaunchModelDialogProps {
   open: boolean;
@@ -74,21 +70,77 @@ interface LaunchModelDialogProps {
   huggingfaceId?: string;
   defaultContextLength?: number;
   defaultGpus?: number;
-  defaultPartition?: string;
+  defaultPartition?: LaunchPartition;
   defaultMaxNumSeqs?: number;
   modelFamily?: string;
   isLaunching: boolean;
   onLaunch: (config: LaunchConfig) => void;
 }
 
-function FitStatusIcon({ fits }: { fits: boolean | null }) {
-  if (fits === true) {
+function FitStatusIcon({ status }: { status: boolean | null }) {
+  if (status === true) {
     return <CheckCircle2 className="size-4 shrink-0 text-emerald-500" />;
   }
-  if (fits === false) {
+  if (status === false) {
     return <XCircle className="size-4 shrink-0 text-destructive" />;
   }
   return <AlertCircle className="size-4 shrink-0 text-muted-foreground" />;
+}
+
+/**
+ * Accessible range input with a visual track matching the launch dialog.
+ */
+function TrackSlider({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onValueChange,
+  disabled,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onValueChange: (value: number) => void;
+  disabled?: boolean;
+}) {
+  const span = Math.max(1, max - min);
+  const pct = (v: number) =>
+    ((Math.min(Math.max(v, min), max) - min) / span) * 100;
+  const clampedValue = Math.min(Math.max(value, min), max);
+  const valuePct = pct(clampedValue);
+  return (
+    <div
+      className={cn(
+        'relative flex h-4 items-center',
+        disabled && 'pointer-events-none opacity-50',
+      )}
+    >
+      <div className="absolute inset-x-0 h-1.5 rounded-full bg-muted" />
+      <div
+        className="absolute h-1.5 rounded-full bg-primary"
+        style={{ width: `${valuePct}%` }}
+      />
+      <div
+        className="absolute size-3.5 -translate-x-1/2 rounded-full border-2 border-background bg-primary shadow"
+        style={{ left: `${valuePct}%` }}
+      />
+      <input
+        aria-label={label}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={clampedValue}
+        disabled={disabled}
+        onChange={(e) => onValueChange(Number(e.target.value))}
+        className="absolute inset-0 size-full cursor-pointer opacity-0"
+      />
+    </div>
+  );
 }
 
 /**
@@ -118,19 +170,27 @@ export function LaunchModelDialog({
   const [numGpus, setNumGpus] = React.useState(String(defaultGpus));
   const [numSeqs, setNumSeqs] = React.useState(String(defaultMaxNumSeqs));
   const [concurrencyTouched, setConcurrencyTouched] = React.useState(false);
+  const [typicalLen, setTypicalLen] = React.useState(
+    String(DEFAULT_TYPICAL_SEQ_LEN),
+  );
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (open) {
       setPartition(defaultPartition);
       setContextLength(String(defaultContextLength));
-      setNumGpus(
-        String(clampGpuCount(defaultGpus, defaultPartition)),
-      );
+      setNumGpus(String(clampGpuCount(defaultGpus, defaultPartition)));
       setNumSeqs(String(defaultMaxNumSeqs));
       setConcurrencyTouched(false);
+      setTypicalLen(String(DEFAULT_TYPICAL_SEQ_LEN));
     }
-  }, [open, defaultPartition, defaultContextLength, defaultGpus, defaultMaxNumSeqs]);
+  }, [
+    open,
+    defaultPartition,
+    defaultContextLength,
+    defaultGpus,
+    defaultMaxNumSeqs,
+  ]);
 
   const allowedGpuOptions = allowedGpuOptionsForPartition(partition);
   const partitionGpuCap = maxGpusForPartition(partition);
@@ -139,6 +199,7 @@ export function LaunchModelDialog({
   const effectiveConcurrency = concurrencyTouched
     ? parsedNumSeqs
     : defaultMaxNumSeqs;
+  const parsedTypicalLen = parseInt(typicalLen || '0', 10);
 
   React.useEffect(() => {
     const clamped = clampGpuCount(parsedGpus, partition);
@@ -164,6 +225,7 @@ export function LaunchModelDialog({
           huggingface_id: huggingfaceId,
           max_model_len: parsedContext,
           max_num_seqs: effectiveConcurrency,
+          typical_seq_len: parsedTypicalLen > 0 ? parsedTypicalLen : undefined,
           tensor_parallel_size: parsedGpus,
           time: timeStr,
         }
@@ -185,18 +247,53 @@ export function LaunchModelDialog({
     error: fitError,
   } = useFitEstimate(debouncedFitKey, fitSurveyEnabled);
 
-  const selectedFit = fitEstimate?.partitions.find((p) => p.partition === partition);
-  const selectedFits = selectedFit?.fits === true;
+  const selectedFit = fitEstimate?.partitions.find(
+    (p) => p.partition === partition,
+  );
+  const effectiveTypicalLen =
+    fitEstimate?.typical_seq_len ??
+    (parsedTypicalLen > 0 ? parsedTypicalLen : DEFAULT_TYPICAL_SEQ_LEN);
+  const capacityOpts = {
+    perTokenKvBytes: fitEstimate?.per_token_kv_bytes,
+    maxModelLen: fitEstimate?.max_model_len ?? parsedContext,
+    typicalSeqLen: effectiveTypicalLen,
+    maxNumSeqs: fitEstimate?.max_num_seqs ?? effectiveConcurrency,
+  };
+  const selectedCapacity = selectedFit
+    ? resolvePartitionCapacity(selectedFit, capacityOpts)
+    : null;
+  const selectedStarts = selectedCapacity?.starts === true;
+
+  // Context determines whether vLLM can start. max_num_seqs is a scheduler cap:
+  // requests above the resident KV capacity queue, so it must not artificially
+  // shorten the selectable context range.
+  const MIN_CONTEXT = 512;
+  const modelMaxContext = Math.max(MIN_CONTEXT, defaultContextLength);
+  const concurrencySliderMax = Math.max(512, defaultMaxNumSeqs, parsedNumSeqs);
+  const displayContext = Math.min(
+    Math.max(parsedContext || MIN_CONTEXT, MIN_CONTEXT),
+    modelMaxContext,
+  );
+  const displayConcurrency = Math.min(
+    Math.max(parsedNumSeqs || 1, 1),
+    concurrencySliderMax,
+  );
+
   const fitConfigSummary = formatFitConfigSummary(
     parsedContext,
     effectiveConcurrency,
     parsedGpus,
+    effectiveTypicalLen,
   );
-  const fitVerdict = formatFitVerdict(
-    selectedFit?.fits,
+  const fitVerdict = formatCapacityVerdict({
+    starts: selectedCapacity?.starts,
     partition,
-    selectedFit?.headroom_gib,
-  );
+    contextLength: parsedContext,
+    typicalSeqLen: effectiveTypicalLen,
+    concurrentAtFullContext: selectedCapacity?.concurrentAtFullContext,
+    concurrentAtTypical: selectedCapacity?.concurrentAtTypical,
+    kvPoolTokens: selectedCapacity?.kvPoolTokens,
+  });
   const selectedSuBreakdown =
     selectedFit?.su_per_gpu_hour != null && selectedFit.estimated_job_su != null
       ? formatSuBreakdown(
@@ -212,7 +309,7 @@ export function LaunchModelDialog({
     minutes !== '' &&
     parsedContext > 0 &&
     parsedNumSeqs > 0 &&
-    selectedFits;
+    selectedStarts;
 
   const validationErrorMessage =
     hours === ''
@@ -225,10 +322,14 @@ export function LaunchModelDialog({
             ? 'Context length must be positive.'
             : parsedNumSeqs <= 0
               ? 'Concurrency must be at least 1.'
-              : selectedFit?.fits === false
-                ? 'Selected partition cannot fit this context length and concurrency.'
-                : selectedFit?.fits == null && fitEstimate && !isFetchingFit
-                  ? 'Fit could not be verified for this model — check metadata or try again.'
+              : selectedCapacity?.starts === false
+                ? 'This context length will not start on the selected partition.'
+                : selectedCapacity?.starts == null &&
+                    fitEstimate &&
+                    !isFetchingFit
+                  ? fitEstimate.warnings.length > 0
+                    ? fitEstimate.warnings.join(' ')
+                    : 'Startup could not be verified — model weight or KV metadata is missing.'
                   : null;
 
   function handleHoursChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -258,13 +359,21 @@ export function LaunchModelDialog({
     });
   }
 
+  function handlePartitionChange(nextPartition: string) {
+    if (isLaunchPartition(nextPartition)) {
+      setPartition(nextPartition);
+    }
+  }
+
   const handleDialogOpenChange = (nextOpen: boolean) => {
     if (isLaunching && !nextOpen) return;
     onOpenChange(nextOpen);
   };
 
   const nvidiaPartitions =
-    fitEstimate?.partitions.filter((p) => p.supported) ??
+    fitEstimate?.partitions.filter(
+      (p) => p.supported && isLaunchPartition(p.partition),
+    ) ??
     LAUNCH_PARTITIONS.map((name) => ({
       partition: name,
       gpu_type: name,
@@ -277,6 +386,11 @@ export function LaunchModelDialog({
       su_per_gpu_hour: null,
       effective_su_per_hour: null,
       estimated_job_su: null,
+      starts: null,
+      kv_pool_gib: null,
+      kv_pool_tokens: null,
+      concurrent_at_full_context: null,
+      concurrent_at_typical: null,
     }));
 
   return (
@@ -288,8 +402,9 @@ export function LaunchModelDialog({
             Launch {modelName}
           </DialogTitle>
           <DialogDescription>
-            Set how long you need {modelName} to run. We check whether your
-            context length and concurrency fit on each partition before launch.
+            Set how long you need {modelName} to run. We check that your context
+            length starts on each partition and estimate how much concurrency it
+            can sustain before launch.
           </DialogDescription>
         </DialogHeader>
 
@@ -298,7 +413,10 @@ export function LaunchModelDialog({
             <Label className="text-sm font-medium">Duration</Label>
             <div className="flex items-end gap-3">
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="launch-hours" className="text-xs text-muted-foreground">
+                <Label
+                  htmlFor="launch-hours"
+                  className="text-xs text-muted-foreground"
+                >
                   Hours
                 </Label>
                 <Input
@@ -311,9 +429,14 @@ export function LaunchModelDialog({
                   className="text-center tabular-nums"
                 />
               </div>
-              <span className="mb-2.5 text-xl font-semibold text-muted-foreground">:</span>
+              <span className="mb-2.5 text-xl font-semibold text-muted-foreground">
+                :
+              </span>
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="launch-minutes" className="text-xs text-muted-foreground">
+                <Label
+                  htmlFor="launch-minutes"
+                  className="text-xs text-muted-foreground"
+                >
                   Minutes
                 </Label>
                 <Input
@@ -341,7 +464,7 @@ export function LaunchModelDialog({
               )}
             >
               <div className="flex items-start gap-2">
-                <FitStatusIcon fits={selectedFit?.fits ?? null} />
+                <FitStatusIcon status={selectedCapacity?.starts ?? null} />
                 <div className="min-w-0 space-y-1">
                   <p
                     className={cn(
@@ -359,7 +482,9 @@ export function LaunchModelDialog({
                   <p className="text-muted-foreground">{fitConfigSummary}</p>
                   <p className="text-muted-foreground">{fitVerdict.detail}</p>
                   {!advancedOpen && selectedSuBreakdown && fitEnabled && (
-                    <p className="pt-1 text-muted-foreground">{selectedSuBreakdown}</p>
+                    <p className="pt-1 text-muted-foreground">
+                      {selectedSuBreakdown}
+                    </p>
                   )}
                 </div>
               </div>
@@ -386,47 +511,74 @@ export function LaunchModelDialog({
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-4 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="launch-context" className="flex items-center gap-1.5">
-                    <HardDrive className="size-3.5" />
-                    Context length
+              <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-1.5 text-sm font-medium">
+                    <Gauge className="size-4 text-primary" />
+                    Context &amp; concurrency
                   </Label>
-                  <Input
-                    id="launch-context"
-                    type="number"
+                  {isFetchingFit && (
+                    <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <HardDrive className="size-3.5" />
+                      Context length
+                    </span>
+                    <span className="font-medium tabular-nums">
+                      {displayContext.toLocaleString()}
+                      <span className="font-normal text-muted-foreground">
+                        {' '}
+                        / {modelMaxContext.toLocaleString()} tok
+                      </span>
+                    </span>
+                  </div>
+                  <TrackSlider
+                    label="Context length"
                     min={512}
+                    max={modelMaxContext}
                     step={512}
-                    value={contextLength}
-                    onChange={(e) => setContextLength(e.target.value)}
-                    className="tabular-nums"
+                    value={displayContext}
+                    onValueChange={(v) => setContextLength(String(v))}
                   />
                   <p className="text-[10px] text-muted-foreground">
-                    Max tokens per sequence (max-model-len).
+                    Max tokens per request (vLLM max-model-len). Startup
+                    requires room for one request at this length.
                   </p>
                 </div>
+
                 <div className="space-y-1.5">
-                  <Label htmlFor="launch-concurrency" className="flex items-center gap-1.5">
-                    <Layers className="size-3.5" />
-                    Concurrency
-                  </Label>
-                  <Input
-                    id="launch-concurrency"
-                    type="number"
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <Layers className="size-3.5" />
+                      Concurrency
+                    </span>
+                    <span className="font-medium tabular-nums">
+                      {displayConcurrency.toLocaleString()}
+                      <span className="font-normal text-muted-foreground">
+                        {' '}
+                        / {concurrencySliderMax.toLocaleString()} max
+                      </span>
+                    </span>
+                  </div>
+                  <TrackSlider
+                    label="Concurrency cap"
                     min={1}
+                    max={concurrencySliderMax}
                     step={1}
-                    value={numSeqs}
-                    onChange={(e) => {
+                    value={displayConcurrency}
+                    onValueChange={(v) => {
                       setConcurrencyTouched(true);
-                      setNumSeqs(e.target.value);
+                      setNumSeqs(String(v));
                     }}
-                    className="tabular-nums"
                   />
                   <p className="text-[10px] text-muted-foreground">
-                    Effective default {defaultMaxNumSeqs.toLocaleString()} from
-                    catalog (vLLM {VLLM_DEFAULT_MAX_NUM_SEQS} when unset).
-                    Change only if you need a different cap. Typical workload
-                    factors are advisory only.
+                    Scheduler limit (vLLM max-num-seqs). Requests beyond the
+                    sustainable capacity shown above queue instead of reserving
+                    more KV memory at startup.
                   </p>
                 </div>
               </div>
@@ -462,7 +614,10 @@ export function LaunchModelDialog({
                 </div>
                 <div className="space-y-1.5">
                   <Label>Partition</Label>
-                  <Select value={partition} onValueChange={setPartition}>
+                  <Select
+                    value={partition}
+                    onValueChange={handlePartitionChange}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -485,13 +640,17 @@ export function LaunchModelDialog({
                   )}
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Fit certifies worst-case KV = context × effective concurrency
-                  (catalog or your override). SU scales with GPU count.
+                  Gate certifies startup: the KV pool must hold one full-context
+                  sequence. Concurrency is reported as sustainable capacity —
+                  vLLM queues requests past it instead of reserving all request
+                  memory up front. SU scales with GPU count.
                 </p>
 
                 {fitError && (
                   <p className="text-xs text-destructive">
-                    {fitError instanceof Error ? fitError.message : 'Fit estimate failed'}
+                    {fitError instanceof Error
+                      ? fitError.message
+                      : 'Fit estimate failed'}
                   </p>
                 )}
 
@@ -500,6 +659,10 @@ export function LaunchModelDialog({
                     const isCheapest =
                       fitEstimate?.cheapest_feasible_partition === p.partition;
                     const isSelected = p.partition === partition;
+                    const rowCapacity = resolvePartitionCapacity(
+                      p,
+                      capacityOpts,
+                    );
                     const rowBreakdown =
                       p.su_per_gpu_hour != null && p.estimated_job_su != null
                         ? formatSuBreakdown(
@@ -513,7 +676,7 @@ export function LaunchModelDialog({
                       <button
                         key={p.partition}
                         type="button"
-                        onClick={() => setPartition(p.partition)}
+                        onClick={() => handlePartitionChange(p.partition)}
                         className={cn(
                           'flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
                           isSelected && 'bg-primary/10 ring-1 ring-primary/30',
@@ -522,9 +685,11 @@ export function LaunchModelDialog({
                       >
                         <span className="flex items-center justify-between gap-2">
                           <span className="flex min-w-0 items-center gap-2">
-                            <FitStatusIcon fits={p.fits} />
-                            <span className="truncate font-medium">{p.partition}</span>
-                            {isCheapest && p.fits && (
+                            <FitStatusIcon status={rowCapacity.starts} />
+                            <span className="truncate font-medium">
+                              {p.partition}
+                            </span>
+                            {isCheapest && rowCapacity.starts && (
                               <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
                                 Lowest SU
                               </span>
@@ -542,8 +707,8 @@ export function LaunchModelDialog({
                                   </span>
                                 )}
                               </>
-                            ) : p.fits === false ? (
-                              'No fit'
+                            ) : rowCapacity.starts === false ? (
+                              "Won't start"
                             ) : (
                               '—'
                             )}
@@ -552,12 +717,13 @@ export function LaunchModelDialog({
                         {rowBreakdown && (
                           <span className="pl-6 text-[10px] text-muted-foreground">
                             {rowBreakdown}
-                            {p.fits === true && p.headroom_gib != null && (
-                              <>
-                                {' · '}
-                                {p.headroom_gib.toFixed(1)} GiB headroom/GPU
-                              </>
-                            )}
+                            {rowCapacity.starts === true &&
+                              rowCapacity.concurrentAtFullContext != null && (
+                                <>
+                                  {' · '}~{rowCapacity.concurrentAtFullContext}{' '}
+                                  concurrent @ full ctx
+                                </>
+                              )}
                           </span>
                         )}
                       </button>
@@ -565,10 +731,12 @@ export function LaunchModelDialog({
                   })}
                 </div>
 
-                {selectedFit && selectedFit.fits === false && (
+                {selectedCapacity?.starts === false && (
                   <p className="text-xs text-destructive">
-                    {partition} cannot fit context {parsedContext.toLocaleString()}{' '}
-                    with concurrency {parsedNumSeqs.toLocaleString()}.
+                    {partition} can&apos;t start at context{' '}
+                    {parsedContext.toLocaleString()}: the KV pool can&apos;t
+                    hold one full-length sequence. Lower the context or add
+                    GPUs.
                   </p>
                 )}
               </div>

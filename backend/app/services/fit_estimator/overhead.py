@@ -1,19 +1,27 @@
-"""Two-term non-weight, non-KV overhead model.
+"""Non-weight, non-KV overhead model (vLLM-calibrated).
 
-    overhead = framework_constant_gib + activation_overhead(config, tokens)
+    overhead = utilization_reserve + framework_internal + activation + tp_comm
 
-Term 1 (``framework_constant_gib``) is a per-partition constant read from the
+Term 1 (``utilization_reserve``) is ``(1 - gpu_memory_utilization) * VRAM`` -- the
+slice of each GPU vLLM refuses to touch. It is the DOMINANT term and scales with
+VRAM (see ``DEFAULT_GPU_MEMORY_UTILIZATION``). Folding it into overhead lets the
+gate compare against full physical VRAM while remaining exactly equivalent to
+"weights + KV + internal <= util * VRAM".
+
+Term 2 (``framework_internal_gib``) is the per-partition constant read from the
 hardware YAML (CUDA context, framework allocator, vLLM's profiled reservation).
-It defaults to 2.0 GiB, deliberately conservative: over-predicting overhead
-errs toward recommending a bigger GPU rather than one that OOMs at launch.
+Calibrated to ~1.0-1.1 GiB and treated as VRAM-/size-/TP-independent; the YAML
+carries a conservative 1.5.
 
-Term 2 (``activation_overhead``) is the per-step activation working set, which
-grows with hidden_size x layers x the batched-token count. It is a STUB: it
-returns 0.0 today so the interface and call sites are in place, but the real
-coefficient must come from the pending vLLM probe sweep (see the standalone
-memory-estimator calibration notes: backed-out overhead grew 0.75 -> 1.58 GiB
-from 0.5B to 7B, which is exactly this activation term). Do not invent a
-coefficient here without probe data.
+Term 3 (``activation_overhead``) is the per-step activation working set. It is a
+STUB returning 0.0: the interface and call sites are in place, but the real
+coefficient must come from a dedicated probe sweep. Do not invent one here.
+
+Term 4 (``tp_communication_buffer_gib``) is added per rank when ``tp_size > 1``
+for NCCL/all-reduce buffers. Measured ~0 at TP<=4; kept small and conservative.
+
+Safety posture: every term over-predicts rather than under-predicts, so the gate
+errs toward false-reject (user annoyance) instead of false-accept (launch OOM).
 """
 
 from __future__ import annotations
@@ -27,46 +35,70 @@ def activation_overhead_gib(
 ) -> float:
     """Activation working-set overhead in GiB. STUBBED to 0.0.
 
-    TODO(calibration-sweep): model activation memory as roughly
+    TODO(activation-probe): model activation memory as roughly
     ``k x hidden_size x num_hidden_layers x max_batched_tokens x dtype_bytes``
-    and fit ``k`` against vLLM startup probes across model sizes and
-    ``max_num_seqs``. Until we have that data, returning a made-up number would
-    be worse than returning 0 and leaning on the conservative framework
-    constant, so this intentionally returns 0.0.
+    and fit ``k`` against vLLM startup probes. Until then, returning a made-up
+    number would be worse than returning 0 and leaning on the (calibrated)
+    utilization reserve + framework constant, so this intentionally returns 0.0.
     """
     _ = (model_config, max_batched_tokens)  # documented interface; unused for now
     return 0.0
 
 
-def total_overhead_gib(
-    framework_constant_gib: float,
-    model_config: Mapping[str, Any],
-    max_batched_tokens: int,
-) -> float:
-    """Sum the framework constant and the (currently 0) activation term."""
-    return framework_constant_gib + activation_overhead_gib(
-        model_config, max_batched_tokens
-    )
+def utilization_reserve_gib(vram_gib: float, gpu_memory_utilization: float) -> float:
+    """VRAM vLLM reserves and never uses: ``(1 - util) * VRAM``.
+
+    Calibrated as the dominant overhead term: across A40/A100 and TP=1/2/4,
+    vLLM's reported "Available KV cache memory" equalled
+    ``util*VRAM - weights - framework_internal`` to within ~0.05 GiB.
+    """
+    return max(0.0, vram_gib * (1.0 - gpu_memory_utilization))
 
 
 def total_overhead_per_gpu_gib(
-    framework_constant_gib: float,
+    vram_gib: float,
+    gpu_memory_utilization: float,
+    framework_internal_gib: float,
     tp_communication_buffer_gib: float,
     tp_size: int,
     model_config: Mapping[str, Any],
     max_batched_tokens: int,
 ) -> float:
-    """Per-GPU overhead under tensor parallelism.
+    """Per-GPU overhead under tensor parallelism (all four terms).
 
-    The framework constant is paid IN FULL by every rank -- it is NOT divided by
-    ``tp_size`` (each GPU has its own CUDA context, allocator, and workspace).
-    For ``tp_size > 1`` we add ``tp_communication_buffer_gib`` per rank for
-    NCCL/all-reduce buffers (an UNCALIBRATED, conservative placeholder). The
-    activation term remains stubbed at 0.0.
+    The utilization reserve and framework constant are each paid IN FULL by every
+    rank -- neither is divided by ``tp_size`` (each GPU has its own VRAM, CUDA
+    context, allocator, and workspace). ``tp_communication_buffer_gib`` is added
+    per rank only when ``tp_size > 1``. The activation term is stubbed at 0.0.
     """
-    overhead = framework_constant_gib + activation_overhead_gib(
-        model_config, max_batched_tokens
+    overhead = (
+        utilization_reserve_gib(vram_gib, gpu_memory_utilization)
+        + framework_internal_gib
+        + activation_overhead_gib(model_config, max_batched_tokens)
     )
     if tp_size > 1:
         overhead += tp_communication_buffer_gib
     return overhead
+
+
+def total_overhead_gib(
+    vram_gib: float,
+    gpu_memory_utilization: float,
+    framework_internal_gib: float,
+    model_config: Mapping[str, Any],
+    max_batched_tokens: int,
+) -> float:
+    """Single-GPU overhead (survey path): reserve + framework + activation.
+
+    Thin wrapper over :func:`total_overhead_per_gpu_gib` with ``tp_size = 1`` (no
+    TP communication buffer).
+    """
+    return total_overhead_per_gpu_gib(
+        vram_gib,
+        gpu_memory_utilization,
+        framework_internal_gib,
+        0.0,
+        1,
+        model_config,
+        max_batched_tokens,
+    )

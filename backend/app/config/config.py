@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "25"))
     SMTP_FROM: str = os.getenv("SMTP_FROM", "no-reply@illinois.edu")
 
+    # Hugging Face Hub (gated model metadata for fit estimator)
+    HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN") or os.getenv(
+        "HUGGING_FACE_HUB_TOKEN"
+    )
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 

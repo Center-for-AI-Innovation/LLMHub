@@ -39,7 +39,6 @@ from .constants import DEFAULT_GPU_MEMORY_UTILIZATION, DEFAULT_MAX_NUM_SEQS
 from .hardware import GpuPartition, load_partitions
 from .memory_model import (
     evaluate_fit,
-    heads_shard_evenly,
     kv_heads_replicated,
     kv_pool_required_gib,
     per_token_kv_bytes_per_gpu,
@@ -135,9 +134,10 @@ def validate_config(
 
     ``max_num_seqs`` controls the KV token budget:
 
-    * ``resolve_max_num_seqs()`` — effective launch concurrency (gate + UI).
-    * ``LAUNCH_GATE_MAX_NUM_SEQS`` (1) — legacy boot-only contract; deprecated.
-    * ``DEFAULT_MAX_NUM_SEQS`` (256) — vLLM default when catalog omits the flag.
+    * ``LAUNCH_GATE_MAX_NUM_SEQS`` (1) — startup contract: KV pool must hold one
+      full-length sequence (what vLLM checks at boot). Used by the launch gate.
+    * ``DEFAULT_MAX_NUM_SEQS`` (256) — worst-case survey ceiling for the manual
+      validate-config API; not the launch gate.
     """
     parts = tuple(partitions) if partitions is not None else load_partitions()
 
@@ -184,9 +184,7 @@ def validate_config(
     if meta.weights_bytes is None:
         missing.append("weights size")
     if not meta.kv_fields_known:
-        missing.append(
-            "KV config fields (" + ", ".join(meta.unknown_fields) + ")"
-        )
+        missing.append("KV config fields (" + ", ".join(meta.unknown_fields) + ")")
     if missing:
         return ConfigValidation(
             valid=False,

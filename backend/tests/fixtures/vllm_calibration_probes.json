@@ -1,0 +1,56 @@
+{
+  "_source": "Real vLLM 0.11.0 startup probes on NCSA Delta (util=0.9, max_model_len=4096, max_num_seqs default). Raw logs: memory-estimator/calibration/logs/*.log. Captured 2026-07-06.",
+  "_columns": {
+    "vram_gib": "nvidia-smi memory.total for the GPU (real usable, not marketing)",
+    "weights_per_gpu_gib": "vLLM 'Model loading took X GiB' (already per-GPU under TP)",
+    "available_kv_gib": "vLLM 'Available KV cache memory: Y GiB' (per GPU)",
+    "tp": "tensor_parallel_size"
+  },
+  "runs": [
+    {
+      "tag": "0_5b_a40_tp1",
+      "model": "Qwen/Qwen2.5-0.5B-Instruct",
+      "gpu": "NVIDIA A40",
+      "vram_gib": 44.988,
+      "tp": 1,
+      "weights_per_gpu_gib": 0.9267,
+      "available_kv_gib": 38.51
+    },
+    {
+      "tag": "7b_a40_tp1",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "gpu": "NVIDIA A40",
+      "vram_gib": 44.988,
+      "tp": 1,
+      "weights_per_gpu_gib": 14.2488,
+      "available_kv_gib": 25.17
+    },
+    {
+      "tag": "7b_a40_tp2",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "gpu": "NVIDIA A40",
+      "vram_gib": 44.988,
+      "tp": 2,
+      "weights_per_gpu_gib": 7.1217,
+      "available_kv_gib": 32.26
+    },
+    {
+      "tag": "7b_a40_tp4",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "gpu": "NVIDIA A40",
+      "vram_gib": 44.988,
+      "tp": 4,
+      "weights_per_gpu_gib": 3.5547,
+      "available_kv_gib": 35.85
+    },
+    {
+      "tag": "7b_a100_tp1",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "gpu": "NVIDIA A100-SXM4-40GB",
+      "vram_gib": 40.0,
+      "tp": 1,
+      "weights_per_gpu_gib": 14.2488,
+      "available_kv_gib": 20.73
+    }
+  ]
+}

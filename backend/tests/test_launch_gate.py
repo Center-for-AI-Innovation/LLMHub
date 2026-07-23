@@ -101,28 +101,44 @@ def test_resolve_codellama_catalog_spec() -> None:
         partition="gpuA40x4",
     )
     assert spec is not None
-    assert spec.hf_model_id == "meta-llama/CodeLlama-70b-Instruct-hf"
+    assert spec.hf_model_id == "codellama/CodeLlama-70b-Instruct-hf"
 
 
-def test_gate_certifies_effective_runtime_concurrency() -> None:
-    """Catalog Qwen 7B omits --max-num-seqs → effective 256; gate must reject."""
+def test_gate_certifies_startup_not_peak_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gate certifies boot (KV pool holds 1 full-context seq), not ×256 saturation.
+
+    Qwen 7B @ 32K starts fine on an A40 even though it could not hold 256 full
+    concurrent sequences — that is a throughput ceiling, not an OOM, so it must
+    NOT block launch.
+    """
     meta = _qwen_7b_meta()
-    launch = validate_config(
+    startup = validate_config(
         meta,
         max_model_len=32768,
         tensor_parallel_size=1,
         partition="gpuA40x4",
         max_num_seqs=LAUNCH_GATE_MAX_NUM_SEQS,
     )
-    effective = validate_config(
+    saturated = validate_config(
         meta,
         max_model_len=32768,
         tensor_parallel_size=1,
         partition="gpuA40x4",
         max_num_seqs=DEFAULT_MAX_NUM_SEQS,
     )
-    assert launch.valid is True
-    assert effective.valid is False
+    assert startup.valid is True
+    assert saturated.valid is False
+
+    def validate_fixture(_model_id, **kwargs):
+        assert kwargs["max_num_seqs"] == LAUNCH_GATE_MAX_NUM_SEQS
+        return validate_config(meta, **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.fit_estimator.launch_gate.validate_config_for_model",
+        validate_fixture,
+    )
     gate = check_launch_memory_gate(
         "Qwen2.5-7B-Instruct",
         {"gpus_per_node": 1, "vllm_args": {"--max-model-len": 32768}},
@@ -130,7 +146,7 @@ def test_gate_certifies_effective_runtime_concurrency() -> None:
         partition="gpuA40x4",
     )
     assert gate is not None
-    assert gate.valid is effective.valid
+    assert gate.valid is startup.valid is True
 
 
 def test_check_launch_memory_gate_rejects_when_validator_fails(

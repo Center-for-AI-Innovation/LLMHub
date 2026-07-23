@@ -21,6 +21,7 @@ from app.schemas.validate_config import (
     to_response,
 )
 from app.services.fit_estimator import validate_config_for_model
+from app.utils.huggingface import resolve_hf_model_id
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,11 @@ router = APIRouter()
 def validate_launch_config(request: ValidateConfigRequest) -> Any:
     """Certify a proposed vLLM launch config before any resources are touched."""
     result = validate_config_for_model(
-        request.model_id,
+        resolve_hf_model_id(
+            request.model_id,
+            family=request.model_family,
+            huggingface_id=request.huggingface_id,
+        ),
         max_model_len=request.max_model_len,
         tensor_parallel_size=request.tensor_parallel_size,
         partition=request.partition,

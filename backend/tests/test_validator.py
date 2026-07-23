@@ -28,10 +28,12 @@ def _meta(config=QWEN_7B_CONFIG, weights_bytes=QWEN_7B_WEIGHTS, model_id="test/q
 
 
 def test_7b_valid_single_gpu_a40() -> None:
-    # Worst case is 256 concurrent full-context sequences, so the context must
-    # be modest to certify on a single 48 GiB A40 (2048 -> ~28 GiB KV).
+    # Worst case is 256 concurrent full-context sequences. With the calibrated
+    # overhead (~6 GiB on A40: the 0.9 utilization reserve + framework) and
+    # ~14.2 GiB weights, the context must be modest to certify on one 44.988 GiB
+    # A40: 1024 -> ~14 GiB KV, total ~34 GiB.
     res = validate_config(
-        _meta(), max_model_len=2048, tensor_parallel_size=1, partition="gpuA40x4"
+        _meta(), max_model_len=1024, tensor_parallel_size=1, partition="gpuA40x4"
     )
     assert res.valid is True
     assert "Config valid" in res.reason
@@ -46,17 +48,20 @@ def test_weights_shard_kv_shards_overhead_constant_per_gpu(tp) -> None:
     b = res.per_gpu_breakdown
     # Weights divide by TP.
     assert b.weights_gib == pytest.approx(14.185 / tp, rel=1e-3)
-    # Overhead is paid in full per GPU (framework 2.0 undivided), plus the TP
-    # comm buffer (0.5) when TP > 1 -- never framework/TP.
-    expected_overhead = 2.0 + (0.5 if tp > 1 else 0.0)
+    # Overhead is paid in full per GPU and never divided by TP: the utilization
+    # reserve (0.1 * 141 GiB on H200) + framework internal (1.5), plus the TP
+    # comm buffer (0.25) when TP > 1.
+    expected_overhead = 141 * 0.1 + 1.5 + (0.25 if tp > 1 else 0.0)
     assert b.overhead_gib == pytest.approx(expected_overhead)
 
 
 def test_kv_shards_between_tp1_and_tp2() -> None:
-    r1 = validate_config(_meta(), max_model_len=4096, tensor_parallel_size=1,
-                         partition="gpuH200x8")
-    r2 = validate_config(_meta(), max_model_len=4096, tensor_parallel_size=2,
-                         partition="gpuH200x8")
+    r1 = validate_config(
+        _meta(), max_model_len=4096, tensor_parallel_size=1, partition="gpuH200x8"
+    )
+    r2 = validate_config(
+        _meta(), max_model_len=4096, tensor_parallel_size=2, partition="gpuH200x8"
+    )
     assert r2.per_gpu_breakdown.kv_pool_required_gib == pytest.approx(
         r1.per_gpu_breakdown.kv_pool_required_gib / 2
     )
@@ -80,8 +85,11 @@ def test_non_divisible_heads_emits_warning() -> None:
 
 def test_multi_node_is_explicitly_rejected() -> None:
     res = validate_config(
-        _meta(), max_model_len=4096, tensor_parallel_size=1,
-        partition="gpuA40x4", num_nodes=2,
+        _meta(),
+        max_model_len=4096,
+        tensor_parallel_size=1,
+        partition="gpuA40x4",
+        num_nodes=2,
     )
     assert res.valid is False
     assert "multi-node validation not yet supported" in res.reason
@@ -146,9 +154,11 @@ def test_min_sufficient_config_seam_is_null() -> None:
 def test_tp_makes_large_context_fit_where_tp1_does_not() -> None:
     # 8192 context x 256 worst-case seqs overflows one A40 (~112 GiB KV) but
     # fits at TP=4, where both weights and KV shard across the 4 GPUs.
-    r1 = validate_config(_meta(), max_model_len=8192, tensor_parallel_size=1,
-                         partition="gpuA40x4")
-    r4 = validate_config(_meta(), max_model_len=8192, tensor_parallel_size=4,
-                         partition="gpuA40x4")
+    r1 = validate_config(
+        _meta(), max_model_len=8192, tensor_parallel_size=1, partition="gpuA40x4"
+    )
+    r4 = validate_config(
+        _meta(), max_model_len=8192, tensor_parallel_size=4, partition="gpuA40x4"
+    )
     assert r1.valid is False
     assert r4.valid is True

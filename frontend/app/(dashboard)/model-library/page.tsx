@@ -1,36 +1,27 @@
 'use client';
 
-import { useState, Suspense, type ChangeEvent } from 'react';
+import { Loader2, RefreshCw, Search, Server } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { type ChangeEvent, Suspense, useState } from 'react';
+import { ModelContext, ModelGrid } from '@/components/model-card';
+import { RequestModelDialog } from '@/components/request-model-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { RequestModelDialog } from '@/components/request-model-dialog';
-import {
-  Loader2,
-  RefreshCw,
-  Search,
-  Server,
-} from 'lucide-react';
-
-import {
-  useModels,
-  useModelDeployments,
-  useRefreshModels,
-  useLaunchModel,
-  useLaunchDefaults,
-  type ModelDeployment,
-  type ModelInfo,
-} from '@/hooks/use-models';
-import type { LaunchConfig } from '@/components/model-card/launch-model-dialog';
+import { toast } from '@/components/ui/use-toast';
 
 import { useDebounce } from '@/hooks/use-debounce';
-import { fullWidthButtonClass } from '@/lib/models/utils';
 import {
-  ModelGrid,
-  ModelContext,
-} from '@/components/model-card';
-import { toast } from '@/components/ui/use-toast';
+  type ModelDeployment,
+  type ModelInfo,
+  useLaunchDefaults,
+  useLaunchModel,
+  useModelDeployments,
+  useModels,
+  useRefreshModels,
+} from '@/hooks/use-models';
 import { isActiveDeploymentStatus } from '@/lib/models/deployment-status';
+import type { LaunchConfig } from '@/lib/models/launch-config';
+import { fullWidthButtonClass } from '@/lib/models/utils';
 
 function deploymentMatchesModel(deployment: ModelDeployment, model: ModelInfo) {
   const modelId = model.id.toLowerCase();
@@ -71,7 +62,8 @@ function ModelLibraryPageInner() {
 
   const { mutate: refreshModels, isPending: isRefreshing } = useRefreshModels();
   const { mutateAsync: launchModelAsync } = useLaunchModel();
-  const { data: launchDefaults, error: launchDefaultsError } = useLaunchDefaults();
+  const { data: launchDefaults, error: launchDefaultsError } =
+    useLaunchDefaults();
 
   const error = modelsError || deploymentsError;
   const isSearching = debouncedSearchQuery.trim() !== '';
@@ -99,11 +91,16 @@ function ModelLibraryPageInner() {
     config?: LaunchConfig,
   ) {
     if (!launchDefaults) {
-      const message = launchDefaultsError instanceof Error
-        ? launchDefaultsError.message
-        : 'Launch configuration unavailable. Please refresh and try again.';
+      const message =
+        launchDefaultsError instanceof Error
+          ? launchDefaultsError.message
+          : 'Launch configuration unavailable. Please refresh and try again.';
       setLaunchError(message);
-      toast({ title: 'Cannot launch model', description: message, variant: 'destructive' });
+      toast({
+        title: 'Cannot launch model',
+        description: message,
+        variant: 'destructive',
+      });
       return;
     }
     setLaunchingModelId(modelId);
@@ -231,8 +228,8 @@ function ModelLibraryPageInner() {
             </div>
             <h3 className="text-2xl font-medium mb-3">No models found</h3>
             <p className="text-muted-foreground max-w-md">
-              No models match &ldquo;{debouncedSearchQuery}&rdquo;. Try a different
-              search term.
+              No models match &ldquo;{debouncedSearchQuery}&rdquo;. Try a
+              different search term.
             </p>
           </div>
         ) : models.length > 0 ? (

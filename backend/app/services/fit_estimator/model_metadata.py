@@ -121,7 +121,7 @@ def map_config(
         if value is None:
             unknown.append(name)
 
-    dtype = (dtype_override or raw.get("torch_dtype") or DEFAULT_DTYPE)
+    dtype = dtype_override or raw.get("torch_dtype") or DEFAULT_DTYPE
     dtype = str(dtype)
 
     return ModelMetadata(
@@ -233,6 +233,12 @@ def _fetch_json(client: Any, url: str) -> dict[str, Any] | None:
     resp = client.get(url)
     if resp.status_code == 404:
         return None
+    if resp.status_code == 401:
+        raise ValueError(
+            "Hugging Face returned 401 Unauthorized for "
+            f"{url}. Gated models require HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) "
+            "in the backend environment."
+        )
     resp.raise_for_status()
     return resp.json()
 
@@ -280,7 +286,10 @@ def fetch_model_metadata(
     """Fetch config + weight metadata for ``model_id`` (metadata only)."""
     import httpx
 
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    from app.config.config import settings
+
+    resolved_token = token or settings.HF_TOKEN
+    headers = {"Authorization": f"Bearer {resolved_token}"} if resolved_token else {}
     with httpx.Client(
         follow_redirects=True, timeout=timeout_s, headers=headers
     ) as client:

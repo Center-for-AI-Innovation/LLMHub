@@ -8,6 +8,10 @@
 # testing
 /coverage
 
+# local development data
+/.local-pg/
+/frontend/logs/
+
 # next.js
 /.next/
 /out/

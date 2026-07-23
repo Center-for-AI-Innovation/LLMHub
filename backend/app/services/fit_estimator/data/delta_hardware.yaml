@@ -2,48 +2,59 @@
 #
 # Sourced from the standalone memory-estimator calibration (live SLURM sinfo/
 # scontrol + Delta architecture docs, gathered 2026-06-12). Only the fields the
-# fit estimator needs are kept here; per-GPU VRAM is what matters for single-GPU
-# feasibility (this branch does not model tensor/pipeline parallelism).
+# fit estimator needs are kept here. Memory is evaluated per GPU, including
+# tensor-parallel sharding; pipeline parallelism and multi-node layouts remain
+# outside the estimator's scope.
 #
-# framework_overhead_gib: the per-partition constant term of the two-term
-#   overhead model (CUDA context + framework reservation + vLLM profiling slack).
-#   Default 2.0 GiB everywhere for now; these are the knobs the pending
-#   calibration sweep will tune per GPU, which is exactly why they live in data
-#   rather than code. See services/fit_estimator/overhead.py.
+# framework_overhead_gib: the per-partition "internal" overhead term (CUDA
+#   context + framework allocator + vLLM's profiled non-weight/non-KV working
+#   set). This is what remains AFTER the utilization reserve (see overhead.py:
+#   the dominant (1 - gpu_memory_utilization) * VRAM term is applied in code, not
+#   here). CALIBRATED to ~1.0-1.1 GiB via vLLM startup probes (constant across
+#   model size, VRAM, and TP=1/2/4); set to a conservative 1.5 GiB. See
+#   memory-estimator/calibration/ for the probe logs.
 # tp_communication_buffer_gib: per-GPU reservation for tensor-parallel comm
 #   buffers (NCCL / all-reduce workspace), added per rank only when tp_size > 1.
-#   UNCALIBRATED placeholder (0.5 GiB); conservative, biased toward false-reject.
-#   TODO(multi-gpu-probe): calibrate per GPU type / tp_size.
+#   CALIBRATED as ~0 at TP<=4 (no measurable growth in per-GPU overhead); kept at
+#   a small conservative 0.25 GiB as a margin for higher TP.
+#   TODO(high-tp-probe): calibrate at TP=8/16.
+# vram_gib_per_gpu: REAL usable memory (nvidia-smi memory.total), not the
+#   marketing capacity. A40 reports 46068 MiB = 44.988 GiB (not 48); A100-40
+#   reports 40960 MiB = 40.0 GiB. Using the marketing number would make the gate
+#   optimistic (it feeds both the usable budget and the utilization reserve).
+#   A40/A100 are probe-measured; H200 is still nominal -- TODO(h200-probe).
 # vendor: NVIDIA partitions are evaluated; AMD (ROCm/MI100) is out of scope and
 #   reported as skipped rather than silently dropped.
-# su_per_gpu_hour / max_walltime: carried for the future cost-ranking layer
-#   (ranking.py stub); not used by the fit math.
+# su_per_gpu_hour: SU billed per GPU-hour for this GPU model on Delta (batch
+#   queue). Node size (x4 vs x8) does not change the per-GPU rate; job_SU scales
+#   with num_gpus × duration. Queue modifiers (preempt/interactive) are derived
+#   in ranking.su_per_gpu_hour_for(), not stored per partition row.
 
 partitions:
   - partition: gpuA40x4
     gpu_type: NVIDIA A40
     vendor: NVIDIA
-    vram_gib_per_gpu: 48
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    vram_gib_per_gpu: 44.988
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 500
     max_walltime: "2-00:00:00"
 
   - partition: gpuA40x4-interactive
     gpu_type: NVIDIA A40
     vendor: NVIDIA
-    vram_gib_per_gpu: 48
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    vram_gib_per_gpu: 44.988
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 1000
     max_walltime: "1:00:00"
 
   - partition: gpuA40x4-preempt
     gpu_type: NVIDIA A40
     vendor: NVIDIA
-    vram_gib_per_gpu: 48
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    vram_gib_per_gpu: 44.988
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 250
     max_walltime: "2-00:00:00"
 
@@ -51,8 +62,8 @@ partitions:
     gpu_type: NVIDIA A100-SXM4-40GB
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 1000
     max_walltime: "2-00:00:00"
 
@@ -60,8 +71,8 @@ partitions:
     gpu_type: NVIDIA A100-SXM4-40GB
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 2000
     max_walltime: "1:00:00"
 
@@ -69,8 +80,8 @@ partitions:
     gpu_type: NVIDIA A100-SXM4-40GB
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 500
     max_walltime: "2-00:00:00"
 
@@ -78,17 +89,17 @@ partitions:
     gpu_type: NVIDIA A100-SXM4-40GB
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
-    su_per_gpu_hour: 1500
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
+    su_per_gpu_hour: 1000
     max_walltime: "2-00:00:00"
 
   - partition: gpuA100x8-interactive
     gpu_type: NVIDIA A100-SXM4-40GB
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 3000
     max_walltime: "1:00:00"
 
@@ -96,8 +107,8 @@ partitions:
     gpu_type: NVIDIA H200-SXM
     vendor: NVIDIA
     vram_gib_per_gpu: 141
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 3000
     max_walltime: "2-00:00:00"
 
@@ -105,8 +116,8 @@ partitions:
     gpu_type: NVIDIA H200-SXM
     vendor: NVIDIA
     vram_gib_per_gpu: 141
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 6000
     max_walltime: "1:00:00"
 
@@ -114,8 +125,8 @@ partitions:
     gpu_type: AMD Instinct MI100
     vendor: AMD
     vram_gib_per_gpu: 32
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 250
     max_walltime: "2-00:00:00"
 
@@ -123,7 +134,7 @@ partitions:
     gpu_type: AMD Instinct MI100
     vendor: AMD
     vram_gib_per_gpu: 32
-    framework_overhead_gib: 2.0
-    tp_communication_buffer_gib: 0.5
+    framework_overhead_gib: 1.5
+    tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 500
     max_walltime: "1:00:00"

@@ -25,7 +25,7 @@ NVIDIA_VENDOR = "NVIDIA"
 
 @dataclass(frozen=True)
 class GpuPartition:
-    """One Delta GPU partition (single-GPU view)."""
+    """One Delta GPU partition with per-GPU memory and billing data."""
 
     partition: str
     gpu_type: str
@@ -33,7 +33,7 @@ class GpuPartition:
     vram_gib_per_gpu: float
     framework_overhead_gib: float
     tp_communication_buffer_gib: float = DEFAULT_TP_COMM_BUFFER_GIB
-    su_per_gpu_hour: int | str | None = None
+    su_per_gpu_hour: int | None = None
     max_walltime: str | None = None
 
     @property
@@ -42,6 +42,7 @@ class GpuPartition:
 
 
 def _parse_entry(raw: dict[str, Any]) -> GpuPartition:
+    raw_su_rate = raw.get("su_per_gpu_hour")
     return GpuPartition(
         partition=str(raw["partition"]),
         gpu_type=str(raw["gpu_type"]),
@@ -53,7 +54,7 @@ def _parse_entry(raw: dict[str, Any]) -> GpuPartition:
         tp_communication_buffer_gib=float(
             raw.get("tp_communication_buffer_gib", DEFAULT_TP_COMM_BUFFER_GIB)
         ),
-        su_per_gpu_hour=raw.get("su_per_gpu_hour"),
+        su_per_gpu_hour=int(raw_su_rate) if raw_su_rate is not None else None,
         max_walltime=raw.get("max_walltime"),
     )
 

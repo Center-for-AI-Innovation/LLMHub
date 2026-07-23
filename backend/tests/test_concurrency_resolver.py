@@ -7,8 +7,12 @@ from app.services.fit_estimator.concurrency import (
     catalog_max_num_seqs,
     resolve_max_num_seqs,
 )
+from app.services.fit_estimator.constants import LAUNCH_GATE_MAX_NUM_SEQS
 from app.services.fit_estimator.estimator import estimate_fit
-from app.services.fit_estimator.launch_gate import check_launch_memory_gate
+from app.services.fit_estimator.launch_gate import (
+    check_launch_memory_gate,
+    resolve_catalog_launch_spec,
+)
 from app.services.fit_estimator.model_metadata import (
     WEIGHTS_FROM_INDEX,
     map_config,
@@ -62,12 +66,12 @@ def test_vision_catalog_preservation_without_ui_override() -> None:
             "--max-num-seqs": 32,
         },
     }
-    gate = check_launch_memory_gate(
+    spec = resolve_catalog_launch_spec(
         "Llama-3.2-90B-Vision",
         catalog,
         partition="gpuA40x4",
     )
-    assert gate is not None
+    assert spec is not None
     assert resolve_max_num_seqs(catalog_value=catalog_max_num_seqs(catalog)) == 32
 
 
@@ -85,31 +89,38 @@ def test_ui_override_does_not_use_catalog_when_explicit() -> None:
     )
 
 
-def test_gate_and_estimator_agree_qwen_7b_ctx32k_conc16() -> None:
-    """Previously gate (×1) passed while UI (×16) failed — must agree now."""
+def test_capacity_reports_limited_concurrency_qwen_7b_ctx32k() -> None:
+    """Capacity model: Qwen 7B @ 32K starts on A40 but sustains few full-context seqs."""
     meta = _qwen_7b_meta()
-    conc = 16
-    gate = validate_config(
-        meta,
-        max_model_len=32768,
-        tensor_parallel_size=1,
-        partition="gpuA40x4",
-        max_num_seqs=conc,
-    )
     est = estimate_fit(
         meta,
         max_model_len=32768,
-        max_num_seqs=conc,
+        max_num_seqs=256,
         tensor_parallel_size=1,
-        kv_assumption="worst_case",
+        typical_seq_len=4096,
     )
     part = next(p for p in est.partitions if p.partition == "gpuA40x4")
-    assert gate.valid is False
-    assert part.fits is False
+    assert part.starts is True
+    assert part.kv_pool_tokens is not None and part.kv_pool_tokens >= 32768
+    # Full-context concurrency is small; typical (4K) sustains more.
+    assert part.concurrent_at_full_context is not None
+    assert part.concurrent_at_typical is not None
+    assert part.concurrent_at_typical >= part.concurrent_at_full_context
 
 
-def test_gate_rejects_catalog_default_256_for_qwen_7b_full_context() -> None:
-    """Option A: certify effective runtime concurrency (256), not boot-only ×1."""
+def test_gate_passes_startup_for_qwen_7b_full_context(
+    monkeypatch,
+) -> None:
+    """Capacity model: gate certifies boot; catalog omitting concurrency is fine."""
+
+    def validate_fixture(_model_id, **kwargs):
+        assert kwargs["max_num_seqs"] == LAUNCH_GATE_MAX_NUM_SEQS
+        return validate_config(_qwen_7b_meta(), **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.fit_estimator.launch_gate.validate_config_for_model",
+        validate_fixture,
+    )
     catalog = {"gpus_per_node": 1, "vllm_args": {"--max-model-len": 32768}}
     gate = check_launch_memory_gate(
         "Qwen2.5-7B-Instruct",
@@ -118,4 +129,4 @@ def test_gate_rejects_catalog_default_256_for_qwen_7b_full_context() -> None:
         partition="gpuA40x4",
     )
     assert gate is not None
-    assert gate.valid is False
+    assert gate.valid is True
