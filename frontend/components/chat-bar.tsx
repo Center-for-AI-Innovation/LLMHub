@@ -35,7 +35,12 @@ export function ChatBar() {
             className="flex-1 bg-transparent border-none outline-none text-lg placeholder:text-muted-foreground/50"
           />
         </div>
-        <Button type="submit" size="lg" className="rounded-full h-12 px-6 bg-secondary hover:bg-secondary/90">
+        <Button
+          type="submit"
+          variant="secondary"
+          size="lg"
+          className="rounded-full h-12 px-6"
+        >
           Start Chatting
         </Button>
       </form>

@@ -204,7 +204,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
     return (
       <SidebarGroup>
         <SidebarGroupContent>
-          <div className="px-2 text-zinc-500 w-full flex flex-row justify-center items-center text-sm gap-2">
+          <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
             Login to see previous chats and deploy different models
           </div>
         </SidebarGroupContent>
@@ -215,7 +215,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
   if (isLoading) {
     return (
       <SidebarGroup>
-        <div className="px-2 py-1 text-xs text-sidebar-foreground/50">
+        <div className="px-2 py-1 text-xs text-muted-foreground">
           Today
         </div>
         <SidebarGroupContent>
@@ -245,7 +245,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
     return (
       <SidebarGroup>
         <SidebarGroupContent>
-          <div className="px-2 text-zinc-500 w-full flex flex-row justify-center items-center text-sm gap-2">
+          <div className="px-2 text-muted-foreground w-full flex flex-row justify-center items-center text-sm gap-2">
             Your conversations will appear here once you start chatting!
           </div>
         </SidebarGroupContent>
@@ -299,7 +299,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
                   <>
                     {groupedChats.today.length > 0 && (
                       <>
-                        <div className="px-2 py-1 text-xs text-sidebar-foreground/50">
+                        <div className="px-2 py-1 text-xs text-muted-foreground">
                           Today
                         </div>
                         {groupedChats.today.map((chat) => (
@@ -319,7 +319,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
 
                     {groupedChats.yesterday.length > 0 && (
                       <>
-                        <div className="px-2 py-1 text-xs text-sidebar-foreground/50 mt-6">
+                        <div className="px-2 py-1 text-xs text-muted-foreground mt-6">
                           Yesterday
                         </div>
                         {groupedChats.yesterday.map((chat) => (
@@ -339,7 +339,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
 
                     {groupedChats.lastWeek.length > 0 && (
                       <>
-                        <div className="px-2 py-1 text-xs text-sidebar-foreground/50 mt-6">
+                        <div className="px-2 py-1 text-xs text-muted-foreground mt-6">
                           Last 7 days
                         </div>
                         {groupedChats.lastWeek.map((chat) => (
@@ -359,7 +359,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
 
                     {groupedChats.lastMonth.length > 0 && (
                       <>
-                        <div className="px-2 py-1 text-xs text-sidebar-foreground/50 mt-6">
+                        <div className="px-2 py-1 text-xs text-muted-foreground mt-6">
                           Last 30 days
                         </div>
                         {groupedChats.lastMonth.map((chat) => (
@@ -379,7 +379,7 @@ export function SidebarHistory({ user }: { user: AuthUser | undefined }) {
 
                     {groupedChats.older.length > 0 && (
                       <>
-                        <div className="px-2 py-1 text-xs text-sidebar-foreground/50 mt-6">
+                        <div className="px-2 py-1 text-xs text-muted-foreground mt-6">
                           Older
                         </div>
                         {groupedChats.older.map((chat) => (

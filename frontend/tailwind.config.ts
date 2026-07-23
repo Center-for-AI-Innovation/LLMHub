@@ -10,17 +10,22 @@ const config: Config = {
   ],
   theme: {
     fontFamily: {
-      sans: ['var(--il-font-sans)', '"Source Sans 3"', '"Source Sans Pro"', 'Arial', 'sans-serif'],
+      // font-display → Montserrat (headings, brand marks)
       display: ['var(--il-font-heading)', 'Montserrat', '"Avenir Next"', '"Segoe UI"', 'sans-serif'],
+      // font-sans → Source Sans (body text)
+      sans: ['var(--il-font-sans)', '"Source Sans 3"', '"Source Sans Pro"', 'Arial', 'sans-serif'],
+      // font-mono → system monospace (code, logs)
       mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', '"Courier New"', 'monospace'],
     },
     extend: {
       borderRadius: {
+        // Canonical radius tokens derived from --radius (0.5rem)
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
       colors: {
+        // ── Semantic tokens (HSL vars, support /opacity modifiers) ───────────
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {
@@ -38,6 +43,7 @@ const config: Config = {
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',
           foreground: 'hsl(var(--secondary-foreground))',
+          accessible: 'hsl(var(--secondary-accessible))',
         },
         muted: {
           DEFAULT: 'hsl(var(--muted))',
@@ -50,10 +56,15 @@ const config: Config = {
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
+          accessible: 'hsl(var(--destructive-accessible))',
         },
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
+        // Status / data-vis (HSL vars, support /opacity modifiers)
+        'status-success': 'hsl(var(--status-success))',
+        'status-info': 'hsl(var(--status-info))',
+        'status-neutral': 'hsl(var(--status-neutral))',
         chart: {
           '1': 'hsl(var(--chart-1))',
           '2': 'hsl(var(--chart-2))',
@@ -72,6 +83,33 @@ const config: Config = {
           'hover-foreground': 'hsl(var(--sidebar-hover-foreground))',
           border: 'hsl(var(--sidebar-border))',
           ring: 'hsl(var(--sidebar-ring))',
+        },
+
+        // ── Illinois brand palette (hex CSS vars from CDN illinois.css) ───────
+        // ⚠  These are hex values and do NOT support Tailwind opacity modifiers.
+        //    Use the semantic tokens above when /opacity is needed.
+        // Fallback hex values guard against the CDN stylesheet failing to
+        // load (see layout.tsx), so these colors stay valid even then.
+        illinois: {
+          // Primary
+          orange: 'var(--il-orange, #FF5F05)',           // Illini Orange
+          blue: 'var(--il-blue, #13294B)',               // Illini Blue
+          // Accessible orange (higher contrast for small/body text)
+          altgeld: 'var(--il-altgeld, #C84113)',
+          // Storm grays
+          storm: 'var(--il-storm, #707372)',
+          'storm-60': 'var(--il-storm-60, #8E9090)',
+          'storm-80': 'var(--il-storm-80, #C6C7C6)',
+          white: 'var(--il-white, #FFFFFF)',
+          black: 'var(--il-black, #000000)',
+          // Supporting (charts, infographics only per brand guidelines)
+          industrial: 'var(--il-industrial, #1D58A7)',
+          arches: 'var(--il-arches, #009FD4)',
+          patina: 'var(--il-patina, #007E8E)',
+          berry: 'var(--il-berry, #5C0E41)',
+          harvest: 'var(--il-harvest, #FCB316)',
+          prairie: 'var(--il-prairie, #006230)',
+          earth: 'var(--il-earth, #7D3E13)',
         },
       },
       keyframes: {

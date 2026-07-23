@@ -7,7 +7,7 @@ name = "ai-inf-backend"
 version = "0.1.0"
 description = "FastAPI backend for the LLM-as-a-Service project"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = "==3.11.*"
 license = {text = "Proprietary"}
 authors = [
     {name = "Rohan Marwaha", email = "rohan13@illinois.edu"},

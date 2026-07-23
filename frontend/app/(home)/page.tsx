@@ -115,8 +115,13 @@ export default function LandingPage() {
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3">
                 <div className="h-[2px] w-8 bg-secondary" />
+                {/* This section always sits on bg-primary, which itself
+                    inverts between light/dark mode, so text-secondary (which
+                    inverts the other way, in step with the page) ends up on
+                    the wrong side of contrast in both themes. Pin the
+                    lightness explicitly instead of following the theme. */}
                 <span
-                  className="text-xs font-bold tracking-[0.2em] uppercase text-secondary"
+                  className="text-xs font-bold tracking-[0.2em] uppercase text-[hsl(16_85%_58%)] dark:text-[hsl(16_90%_38%)]"
                   style={{ fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, monospace' }}
                 >
                   Get Started

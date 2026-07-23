@@ -6,6 +6,9 @@
 # eslint hook is scoped to frontend/**.
 # Tool versions are pinned to match the GitHub Actions workflow.
 
+default_language_version:
+  python: python3.11
+
 repos:
   # ----- Backend (Python) -----
   - repo: https://github.com/psf/black-pre-commit-mirror
@@ -38,3 +41,12 @@ repos:
         language: system
         files: ^frontend/.*\.(js|jsx|ts|tsx|mjs|cjs)$
         pass_filenames: false
+
+      # Not run automatically on commits. Run on demand with:
+      #   pre-commit run frontend-contrast-check --hook-stage manual
+      - id: frontend-contrast-check
+        name: contrast check (playwright + axe)
+        entry: pnpm --dir frontend test:contrast
+        language: system
+        pass_filenames: false
+        stages: [manual]

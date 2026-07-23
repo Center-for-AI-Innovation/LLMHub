@@ -52,7 +52,7 @@ At a high level, LLMHub is split into:
 ### Prerequisites
 
 - Node.js and `pnpm`
-- Python 3.9+ and `uv`
+- Python 3.11 and `uv`
 - PostgreSQL
 - Access to any required cluster, vLLM, CILogon, and storage credentials for the
   environment you are targeting

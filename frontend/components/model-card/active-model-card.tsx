@@ -97,7 +97,7 @@ const ActiveModelCard = memo(({
     <div 
       key={model.id} 
       className={cn(
-        "relative p-6 rounded-[1.5rem] bg-gradient-to-br",
+        "relative p-6 rounded-2xl bg-gradient-to-br",
         gradient,
         "shadow-[0_2px_10px_rgba(0,0,0,0.08)] dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]",
         "backdrop-blur-sm flex flex-col h-full",
@@ -125,7 +125,7 @@ const ActiveModelCard = memo(({
       </div>
 
       {deployment?.expiresAt && (
-        <p className="mb-2 flex items-center gap-1 text-sm font-semibold text-amber-600 dark:text-amber-400">
+        <p className="mb-2 flex items-center gap-1 text-sm font-semibold text-status-neutral">
    
           <Calendar className="size-3 shrink-0" aria-hidden />
           <span>Expires <span suppressHydrationWarning>{formatLocalDateTime(deployment.expiresAt)}</span></span>

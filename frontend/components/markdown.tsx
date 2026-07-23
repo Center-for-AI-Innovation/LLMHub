@@ -37,7 +37,7 @@ const components: Partial<Components> = {
   a: ({ node, children, ...props }) => {
     return (
       <a
-        className="text-blue-500 hover:underline"
+        className="text-status-info hover:underline"
         target="_blank"
         rel="noreferrer"
         {...props}

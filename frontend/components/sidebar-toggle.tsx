@@ -22,6 +22,7 @@ export function SidebarToggle({
           onClick={toggleSidebar}
           variant="outline"
           className="md:px-2 md:h-fit"
+          aria-label="Toggle Sidebar"
         >
           <SidebarLeftIcon size={16} />
         </Button>

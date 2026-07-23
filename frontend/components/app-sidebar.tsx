@@ -5,7 +5,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   LogInIcon,
-  PanelLeftIcon,
   LayoutGridIcon,
   ActivityIcon,
   UserIcon,
@@ -27,6 +26,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
@@ -44,7 +44,7 @@ const NAV_ITEMS = [
 export function AppSidebar({ user }: { user: AuthUser | undefined }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { setOpenMobile, open, toggleSidebar } = useSidebar();
+  const { setOpenMobile, open } = useSidebar();
   const triggerNewChatReset = useNewChat((state) => state.triggerNewChatReset);
   const hasDraftMessages = useNewChat((state) => state.hasDraftMessages);
   const isChatPage = pathname.startsWith('/chat');
@@ -84,14 +84,7 @@ export function AppSidebar({ user }: { user: AuthUser | undefined }) {
               <BrandMark />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleSidebar}
-                    className="size-8 text-sidebar-foreground hover:bg-sidebar-hover hover:text-sidebar-foreground transition-colors ml-auto"
-                  >
-                    <PanelLeftIcon size={18} />
-                  </Button>
+                  <SidebarTrigger className="size-8 text-sidebar-foreground hover:bg-sidebar-hover hover:text-sidebar-foreground transition-colors ml-auto" />
                 </TooltipTrigger>
                 <TooltipContent side="right">Toggle Sidebar</TooltipContent>
               </Tooltip>
@@ -148,14 +141,7 @@ export function AppSidebar({ user }: { user: AuthUser | undefined }) {
             </Link>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={toggleSidebar}
-                  className="size-9 rounded-lg text-sidebar-foreground hover:bg-sidebar-hover hover:text-sidebar-foreground transition-colors"
-                >
-                  <PanelLeftIcon size={16} className="rotate-180" />
-                </Button>
+                <SidebarTrigger className="size-9 rounded-lg text-sidebar-foreground hover:bg-sidebar-hover hover:text-sidebar-foreground transition-colors [&>svg]:rotate-180" />
               </TooltipTrigger>
               <TooltipContent side="right">Toggle Sidebar</TooltipContent>
             </Tooltip>

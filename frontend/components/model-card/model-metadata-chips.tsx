@@ -9,19 +9,16 @@ export type ScaleColor = {
 
 export const SCALE_COLORS = {
   positive: {
-    chipClass:
-      'bg-green-500/15 text-green-800 dark:bg-green-500/20 dark:text-green-300',
-    iconClass: 'text-green-600 dark:text-green-400',
+    chipClass: 'bg-status-success/15 text-status-success',
+    iconClass: 'text-status-success',
   },
   neutral: {
-    chipClass:
-      'bg-amber-500/15 text-amber-900 dark:bg-amber-500/20 dark:text-amber-300',
-    iconClass: 'text-amber-600 dark:text-amber-400',
+    chipClass: 'bg-status-neutral/15 text-status-neutral',
+    iconClass: 'text-status-neutral',
   },
   heavy: {
-    chipClass:
-      'bg-orange-500/15 text-orange-900 dark:bg-orange-500/20 dark:text-orange-300',
-    iconClass: 'text-orange-600 dark:text-orange-400',
+    chipClass: 'bg-secondary/15 text-secondary-accessible',
+    iconClass: 'text-secondary-accessible',
   },
 } as const satisfies Record<string, ScaleColor>;
 
@@ -114,8 +111,8 @@ export function ModelSpecChips({ model }: { model: ModelInfo }) {
 /** Chip showing a deployment expiry date. */
 export function ExpiresChip({ value }: { value: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-amber-500/15 text-amber-900 dark:bg-amber-500/20 dark:text-amber-300">
-      <Calendar className="size-3 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-status-neutral/15 text-status-neutral">
+      <Calendar className="size-3 shrink-0 text-status-neutral" aria-hidden />
       <span className="opacity-100">Expires</span>
       {/* suppressHydrationWarning because locale-formatted dates differ between server and client */}
       <span className="font-bold" suppressHydrationWarning>{value}</span>

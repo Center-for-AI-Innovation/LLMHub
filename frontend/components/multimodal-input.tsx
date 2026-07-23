@@ -295,7 +295,7 @@ function PureAttachmentsButton({
 }) {
   return (
     <Button
-      className="rounded-md rounded-bl-lg p-[7px] h-fit dark:border-zinc-700 hover:dark:bg-zinc-900 hover:bg-zinc-200"
+      className="rounded-md rounded-bl-lg p-[7px] h-fit hover:bg-muted"
       onClick={(event) => {
         event.preventDefault();
         fileInputRef.current?.click();
@@ -319,7 +319,7 @@ function PureStopButton({
 }) {
   return (
     <Button
-      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
+      className="rounded-full p-1.5 h-fit border border-border"
       onClick={(event) => {
         event.preventDefault();
         stop();
@@ -346,7 +346,7 @@ function PureSendButton({
 }) {
   return (
     <Button
-      className="rounded-full p-1.5 h-fit border dark:border-zinc-600"
+      className="rounded-full p-1.5 h-fit border border-border"
       onClick={(event) => {
         event.preventDefault();
         submitForm();

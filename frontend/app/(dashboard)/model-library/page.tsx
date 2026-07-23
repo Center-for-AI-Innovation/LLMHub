@@ -198,8 +198,12 @@ function ModelLibraryPageInner() {
             <span>Refresh</span>
           </Button> */}
           <div className="ml-auto relative w-56 sm:w-64">
+            <label htmlFor="model-search" className="sr-only">
+              Search models
+            </label>
             <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
             <Input
+              id="model-search"
               type="text"
               placeholder="Search models..."
               className="pl-9 bg-white/50 dark:bg-white/5 border-0 shadow-sm"

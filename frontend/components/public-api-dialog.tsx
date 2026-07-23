@@ -100,7 +100,7 @@ function CopyButton({
           )}
         >
           {copied ? (
-            <Check className={cn(iconSize, 'text-emerald-500')} />
+            <Check className={cn(iconSize, 'text-status-success')} />
           ) : (
             <Copy className={iconSize} />
           )}
@@ -447,7 +447,7 @@ if (${streamResponse ? 'true' : 'false'}) {
                     </div>
                   </div>
                   {justGeneratedKey && (
-                    <p className="text-xs text-red-600 dark:text-red-400">
+                    <p className="text-xs text-destructive-accessible">
                       Your API key will disappear after closing this dialog.
                     </p>
                   )}
