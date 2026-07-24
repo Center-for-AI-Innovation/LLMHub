@@ -60,14 +60,20 @@ DEFAULT_DTYPE = "bfloat16"
 # within ~0.05 GiB across A40/A100 and TP=1/2/4 (see calibration/ probe logs).
 DEFAULT_GPU_MEMORY_UTILIZATION = 0.9
 
-# Per-GPU framework "internal" overhead (GiB): CUDA context, the framework
-# allocator, and vLLM's profiled non-weight/non-KV working set. This is what is
-# left AFTER accounting for the utilization reserve above. Fallback used only if
-# a partition entry omits ``framework_overhead_gib``.
-# Calibrated: backed out at ~1.02-1.11 GiB and effectively CONSTANT across model
-# size (0.5B/7B), VRAM (A40 48 GiB / A100 40 GiB), and TP (1/2/4). Rounded up to
-# 1.5 to stay conservative (bias toward false-reject).
-DEFAULT_FRAMEWORK_OVERHEAD_GIB = 1.5
+# Per-rank non-weight/non-KV reservation *within* the util pool (GiB), calibrated
+# against Delta vLLM 0.11.0 probes (see memory-estimator/calibration/):
+#
+#   internal(max_num_seqs) = OVERHEAD_BASE_GIB + OVERHEAD_PER_SEQ_GIB * max_num_seqs
+#
+# Measured (inferred GiB): mns 32/256/512/1024 -> 0.81/1.07/1.58/2.60. The line
+# is a conservative upper bound over 0.5B/7B, A40/A100, TP1/2/4. Independent of
+# max_model_len; flat vs model size at fixed max_num_seqs.
+#
+# ``framework_overhead_gib`` in the hardware YAML is the BASE (0.8). Batch-width
+# growth is applied in code via OVERHEAD_PER_SEQ_GIB -- do not bake mns into YAML.
+OVERHEAD_BASE_GIB = 0.8
+OVERHEAD_PER_SEQ_GIB = 0.002
+DEFAULT_FRAMEWORK_OVERHEAD_GIB = OVERHEAD_BASE_GIB
 
 # Per-GPU extra reservation for tensor-parallel communication buffers (NCCL
 # buffers, all-reduce workspace). Applied per rank only when tp_size > 1.

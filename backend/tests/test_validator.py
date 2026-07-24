@@ -49,9 +49,9 @@ def test_weights_shard_kv_shards_overhead_constant_per_gpu(tp) -> None:
     # Weights divide by TP.
     assert b.weights_gib == pytest.approx(14.185 / tp, rel=1e-3)
     # Overhead is paid in full per GPU and never divided by TP: the utilization
-    # reserve (0.1 * 141 GiB on H200) + framework internal (1.5), plus the TP
-    # comm buffer (0.25) when TP > 1.
-    expected_overhead = 141 * 0.1 + 1.5 + (0.25 if tp > 1 else 0.0)
+    # reserve (0.1 * 141 GiB on H200) + calibrated internal(mns=256) =
+    # 0.8 + 0.002*256, plus the TP comm buffer (0.25) when TP > 1.
+    expected_overhead = 141 * 0.1 + 0.8 + 0.002 * 256 + (0.25 if tp > 1 else 0.0)
     assert b.overhead_gib == pytest.approx(expected_overhead)
 
 

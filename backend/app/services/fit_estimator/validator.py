@@ -211,11 +211,6 @@ def validate_config(
         gpu.framework_overhead_gib,
         gpu.tp_communication_buffer_gib,
         tp,
-        {
-            "num_hidden_layers": meta.n_layers,
-            "hidden_size": meta.hidden_size,
-            "num_attention_heads": meta.n_attention_heads,
-        },
         max_num_seqs,
     )
 

@@ -14,7 +14,7 @@ not be collapsed to a single number.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from .capacity import KvCapacity, kv_pool_capacity
 from .constants import (
@@ -102,15 +102,6 @@ class FitEstimate:
     warnings: list[str] = field(default_factory=list)
 
 
-def _overhead_model_config(meta: ModelMetadata) -> dict[str, Any]:
-    """Minimal config dict handed to the (stubbed) activation overhead term."""
-    return {
-        "num_hidden_layers": meta.n_layers,
-        "hidden_size": meta.hidden_size,
-        "num_attention_heads": meta.n_attention_heads,
-    }
-
-
 def _per_gpu_weights_gib(meta: ModelMetadata, tp_size: int) -> float | None:
     if meta.weights_bytes is None:
         return None
@@ -138,13 +129,12 @@ def _partition_overhead_gib(
     tp_size: int,
     max_num_seqs: int,
 ) -> float:
-    overhead_config = _overhead_model_config(meta)
+    _ = meta  # weights/KV sized elsewhere; overhead is batch-width calibrated
     if tp_size <= 1:
         return total_overhead_gib(
             partition.vram_gib_per_gpu,
             DEFAULT_GPU_MEMORY_UTILIZATION,
             partition.framework_overhead_gib,
-            overhead_config,
             max_num_seqs,
         )
     return total_overhead_per_gpu_gib(
@@ -153,7 +143,6 @@ def _partition_overhead_gib(
         partition.framework_overhead_gib,
         partition.tp_communication_buffer_gib,
         tp_size,
-        overhead_config,
         max_num_seqs,
     )
 

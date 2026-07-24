@@ -11,10 +11,10 @@ The fit model has three additive terms measured against a partition's VRAM:
     fits  = total <= vram_gib
     headroom_gib = vram_gib - total
 
-``overhead`` is supplied by :mod:`.overhead` (a per-partition framework constant
-plus a currently-stubbed activation term). ``kv_pool_required`` is
-``per_token_kv_bytes x num_tokens`` where ``num_tokens`` depends on the chosen KV
-assumption (see :mod:`.workload`).
+``overhead`` is supplied by :mod:`.overhead` (utilization reserve + calibrated
+``0.8 + 0.002 * max_num_seqs`` internal + optional TP buffer). ``kv_pool_required``
+is ``per_token_kv_bytes x num_tokens`` where ``num_tokens`` depends on the chosen
+KV assumption (see :mod:`.workload`).
 """
 
 from __future__ import annotations
