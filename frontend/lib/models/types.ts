@@ -37,6 +37,7 @@ export interface ModelInfo {
     gpus: number;
     nodes: number;
     contextLength: number;
+    maxNumSeqs?: number;
     parallelism: boolean;
   };
 }

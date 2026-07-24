@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { type LaunchDefaults } from '@/app/api/launch-defaults/route';
 
+import { resolveHfModelId } from '@/lib/models/huggingface';
+
 import { type ShareDeploymentResponse } from '@/lib/models/deployment-sharing';
 import { useDebounce } from '@/hooks/use-debounce';
 
@@ -62,6 +64,7 @@ export interface ModelSpecs {
   gpus: number;
   nodes: number;
   contextLength: number;
+  maxNumSeqs?: number;
   parallelism: boolean;
 }
 
@@ -307,35 +310,17 @@ export function useLaunchModel() {
       time: string;
       partition: string;
       resource_type: string;
+      max_model_len?: number;
+      max_num_seqs?: number;
+      num_gpus?: number;
     }): Promise<ModelDeployment> => {
-      // Construct HuggingFace model ID if not provided
-      // Most HF model paths follow pattern: Organization/ModelName
-      // For common families, we can derive the organization from family:
-      // - Qwen3 -> Qwen/Qwen3-8B
-      // - Llama -> meta-llama/Llama-3.1-8B
-      // - Mistral -> mistralai/Mistral-7B-v0.3
       let hfModel = params.huggingfaceId;
-      if (!hfModel && params.family && params.modelId) {
-        // Map model family to HuggingFace organization
-        const familyToOrg: Record<string, string> = {
-          Qwen: 'Qwen',
-          Qwen2: 'Qwen',
-          'Qwen2.5': 'Qwen',
-          Qwen3: 'Qwen',
-          Llama: 'meta-llama',
-          'Llama-3': 'meta-llama',
-          'Llama-3.1': 'meta-llama',
-          'Llama-3.2': 'meta-llama',
-          Mistral: 'mistralai',
-          CodeLlama: 'meta-llama',
-          Gemma: 'google',
-          'Gemma-2': 'google',
-          Phi: 'microsoft',
-          'Phi-3': 'microsoft',
-          'c4ai-command-r': 'CohereLabs',
-        };
-        const org = familyToOrg[params.family] || params.family;
-        hfModel = `${org}/${params.modelId}`;
+      if (!hfModel?.includes('/')) {
+        hfModel = resolveHfModelId(
+          params.modelId,
+          params.family,
+          params.huggingfaceId,
+        );
       }
 
       const res = await fetch(DEPLOYMENTS_LAUNCH_ENDPOINT, {
@@ -349,6 +334,13 @@ export function useLaunchModel() {
           time: params.time,
           partition: params.partition,
           resource_type: params.resource_type,
+          ...(params.max_model_len != null
+            ? { max_model_len: params.max_model_len }
+            : {}),
+          ...(params.max_num_seqs != null
+            ? { max_num_seqs: params.max_num_seqs }
+            : {}),
+          ...(params.num_gpus != null ? { num_gpus: params.num_gpus } : {}),
         }),
       });
 
