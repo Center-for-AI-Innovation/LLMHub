@@ -10,7 +10,7 @@ Three different concurrency values were in play across LLMHub surfaces, with no 
 - **False-reject (UX)**: banner says “will not run” at concurrency 16 while gate would pass at ×1.
 - **Precedence regression**: UI-sent `max_num_seqs=16` overrides curated catalog values (e.g. vision models at 32/64) via vec-inf CLI merge.
 
-**Recommendation: Option A** — certify the **effective** `max_num_seqs` that will actually launch, single-sourced via `resolve_max_num_seqs(ui_override, catalog_value) → vLLM default 256`.
+**Shipped:** Option B launch gate (boot / `×1`) plus `resolve_max_num_seqs` for catalog/UI/deploy precedence. Option A (gate on effective concurrency) remains a possible follow-up.
 
 ---
 
@@ -134,27 +134,28 @@ Archetype factors must remain labeled advisory if shown in UI.
 
 ## 6. Option A vs Option B
 
-### Option A — Certify real concurrency (recommended)
+### Option A — Certify real concurrency
 
 - Gate, UI, and vLLM command all use `resolve_max_num_seqs(ui_override, catalog) → 256`.
 - UI override only when user **explicitly changes** concurrency (preserve catalog 32/64).
 - Stricter: Qwen 7B @ 32K context likely **fails gate** at 256 — matches runtime risk.
 - Aligns with fail-closed safety posture.
 
-### Option B — Certify boot + advisory burst
+### Option B — Certify boot + advisory burst (**shipped**)
 
-- Gate keeps ×1 “can start”; UI shows burst estimate separately without hard block.
-- Leaves false-accept surface intact.
+- Gate keeps ×1 “can start”; UI shows burst / capacity estimates separately.
+- Launch button soft-blocks on selected-partition startup (`starts`), not on saturated concurrency.
+- Leaves a false-accept surface for burst load at high `--max-num-seqs` (documented; intentional).
 
-**Default to Option A** per safety posture (false-reject > false-accept).
+**Shipped decision: Option B for the launch gate**, with Option A’s concurrency resolver for catalog/UI/deploy precedence. Revisit Option A if production OOMs under concurrency justify a stricter gate.
 
 ---
 
-## 7. Required fixes (Phase 2)
+## 7. Phase 2 status
 
-1. **`resolve_max_num_seqs(ui_override, catalog_value)`** — single source of truth.
-2. **Precedence**: `ui_override` (only when user explicitly set) > catalog > 256. Never silently send UI factory default over catalog.
-3. **Regression fix**: UI defaults to catalog-resolved value (256 for most models; 32/64 for vision), not 16.
-4. **Gate/UI reconciliation**: same resolved concurrency → same `fits` / `valid` verdict.
-5. **Archetypes**: display-only, labeled uncalibrated.
-6. **Tests**: resolver precedence, vision catalog preservation, gate/UI agreement, no silent 256→16 regression.
+1. **`resolve_max_num_seqs(ui_override, catalog_value)`** — done.
+2. **Precedence**: `ui_override` (only when user explicitly set) > catalog > 256 — done.
+3. **Regression fix**: UI defaults to catalog-resolved value (256 for most models; 32/64 for vision), not 16 — done.
+4. **Gate/UI reconciliation** to the same concurrency for hard `valid` — **not done** (gate stays ×1; UI capacity is advisory).
+5. **Archetypes**: display-only, labeled uncalibrated — done.
+6. **Tests**: resolver precedence, vision catalog preservation, no silent 256→16 regression — done.

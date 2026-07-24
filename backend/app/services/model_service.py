@@ -14,12 +14,12 @@ from app.models.model_deployment import ModelDeployment
 from app.models.model_request import ModelRequest
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
-from app.services.resource_service import ResourceService
 from app.services.fit_estimator.concurrency import (
     catalog_max_num_seqs,
     resolve_max_num_seqs,
 )
 from app.services.fit_estimator.launch_gate import check_launch_memory_gate_for_model
+from app.services.resource_service import ResourceService
 from app.utils.infrastructure import get_vec_inf_log_base_dir
 from app.utils.llm_inference import LLMInferenceClient
 

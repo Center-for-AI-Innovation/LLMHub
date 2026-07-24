@@ -30,7 +30,10 @@ def _meta(weights_bytes=15_231_233_024):
 
 def test_both_assumptions_always_present_and_primary_flagged() -> None:
     est = estimate_fit(
-        _meta(), max_model_len=4096, max_num_seqs=16, kv_assumption="typical",
+        _meta(),
+        max_model_len=4096,
+        max_num_seqs=16,
+        kv_assumption="typical",
         workload_archetype="chat",
     )
     for p in est.partitions:

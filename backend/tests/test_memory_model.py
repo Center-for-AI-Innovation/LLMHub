@@ -41,8 +41,12 @@ def test_token_budget_is_len_times_seqs() -> None:
 
 
 def test_evaluate_fit_fits_with_headroom() -> None:
-    fit = evaluate_fit(weights_gib=10.0, kv_pool_required_gib_value=5.0,
-                       overhead_gib=2.0, vram_gib=48.0)
+    fit = evaluate_fit(
+        weights_gib=10.0,
+        kv_pool_required_gib_value=5.0,
+        overhead_gib=2.0,
+        vram_gib=48.0,
+    )
     assert isinstance(fit, Fit)
     assert fit.fits is True
     assert fit.total_gib == pytest.approx(17.0)
@@ -50,8 +54,12 @@ def test_evaluate_fit_fits_with_headroom() -> None:
 
 
 def test_evaluate_fit_does_not_fit() -> None:
-    fit = evaluate_fit(weights_gib=40.0, kv_pool_required_gib_value=10.0,
-                       overhead_gib=2.0, vram_gib=48.0)
+    fit = evaluate_fit(
+        weights_gib=40.0,
+        kv_pool_required_gib_value=10.0,
+        overhead_gib=2.0,
+        vram_gib=48.0,
+    )
     assert fit.fits is False
     assert fit.headroom_gib < 0
 
