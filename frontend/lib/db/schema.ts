@@ -335,8 +335,9 @@ export type PendingDeploymentInvite = InferSelectModel<
 >;
 
 // Tracks one email notification attempt per (deploymentId, userId, type) triplet.
-// Inserted once per user per lifecycle event regardless of SMTP delivery outcome.
-// The presence of a row means "we already attempted this notification for this user".
+// Inserted once per user per lifecycle or access event regardless of SMTP delivery
+// outcome. The presence of a row means "we already attempted this notification
+// for this user". Rows are written by the Python backend only.
 export const emailNotification = pgTable(
   'EmailNotification',
   {
@@ -345,8 +346,12 @@ export const emailNotification = pgTable(
       .notNull()
       .references(() => modelDeployment.id, { onDelete: 'cascade' }),
     userId: uuid('userId').notNull(),
-    type: varchar('type', { enum: ['ready', 'failed'] }).notNull(),
-    status: varchar('status', { enum: ['sent', 'failed'] }).notNull(),
+    type: varchar('type', {
+      enum: ['ready', 'failed', 'completed', 'invite'],
+    }).notNull(),
+    status: varchar('status', {
+      enum: ['pending', 'sent', 'failed'],
+    }).notNull(),
   },
   (table) => ({
     deploymentUserTypeUnique: unique('uq_emailnotification_deployment_userid_type').on(

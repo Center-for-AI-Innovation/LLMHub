@@ -59,6 +59,13 @@ class ModelDeploymentUpdate(BaseModel):
     expiresAt: Optional[datetime] = None
 
 
+class DeploymentNotifyAccessRequest(BaseModel):
+    """Schema for requesting an access-granted email notification."""
+
+    userId: UUID
+    sharedByUserId: Optional[UUID] = None
+
+
 class ModelDeploymentInDB(ORMBaseModel):
     """Schema for a model deployment in the database."""
 
