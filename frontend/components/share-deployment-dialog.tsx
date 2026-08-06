@@ -37,8 +37,7 @@ import { useOnClickOutside } from '@/hooks/use-on-click-outside';
 const STATUS_LABEL: Record<ShareDeploymentResultEntry['status'], string> = {
   added: 'Access granted',
   already_shared: 'Already had access',
-  invited: 'Invited (pending signup)',
-  already_invited: 'Already invited',
+  not_registered: 'No account yet',
   invalid: 'Invalid email',
   failed: 'Failed',
 };
@@ -46,8 +45,7 @@ const STATUS_LABEL: Record<ShareDeploymentResultEntry['status'], string> = {
 const STATUS_TONE: Record<ShareDeploymentResultEntry['status'], string> = {
   added: 'text-emerald-600 dark:text-emerald-400',
   already_shared: 'text-muted-foreground',
-  invited: 'text-sky-600 dark:text-sky-400',
-  already_invited: 'text-muted-foreground',
+  not_registered: 'text-amber-600 dark:text-amber-400',
   invalid: 'text-amber-600 dark:text-amber-400',
   failed: 'text-destructive',
 };
@@ -106,15 +104,12 @@ export function ShareDeploymentDialog({
     }
   }, [open]);
 
-  // Emails that can't be added again: those already authorized/invited, plus
-  // ones already picked in this session.
+  // Emails that can't be added again: those already authorized, plus ones
+  // already picked in this session.
   const unavailableEmails = useMemo(() => {
     const set = new Set<string>();
     for (const u of sharing?.authorizedUsers ?? []) {
       set.add(u.email.toLowerCase());
-    }
-    for (const invite of sharing?.pendingInvites ?? []) {
-      set.add(invite.email.toLowerCase());
     }
     for (const u of selected) {
       set.add(u.email.toLowerCase());
@@ -237,33 +232,18 @@ export function ShareDeploymentDialog({
       });
       setSelected([]);
 
-      const { added, alreadyShared, invited, alreadyInvited, invalid, failed } =
+      const { added, alreadyShared, notRegistered, invalid, failed } =
         response.summary;
 
-      const grantedSummary: string[] = [];
       if (added > 0) {
-        grantedSummary.push(`${added} user${added === 1 ? '' : 's'} added`);
-      }
-      if (invited > 0) {
-        grantedSummary.push(
-          `${invited} email${invited === 1 ? '' : 's'} invited (pending signup)`,
-        );
-      }
-
-      if (grantedSummary.length > 0) {
         toast({
           title: 'Access updated',
-          description: `${grantedSummary.join(', ')} for "${modelName}".`,
+          description: `${added} user${added === 1 ? '' : 's'} added for "${modelName}".`,
         });
       }
 
-      const issues = invalid + failed;
-      if (
-        added === 0 &&
-        invited === 0 &&
-        (alreadyShared > 0 || alreadyInvited > 0) &&
-        issues === 0
-      ) {
+      const issues = notRegistered + invalid + failed;
+      if (added === 0 && alreadyShared > 0 && issues === 0) {
         toast({
           title: 'No changes',
           description:
@@ -271,13 +251,7 @@ export function ShareDeploymentDialog({
         });
       }
 
-      if (
-        added === 0 &&
-        invited === 0 &&
-        alreadyShared === 0 &&
-        alreadyInvited === 0 &&
-        issues > 0
-      ) {
+      if (added === 0 && alreadyShared === 0 && issues > 0) {
         toast({
           title: 'No users were added',
           description:
@@ -313,7 +287,6 @@ export function ShareDeploymentDialog({
   );
 
   const authorizedUsers = sharing?.authorizedUsers ?? [];
-  const pendingInvites = sharing?.pendingInvites ?? [];
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -431,7 +404,7 @@ export function ShareDeploymentDialog({
                 <Loader2 className="size-4 animate-spin" />
                 Loading...
               </div>
-            ) : authorizedUsers.length === 0 && pendingInvites.length === 0 ? (
+            ) : authorizedUsers.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No one else has access yet.
               </p>
@@ -453,17 +426,6 @@ export function ShareDeploymentDialog({
                     </span>
                   </li>
                 ))}
-                {pendingInvites.map((invite) => (
-                  <li
-                    key={invite.id}
-                    className="flex items-center justify-between gap-3 text-sm"
-                  >
-                    <span className="break-all">{invite.email}</span>
-                    <span className="shrink-0 text-xs text-sky-600 dark:text-sky-400">
-                      Pending signup
-                    </span>
-                  </li>
-                ))}
               </ul>
             )}
           </div>
@@ -477,7 +439,14 @@ export function ShareDeploymentDialog({
                     key={`${result.email}-${result.status}`}
                     className="flex items-start justify-between gap-3"
                   >
-                    <span className="break-all">{result.email}</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="break-all">{result.email}</span>
+                      {result.message ? (
+                        <span className="text-xs text-muted-foreground">
+                          {result.message}
+                        </span>
+                      ) : null}
+                    </span>
                     <span
                       className={cn(
                         'shrink-0 text-xs font-medium',

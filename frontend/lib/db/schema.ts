@@ -304,36 +304,6 @@ export const authorizedUsers = pgTable(
 
 export type AuthorizedUsers = InferSelectModel<typeof authorizedUsers>;
 
-// Tracks share invites for emails that don't yet have a registered User row.
-// Once the invitee signs up with the same email, these rows are converted to
-// AuthorizedUsers entries and removed.
-export const pendingDeploymentInvite = pgTable(
-  'PendingDeploymentInvite',
-  {
-    id: uuid('id').primaryKey().notNull().defaultRandom(),
-    deploymentId: uuid('deploymentId')
-      .notNull()
-      .references(() => modelDeployment.id, { onDelete: 'cascade' }),
-    email: varchar('email', { length: 255 }).notNull(),
-    permission: varchar('permission', { enum: ['owner', 'user'] })
-      .notNull()
-      .default('user'),
-    invitedBy: uuid('invitedBy')
-      .notNull()
-      .references(() => user.id),
-    createdAt: timestamp('createdAt').notNull().defaultNow(),
-    updatedAt: timestamp('updatedAt').notNull().defaultNow(),
-  },
-  (table) => ({
-    deploymentEmailUnique: unique().on(table.deploymentId, table.email),
-    emailIndex: index('PendingDeploymentInvite_email_idx').on(table.email),
-  }),
-);
-
-export type PendingDeploymentInvite = InferSelectModel<
-  typeof pendingDeploymentInvite
->;
-
 // Tracks one email notification attempt per (deploymentId, userId, type) triplet.
 // Inserted once per user per lifecycle or access event regardless of SMTP delivery
 // outcome. The presence of a row means "we already attempted this notification

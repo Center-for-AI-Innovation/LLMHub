@@ -526,14 +526,9 @@ export type DeploymentAuthorizedUser = {
 
 export type DeploymentSharingInfo = {
   authorizedUsers: DeploymentAuthorizedUser[];
-  pendingInvites: Array<{
-    id: string;
-    email: string;
-    permission: 'owner' | 'user';
-  }>;
 };
 
-// Current access (authorized users + pending invites) for a deployment
+// Current access (authorized users) for a deployment
 export function useDeploymentSharing(
   deploymentId: string | null | undefined,
   enabled = true,

@@ -2,8 +2,7 @@
 export type ShareDeploymentStatus =
   | 'added'
   | 'already_shared'
-  | 'invited'
-  | 'already_invited'
+  | 'not_registered'
   | 'invalid'
   | 'failed';
 
@@ -18,8 +17,7 @@ export interface ShareDeploymentResponse {
   summary: {
     added: number;
     alreadyShared: number;
-    invited: number;
-    alreadyInvited: number;
+    notRegistered: number;
     invalid: number;
     failed: number;
   };

@@ -3,27 +3,16 @@ import {
   addUserToDeployment,
   getAuthorizedUsersByDeploymentId,
   getModelDeploymentById,
-  getPendingDeploymentInvitesByDeploymentId,
   getUserByEmail,
-  upsertPendingDeploymentInvite,
 } from '@/lib/db/queries';
+import type { ShareDeploymentResultEntry } from '@/lib/models/deployment-sharing';
 import { notifyDeploymentAccessGranted } from '@/lib/models/notify-deployment-access';
 import { type NextRequest, NextResponse } from 'next/server';
 
 // regex for email validation
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-type ShareResultEntry = {
-  email: string;
-  status:
-    | 'added'
-    | 'already_shared'
-    | 'invited'
-    | 'already_invited'
-    | 'invalid'
-    | 'failed';
-  message?: string;
-};
+type ShareResultEntry = ShareDeploymentResultEntry;
 
 function normalizeEmails(input: unknown): string[] {
   // returns an array of unique, trimmed, non-empty email strings
@@ -77,12 +66,9 @@ export async function GET(
     }
 
     const authorized = await getAuthorizedUsersByDeploymentId(deploymentId);
-    const pendingInvites =
-      await getPendingDeploymentInvitesByDeploymentId(deploymentId);
 
     return NextResponse.json({
       authorizedUsers: authorized,
-      pendingInvites,
     });
   } catch (error) {
     console.error('Error fetching authorized users for deployment:', error);
@@ -160,20 +146,13 @@ export async function POST(
       try {
         const targetUser = await getUserByEmail(email);
         if (!targetUser) {
-          // The invitee hasn't registered yet — store a pending invite so
-          // they get access automatically when they sign up with this email.
-          const { alreadyExisted } = await upsertPendingDeploymentInvite({
-            deploymentId,
-            email,
-            invitedBy: userId,
-            permission: 'user',
-          });
+          // Access is only ever granted to an existing account. The owner has
+          // to ask them to sign up first, then share again.
           results.push({
             email,
-            status: alreadyExisted ? 'already_invited' : 'invited',
-            message: alreadyExisted
-              ? 'This email was already invited.'
-              : 'Invitation saved. Access will be granted when they sign up with this email.',
+            status: 'not_registered',
+            message:
+              'No LLMHub account exists for this email. Ask them to sign up, then share again.',
           });
           continue;
         }
@@ -223,8 +202,7 @@ export async function POST(
       added: results.filter((r) => r.status === 'added').length,
       alreadyShared: results.filter((r) => r.status === 'already_shared')
         .length,
-      invited: results.filter((r) => r.status === 'invited').length,
-      alreadyInvited: results.filter((r) => r.status === 'already_invited')
+      notRegistered: results.filter((r) => r.status === 'not_registered')
         .length,
       invalid: results.filter((r) => r.status === 'invalid').length,
       failed: results.filter((r) => r.status === 'failed').length,
