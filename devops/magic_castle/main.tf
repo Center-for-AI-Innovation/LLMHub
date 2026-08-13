@@ -11,10 +11,10 @@ module "openstack" {
   source         = "./openstack"
   config_git_url = "https://github.com/ComputeCanada/puppet-magic_castle.git"
   config_version = "15.3.1"
-  subnet_id = "5f201b30-0d22-460d-824c-2ee8771d8ca0"
+  subnet_id      = "<SUBNET_ID>"
 
   cluster_name = "llmhub"
-  domain       = "ncsa.illinois.edu"
+  domain       = "<DOMAIN>"
   image        = "Rocky 9 latest"
 
   instances = {
