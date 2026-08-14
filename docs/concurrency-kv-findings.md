@@ -64,7 +64,7 @@ for key, value in engine_args.items():
 
 ---
 
-## 3. Gate vs UI formula mismatch
+## 3. Gate vs UI formula mismatch (HISTORICAL — Phase-1 snapshot; resolved, see §8)
 
 Both use the same underlying formula when given the same `max_num_seqs`:
 
@@ -156,6 +156,33 @@ Archetype factors must remain labeled advisory if shown in UI.
 1. **`resolve_max_num_seqs(ui_override, catalog_value)`** — done.
 2. **Precedence**: `ui_override` (only when user explicitly set) > catalog > 256 — done.
 3. **Regression fix**: UI defaults to catalog-resolved value (256 for most models; 32/64 for vision), not 16 — done.
-4. **Gate/UI reconciliation** to the same concurrency for hard `valid` — **not done** (gate stays ×1; UI capacity is advisory).
+4. **Gate/UI reconciliation** to the same concurrency for hard `valid` — ~~not done~~ **done, superseded by §8** (2026-08-14: overhead charged at the resolved launch concurrency; KV stays ×1).
 5. **Archetypes**: display-only, labeled uncalibrated — done.
 6. **Tests**: resolver precedence, vision catalog preservation, no silent 256→16 regression — done.
+
+---
+
+## 8. Addendum (2026-08-14): gate/concurrency reconciliation shipped
+
+Phase-2 item 4 is now **done**, via a split contract in `validate_config`:
+
+- **KV budget** stays at the ×1 boot contract (`max_num_seqs=1`) — what vLLM
+  checks at startup (Option B unchanged).
+- **Overhead** is now charged at the *resolved launch concurrency*
+  (`overhead_max_num_seqs` = user override > catalog `--max-num-seqs` > 256,
+  via `resolve_max_num_seqs`). vLLM's internal reservation grows
+  0.002 GiB/seq regardless of KV usage, so charging it at mns=1 over-promised
+  the real pool by ~0.5 GiB at the default 256 — enough to pass configs that
+  then died at boot (calibration margins are 0.24–0.48 GiB). Regression test:
+  `test_overhead_at_launch_concurrency_closes_boot_false_accept_window`.
+
+The remaining (intentional) Option-B surface is unchanged: sustained burst at
+high concurrency queues/preempts and is reported as capacity, never gated.
+
+Also in this pass: the gate now **skips with a warning** (instead of blocking)
+for multi-node launches, non-NVIDIA partitions, failed vec-inf catalog
+lookups, and configs whose metadata cannot be resolved (sparse VLM configs,
+HF outages, gated repos) — curated
+catalog entries that launched before the gate must keep launching. VLM configs
+that nest LLM dims (`text_config`/`llm_config`/`language_config`) are now
+resolved; H200 VRAM is padded to an educated-guess 140.0 GiB pending probes.
