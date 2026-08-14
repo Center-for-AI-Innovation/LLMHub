@@ -10,10 +10,14 @@ from __future__ import annotations
 # 1 GiB = 2**30 bytes. Every ``*_gib`` field in this package is binary GiB.
 GIB = 2**30
 
-# vLLM's default maximum number of concurrent sequences (``--max-num-seqs``).
-# LLMFlux may launch with a different cap; override via the request or by
-# changing this constant.
-DEFAULT_MAX_NUM_SEQS = 256
+# vLLM's default maximum number of concurrent sequences (``--max-num-seqs``)
+# when the launch pins nothing. The V0 engine defaulted to 256; the V1 engine
+# in the production Delta container (vLLM 0.11.0, verified live on Slurm job
+# 21145772, 2026-08-14: measured internal overhead 1.92 GiB matches the
+# mns=1024 line, not 256, and CUDA-graph capture ran at the V1 max_capture_size
+# of 512) defaults to 1024. Charging overhead for 256 under-counted the real
+# reservation by ~0.6 GiB per GPU — a false-accept margin.
+DEFAULT_MAX_NUM_SEQS = 1024
 
 # Default expected average sequence length (tokens) for the capacity model's
 # "typical" concurrency figure. Real workloads run far below max_model_len; the
@@ -23,8 +27,14 @@ DEFAULT_TYPICAL_SEQ_LEN = 4096
 # LLMHub launch gate certifies STARTUP: vLLM allocates a fixed KV pool and aborts
 # at boot if it cannot hold one full-length sequence. The gate therefore sizes KV
 # at max_model_len × 1. Concurrency beyond that queues/preempts (no OOM), so it is
-# reported as capacity (see capacity.py), not gated. See ranking/concurrency for
-# the effective --max-num-seqs actually launched.
+# reported as capacity (see capacity.py), not gated.
+#
+# NOTE: only the KV budget uses this constant. The gate's OVERHEAD term is sized
+# at the concurrency the job actually boots with (resolve_max_num_seqs: user
+# override > catalog > DEFAULT_MAX_NUM_SEQS), because vLLM's internal
+# reservation grows OVERHEAD_PER_SEQ_GIB per scheduled sequence regardless of
+# KV usage — charging overhead at mns=1 would over-promise the real pool by
+# ~2 GiB at the V1 default 1024 (see launch_gate.py / overhead_max_num_seqs).
 LAUNCH_GATE_MAX_NUM_SEQS = 1
 
 # Bytes per element for the dtypes we care about when sizing weights / KV.
@@ -54,7 +64,7 @@ DEFAULT_DTYPE = "bfloat16"
 # vLLM's ``--gpu-memory-utilization``: the fraction of each GPU's VRAM vLLM is
 # allowed to manage. The remaining ``(1 - util) * VRAM`` is reserved and never
 # used, so it is the DOMINANT overhead term (e.g. ~4.5 GiB on a 48 GiB A40, and
-# ~14 GiB on a 141 GiB H200). LLMFlux launches every model at 0.9 (see its
+# ~14 GiB on a 140 GiB H200). LLMFlux launches every model at 0.9 (see its
 # models.yaml), which is also vLLM's own default. Calibrated: vLLM's reported
 # "Available KV cache memory" matched ``util*VRAM - weights - framework_internal``
 # within ~0.05 GiB across A40/A100 and TP=1/2/4 (see calibration/ probe logs).

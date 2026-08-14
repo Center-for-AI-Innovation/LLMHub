@@ -15,6 +15,7 @@ from app.models.model_request import ModelRequest
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.services.fit_estimator.concurrency import (
+    VLLM_DEFAULT_MAX_NUM_SEQS,
     catalog_max_num_seqs,
     resolve_max_num_seqs,
 )
@@ -175,9 +176,11 @@ class ModelService:
         # Check and allocate resources if needed
         resource_service = ResourceService()
 
-        # Get the number of GPUs requested
+        # Get the number of GPUs requested. NOTE: model_dump() always emits the
+        # num_nodes key (schema default None), so dict-get with a default never
+        # fires — `or 1` is what actually applies the fallback.
         num_gpus = params.get("num_gpus")
-        num_nodes = params.get("num_nodes", 1)
+        num_nodes = params.get("num_nodes") or 1
 
         # If GPU resources are requested, check availability and allocate
         if num_gpus:
@@ -213,16 +216,28 @@ class ModelService:
                 f"Allocated {total_gpus} GPU resources for model {deployment.modelName}"
             )
 
-        gate = check_launch_memory_gate_for_model(
-            deployment.modelName,
-            self.llm_client.get_model_details,
-            hf_model=params.get("hf_model"),
-            partition=params.get("partition"),
-            max_model_len=params.get("max_model_len"),
-            tensor_parallel_size=params.get("num_gpus"),
-            num_nodes=params.get("num_nodes"),
-            max_num_seqs=params.get("max_num_seqs"),
-        )
+        try:
+            gate = check_launch_memory_gate_for_model(
+                deployment.modelName,
+                self.llm_client.get_model_details,
+                hf_model=params.get("hf_model"),
+                partition=params.get("partition"),
+                max_model_len=params.get("max_model_len"),
+                tensor_parallel_size=params.get("num_gpus"),
+                num_nodes=params.get("num_nodes"),
+                max_num_seqs=params.get("max_num_seqs"),
+                vllm_args=params.get("vllm_args"),
+            )
+        except Exception:
+            # The gate is advisory infrastructure: a bug or unexpected input in
+            # the estimator must not take down launches (and must not leak the
+            # GPU allocation above via an unhandled 500). Deliberate refusals
+            # are verdicts, not exceptions — anything raised here is our bug.
+            logger.exception(
+                "Launch memory gate crashed for model=%s; skipping gate",
+                deployment.modelName,
+            )
+            gate = None
         if gate is not None and not gate.valid:
             if num_gpus:
                 resource_service.release_resources(
@@ -1084,8 +1099,10 @@ class ModelService:
         model_type = model_data.get("model_type", "LLM")
         num_gpus = model_data.get("num_gpus", 1)
         num_nodes = model_data.get("num_nodes", 1)
+        # Display defaults for the catalog listing only (never used for gating;
+        # the gate resolves real values from the catalog/request/model config).
         max_model_len = model_data.get("max_model_len", 4096)
-        max_num_seqs = model_data.get("max_num_seqs", 256)
+        max_num_seqs = model_data.get("max_num_seqs", VLLM_DEFAULT_MAX_NUM_SEQS)
         pipeline_parallelism = model_data.get("pipeline_parallelism", False)
         vocab_size = model_data.get("vocab_size")
         huggingface_id = model_data.get("huggingface_id")

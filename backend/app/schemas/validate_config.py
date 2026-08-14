@@ -59,6 +59,11 @@ class ValidateConfigResponse(BaseModel):
     reason: str
     per_gpu_breakdown: PerGpuBreakdownSchema
     warnings: List[str]
+    # True when valid=False means "cannot model this config" (unresolvable
+    # metadata, non-NVIDIA hardware, multi-node) rather than "will not fit".
+    # NOTE the launch gate SKIPS unverifiable configs (the launch proceeds),
+    # so valid=False here does not imply the launcher would block it.
+    unverifiable: bool = False
     # Seam, always null on this branch: whether to suggest a smaller/larger
     # config is an open product decision (field built, not populated).
     min_sufficient_config: Optional[Any] = None
@@ -81,6 +86,7 @@ def to_response(result: ConfigValidation) -> ValidateConfigResponse:
             headroom_gib=b.headroom_gib,
         ),
         warnings=result.warnings,
+        unverifiable=result.unverifiable,
         min_sufficient_config=result.min_sufficient_config,
         advisory_only=result.advisory_only,
     )

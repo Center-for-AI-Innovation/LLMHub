@@ -24,7 +24,12 @@
 #   marketing capacity. A40 reports 46068 MiB = 44.988 GiB (not 48); A100-40
 #   reports 40960 MiB = 40.0 GiB. Using the marketing number would make the gate
 #   optimistic (it feeds both the usable budget and the utilization reserve).
-#   A40/A100 are probe-measured; H200 is still nominal -- TODO(h200-probe).
+#   A40/A100 are probe-measured. H200 is NOT probed: the marketing 141 GiB was
+#   optimistic (H200-SXM units typically report ~143771 MiB = 140.4 GiB in
+#   nvidia-smi), so the table carries an educated-guess 140.0 GiB — padded a
+#   further ~0.4 GiB below the typical reported value because neither the VRAM
+#   nor the internal-overhead line has been validated on this GPU.
+#   TODO(h200-probe): replace with a measured value + overhead probe.
 # vendor: NVIDIA partitions are evaluated; AMD (ROCm/MI100) is out of scope and
 #   reported as skipped rather than silently dropped.
 # su_per_gpu_hour: SU billed per GPU-hour for this GPU model on Delta (batch
@@ -108,7 +113,8 @@ partitions:
   - partition: gpuH200x8
     gpu_type: NVIDIA H200-SXM
     vendor: NVIDIA
-    vram_gib_per_gpu: 141
+    # Educated guess, padded conservative (see header). TODO(h200-probe).
+    vram_gib_per_gpu: 140.0
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 3000
@@ -117,7 +123,8 @@ partitions:
   - partition: gpuH200x8-interactive
     gpu_type: NVIDIA H200-SXM
     vendor: NVIDIA
-    vram_gib_per_gpu: 141
+    # Educated guess, padded conservative (see header). TODO(h200-probe).
+    vram_gib_per_gpu: 140.0
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
     su_per_gpu_hour: 6000

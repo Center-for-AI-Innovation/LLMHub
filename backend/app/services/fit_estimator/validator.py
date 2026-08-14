@@ -23,11 +23,20 @@ Consequences of that posture, enforced here:
   but is intentionally NOT used in this path.
 * If model metadata cannot be resolved, or required config fields are missing,
   we return ``valid=False`` with reason "cannot verify ..." -- never
-  pass-by-default.
+  pass-by-default. Such verdicts additionally carry ``unverifiable=True``.
 * Uneven tensor-parallel sharding rounds toward MORE per-GPU memory.
 
+System-level nuance: THIS MODULE is strictly fail-closed, and the public
+``/api/validate-config`` endpoint exposes its verdicts verbatim. The LAUNCH
+gate (:mod:`.launch_gate`) layers different availability semantics on top — it
+SKIPS (launch proceeds, logged) on ``unverifiable`` verdicts, multi-node, and
+unknown/unsupported partitions, because blocking a curated model the math
+cannot size is a worse production failure than launching it unvalidated. The
+same tuple can therefore be "cannot verify" here and still launch.
+
 Out of scope on this branch: ``min_sufficient_config`` (seam only, stays null),
-multi-node math (explicit reject), cost ranking, the typical/archetype path.
+multi-node math (explicit reject here; the launch gate skips it), cost
+ranking, the typical/archetype path.
 """
 
 from __future__ import annotations
@@ -72,6 +81,14 @@ class ConfigValidation:
     reason: str
     per_gpu_breakdown: PerGpuBreakdown
     warnings: list[str] = field(default_factory=list)
+    # True when the verdict is "we cannot model this config" (unresolvable
+    # metadata, non-NVIDIA hardware) rather than a real sizing result. The
+    # /api/validate-config surface stays fail-closed (valid=False either way);
+    # the LAUNCH gate treats unverifiable verdicts as a skip-with-warning so
+    # curated catalog models whose configs we cannot size (sparse VLM configs,
+    # HF outages) are not blocked — their weights are already local and the
+    # launch worked before the gate existed.
+    unverifiable: bool = False
     # Seam: whether the gate should suggest a fix is an open product decision.
     # Build the field, do not populate it on this branch.
     min_sufficient_config: Optional[Any] = None
@@ -91,6 +108,24 @@ def _find_partition(
 
 def _short_gpu(gpu_type: str) -> str:
     return gpu_type.replace("NVIDIA ", "").strip() or gpu_type
+
+
+# Quantized formats whose native kernels need Hopper/Ada-class GPUs. On Ampere
+# (A40/A100) vLLM dequantizes such checkpoints to bf16 (or refuses), so the
+# on-disk safetensors size we measure is NOT what loads into VRAM — sizing from
+# it would under-count weights 2-4x (e.g. MXFP4 gpt-oss-120b "fits" on A40 at
+# disk size and OOMs at load). We refuse to certify instead of guessing.
+_HOPPER_PLUS_ONLY_QUANT_MARKERS = ("mxfp4", "fp8", "fbgemm_fp8", "modelopt")
+_AMPERE_GPU_MARKERS = ("A40", "A100")
+
+
+def _quant_may_dequantize(quantization: str | None, gpu_type: str) -> bool:
+    if not quantization:
+        return False
+    q = quantization.lower()
+    if not any(marker in q for marker in _HOPPER_PLUS_ONLY_QUANT_MARKERS):
+        return False
+    return any(marker in gpu_type for marker in _AMPERE_GPU_MARKERS)
 
 
 def _collect_warnings(meta: ModelMetadata, tp_size: int) -> list[str]:
@@ -129,6 +164,7 @@ def validate_config(
     num_nodes: int = 1,
     partitions: Sequence[GpuPartition] | None = None,
     max_num_seqs: int = DEFAULT_MAX_NUM_SEQS,
+    overhead_max_num_seqs: int | None = None,
 ) -> ConfigValidation:
     """Certify a concrete launch config against a partition.
 
@@ -136,8 +172,16 @@ def validate_config(
 
     * ``LAUNCH_GATE_MAX_NUM_SEQS`` (1) — startup contract: KV pool must hold one
       full-length sequence (what vLLM checks at boot). Used by the launch gate.
-    * ``DEFAULT_MAX_NUM_SEQS`` (256) — worst-case survey ceiling for the manual
-      validate-config API; not the launch gate.
+    * ``DEFAULT_MAX_NUM_SEQS`` (the real vLLM default; 1024 on the V1 engine) —
+      worst-case survey ceiling for the manual validate-config API; not the
+      launch gate.
+
+    ``overhead_max_num_seqs`` controls the batch-width overhead term separately.
+    vLLM's internal reservation grows with the *actual* ``--max-num-seqs`` the
+    job boots with (calibrated ``0.002 GiB/seq``), even when the KV budget is
+    sized at the ×1 startup contract. The launch gate passes the resolved launch
+    concurrency here so the certified pool matches what vLLM will really have.
+    Defaults to ``max_num_seqs`` when not given (survey / validate API path).
     """
     parts = tuple(partitions) if partitions is not None else load_partitions()
 
@@ -151,10 +195,13 @@ def validate_config(
     gpu = _find_partition(partition, parts)
     if gpu is None:
         known = ", ".join(p.partition for p in parts)
+        # unverifiable: the launch gate pre-filters unsupported partitions, but
+        # if that pre-check ever moved, this must stay a skip there, not a block.
         return ConfigValidation(
             valid=False,
             reason=f"Unknown partition {partition!r}. Known partitions: {known}.",
             per_gpu_breakdown=_empty_breakdown(),
+            unverifiable=True,
         )
 
     if not gpu.is_nvidia:
@@ -165,11 +212,14 @@ def validate_config(
                 f"only validates NVIDIA/vLLM configs."
             ),
             per_gpu_breakdown=_empty_breakdown(gpu.vram_gib_per_gpu),
+            unverifiable=True,
         )
 
     # Explicit non-support beats a wrong answer: multi-node splitting (PP vs TP
     # across nodes) is ambiguous and not modeled on this branch.
     if num_nodes > 1:
+        # unverifiable: the launch gate skips multi-node before reaching here;
+        # the flag guarantees it stays a skip even if that pre-check moves.
         return ConfigValidation(
             valid=False,
             reason=(
@@ -177,6 +227,32 @@ def validate_config(
                 f"only single-node tensor parallelism is validated on this branch."
             ),
             per_gpu_breakdown=_empty_breakdown(gpu.vram_gib_per_gpu),
+            unverifiable=True,
+        )
+
+    if meta.attention_variant == "mla":
+        return ConfigValidation(
+            valid=False,
+            reason=(
+                f"cannot verify {meta.source_model!r}: Multi-head Latent "
+                f"Attention (MLA) compresses the KV cache in a way this "
+                f"estimator does not model; refusing to size it."
+            ),
+            per_gpu_breakdown=_empty_breakdown(gpu.vram_gib_per_gpu),
+            unverifiable=True,
+        )
+
+    if _quant_may_dequantize(meta.quantization, gpu.gpu_type):
+        return ConfigValidation(
+            valid=False,
+            reason=(
+                f"cannot verify {meta.source_model!r}: {meta.quantization} "
+                f"checkpoint on {_short_gpu(gpu.gpu_type)} may be dequantized "
+                f"at load (no native kernels on this GPU generation), so "
+                f"on-disk weight size is not what loads into VRAM."
+            ),
+            per_gpu_breakdown=_empty_breakdown(gpu.vram_gib_per_gpu),
+            unverifiable=True,
         )
 
     # Never pass by default: unresolved metadata -> "cannot verify".
@@ -194,6 +270,7 @@ def validate_config(
                 + ". Refusing to certify a config we cannot size."
             ),
             per_gpu_breakdown=_empty_breakdown(gpu.vram_gib_per_gpu),
+            unverifiable=True,
         )
 
     tp = tensor_parallel_size
@@ -211,7 +288,7 @@ def validate_config(
         gpu.framework_overhead_gib,
         gpu.tp_communication_buffer_gib,
         tp,
-        max_num_seqs,
+        overhead_max_num_seqs if overhead_max_num_seqs is not None else max_num_seqs,
     )
 
     vram = gpu.vram_gib_per_gpu
@@ -261,11 +338,12 @@ def validate_config(
 def validate_config_for_model(
     model_id: str,
     *,
-    max_model_len: int,
+    max_model_len: int | None,
     tensor_parallel_size: int,
     partition: str,
     num_nodes: int = 1,
     max_num_seqs: int = DEFAULT_MAX_NUM_SEQS,
+    overhead_max_num_seqs: int | None = None,
     dtype: str | None = None,
     revision: str = "main",
 ) -> ConfigValidation:
@@ -273,6 +351,11 @@ def validate_config_for_model(
 
     A metadata fetch failure is turned into a "cannot verify" verdict rather
     than an exception, so the gate never passes by default on network errors.
+
+    ``max_model_len=None`` means "no explicit context anywhere in the request or
+    catalog": vLLM then boots at the model's native context, so we validate
+    against ``max_position_embeddings`` — certifying a smaller invented context
+    (the old 4096 fallback) would pass configs that die at boot.
     """
     from .model_metadata import fetch_model_metadata
 
@@ -286,6 +369,21 @@ def validate_config_for_model(
                 f"({exc}). Refusing to certify a config we cannot size."
             ),
             per_gpu_breakdown=_empty_breakdown(),
+            unverifiable=True,
+        )
+
+    if max_model_len is None:
+        max_model_len = meta.max_position_embeddings
+    if max_model_len is None:
+        return ConfigValidation(
+            valid=False,
+            reason=(
+                f"cannot verify {model_id!r}: no max_model_len in the request or "
+                f"catalog and the model config has no max_position_embeddings. "
+                f"Refusing to certify a config we cannot size."
+            ),
+            per_gpu_breakdown=_empty_breakdown(),
+            unverifiable=True,
         )
 
     return validate_config(
@@ -295,4 +393,5 @@ def validate_config_for_model(
         partition=partition,
         num_nodes=num_nodes,
         max_num_seqs=max_num_seqs,
+        overhead_max_num_seqs=overhead_max_num_seqs,
     )

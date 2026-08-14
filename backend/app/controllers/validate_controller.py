@@ -30,7 +30,19 @@ router = APIRouter()
 
 @router.post("", response_model=ValidateConfigResponse)
 def validate_launch_config(request: ValidateConfigRequest) -> Any:
-    """Certify a proposed vLLM launch config before any resources are touched."""
+    """Certify a proposed vLLM launch config before any resources are touched.
+
+    Contract notes (this endpoint is deliberately STRICTER than the launcher):
+
+    * Worst-case survey: KV is sized at ``max_model_len x DEFAULT_MAX_NUM_SEQS``
+      (the vLLM default, 1024 on the V1 engine), so ``valid=false`` here can
+      still boot and
+      pass the launch gate, which certifies the x1 startup contract.
+    * Fail-closed: "cannot verify" is returned as ``valid=false`` with
+      ``unverifiable=true``. The launch gate SKIPS such configs instead
+      (launch proceeds), so ``valid=false`` + ``unverifiable=true`` does not
+      mean the launcher would block it.
+    """
     result = validate_config_for_model(
         resolve_hf_model_id(
             request.model_id,
