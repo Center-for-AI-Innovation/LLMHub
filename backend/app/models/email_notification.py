@@ -9,7 +9,7 @@ from app.repositories.base import Base
 
 
 class EmailNotification(Base):
-    """Records a single email notification attempt for a deployment lifecycle event.
+    """Records a single email notification attempt for a deployment lifecycle or access event.
 
     One row is inserted per (deploymentId, userId, type) triplet exactly once, regardless of
     whether the SMTP delivery succeeded. The existence of a row means "we already
@@ -26,8 +26,8 @@ class EmailNotification(Base):
         nullable=False,
     )
     userId = Column(UUID(as_uuid=True), nullable=False)
-    type = Column(String, nullable=False)  # "ready" | "failed" | "completed"
-    status = Column(String, nullable=False)  # "sent"  | "failed"
+    type = Column(String, nullable=False)  # "ready" | "failed" | "completed" | "invite"
+    status = Column(String, nullable=False)  # "pending" | "sent" | "failed"
 
     __table_args__ = (
         # Also creates an index on the deploymentId, userId, and type columns
