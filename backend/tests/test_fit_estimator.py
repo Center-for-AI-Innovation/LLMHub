@@ -75,7 +75,7 @@ def test_amd_partitions_are_skipped_not_dropped() -> None:
 
 def test_h200_fits_where_a40_does_not() -> None:
     # ~56 GiB of worst-case KV (16384 x 64 tokens x 57344 B): exceeds the A40's
-    # 48 GiB but fits comfortably on the 141 GiB H200.
+    # 45 GiB but fits comfortably on the 140 GiB H200.
     est = estimate_fit(
         _meta(), max_model_len=16384, max_num_seqs=64, kv_assumption="worst_case"
     )
@@ -106,3 +106,29 @@ def test_defaulted_max_model_len_warns() -> None:
 def test_invalid_kv_assumption_raises() -> None:
     with pytest.raises(ValueError, match="kv_assumption"):
         estimate_fit(_meta(), max_model_len=2048, kv_assumption="average")
+
+
+def test_survey_starts_agrees_with_gate_verdict_across_boundary() -> None:
+    """The UI's `starts` and the launch gate's verdict are the same inequality
+    (KV pool at overhead(mns) must hold one full-context sequence). Sweep
+    contexts across the A40 boot boundary at several concurrencies and assert
+    the two surfaces never disagree — the reconciliation this branch ships."""
+    from app.services.fit_estimator.validator import validate_config
+
+    meta = _meta()
+    for mns in (1, 32, 256, 512):
+        for ctx in range(440_000, 490_000, 2_000):
+            survey = estimate_fit(meta, max_model_len=ctx, max_num_seqs=mns)
+            a40 = next(p for p in survey.partitions if p.partition == "gpuA40x4")
+            gate = validate_config(
+                meta,
+                max_model_len=ctx,
+                tensor_parallel_size=1,
+                partition="gpuA40x4",
+                max_num_seqs=1,
+                overhead_max_num_seqs=mns,
+            )
+            assert a40.starts == gate.valid, (
+                f"survey/gate disagree at ctx={ctx} mns={mns}: "
+                f"starts={a40.starts} valid={gate.valid}"
+            )

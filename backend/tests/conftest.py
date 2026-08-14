@@ -25,3 +25,13 @@ def qwen_0_5b() -> dict[str, Any]:
 def qwen_7b() -> dict[str, Any]:
     """Cached Qwen2.5-7B-Instruct HF metadata (offline calibration anchor)."""
     return _load_fixture("qwen2_5_7b.json")
+
+
+@pytest.fixture(autouse=True)
+def _clear_fit_estimator_metadata_cache():
+    """Isolate the fit-estimator's TTL metadata cache between tests."""
+    from app.services.fit_estimator.model_metadata import clear_metadata_cache
+
+    clear_metadata_cache()
+    yield
+    clear_metadata_cache()

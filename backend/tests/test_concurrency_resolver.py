@@ -6,6 +6,7 @@ from app.services.fit_estimator.concurrency import (
     VLLM_DEFAULT_MAX_NUM_SEQS,
     catalog_max_num_seqs,
     resolve_max_num_seqs,
+    vllm_arg_int,
 )
 from app.services.fit_estimator.constants import LAUNCH_GATE_MAX_NUM_SEQS
 from app.services.fit_estimator.estimator import estimate_fit
@@ -42,7 +43,8 @@ def test_resolve_precedence_ui_over_catalog_over_default() -> None:
     assert resolve_max_num_seqs(ui_override=8, catalog_value=32) == 8
     assert resolve_max_num_seqs(catalog_value=32) == 32
     assert resolve_max_num_seqs() == VLLM_DEFAULT_MAX_NUM_SEQS
-    assert VLLM_DEFAULT_MAX_NUM_SEQS == 256
+    # vLLM V1-engine default, verified live on the prod container (job 21145772)
+    assert VLLM_DEFAULT_MAX_NUM_SEQS == 1024
 
 
 def test_catalog_max_num_seqs_from_dict_and_string() -> None:
@@ -51,10 +53,15 @@ def test_catalog_max_num_seqs_from_dict_and_string() -> None:
     assert catalog_max_num_seqs({"vllm_args": {"--max-model-len": 4096}}) is None
 
 
-def test_typical_llm_defaults_to_vllm_256_not_ui_16() -> None:
-    """Regression: catalog omission must not collapse to the old UI factory 16."""
+def test_typical_llm_defaults_to_vllm_default_not_ui_16() -> None:
+    """Regression: catalog omission must not collapse to the old UI factory 16.
+
+    The fallback is the real vLLM default (V1 engine: 1024; measured live on
+    the production container), not any UI constant.
+    """
     catalog = {"vllm_args": {"--max-model-len": 32768}}
-    assert resolve_max_num_seqs(catalog_value=catalog_max_num_seqs(catalog)) == 256
+    resolved = resolve_max_num_seqs(catalog_value=catalog_max_num_seqs(catalog))
+    assert resolved == VLLM_DEFAULT_MAX_NUM_SEQS == 1024
 
 
 def test_vision_catalog_preservation_without_ui_override() -> None:
@@ -130,3 +137,33 @@ def test_gate_passes_startup_for_qwen_7b_full_context(
     )
     assert gate is not None
     assert gate.valid is True
+
+
+def test_vllm_arg_int_parses_comma_joined_wire_format() -> None:
+    """The launch path joins flags with commas (llm_inference), and only the
+    last flag of such a string used to parse — every earlier one silently fell
+    back to catalog values, certifying a different context than vLLM booted."""
+    s = "--max-model-len=131072,--max-num-seqs=32"
+    assert vllm_arg_int(s, "--max-model-len") == 131072
+    assert vllm_arg_int(s, "--max-num-seqs") == 32
+    reversed_s = "--max-num-seqs=32,--max-model-len=131072"
+    assert vllm_arg_int(reversed_s, "--max-model-len") == 131072
+    assert vllm_arg_int(reversed_s, "--max-num-seqs") == 32
+
+
+def test_vllm_arg_int_rejects_garbage_without_crashing() -> None:
+    """Bad values must degrade to None (fall through to next precedence),
+    never crash (a crash skips the gate) and never coerce bools to 1."""
+    assert vllm_arg_int({"--max-model-len": "abc"}, "--max-model-len") is None
+    assert vllm_arg_int({"--max-model-len": True}, "--max-model-len") is None
+    assert vllm_arg_int({"--max-model-len": None}, "--max-model-len") is None
+    assert vllm_arg_int({"--max-model-len": [1]}, "--max-model-len") is None
+    assert vllm_arg_int("--max-model-len=abc", "--max-model-len") is None
+
+
+def test_resolve_max_num_seqs_clamps_non_positive() -> None:
+    """mns <= 0 would raise inside the overhead model; a crash must never be
+    the cheap way past the gate."""
+    assert resolve_max_num_seqs(ui_override=0) == 1
+    assert resolve_max_num_seqs(ui_override=-3) == 1
+    assert resolve_max_num_seqs(catalog_value=0) == 1
