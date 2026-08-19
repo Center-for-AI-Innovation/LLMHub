@@ -150,6 +150,13 @@ def _partition_overhead_gib(
 def _su_rate(partition: GpuPartition) -> int | None:
     if partition.su_per_gpu_hour is not None:
         return partition.su_per_gpu_hour
+    # The ranking fallback encodes DELTA's billing (rates + the -preempt /
+    # -interactive naming modifiers). A site-override table must not have
+    # Delta's prices invented for it: no explicit rate -> no cost figures.
+    from .hardware import hardware_override_path
+
+    if hardware_override_path():
+        return None
     return su_per_gpu_hour_for(partition.partition, partition.gpu_type)
 
 

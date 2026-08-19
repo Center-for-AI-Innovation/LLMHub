@@ -35,3 +35,16 @@ def _clear_fit_estimator_metadata_cache():
     clear_metadata_cache()
     yield
     clear_metadata_cache()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_hardware_table(monkeypatch):
+    """Tests must always see the bundled Delta table, regardless of any
+    FIT_ESTIMATOR_HARDWARE_YAML in the operator's environment."""
+    from app.services.fit_estimator.hardware import HARDWARE_YAML_ENV, load_partitions
+
+    monkeypatch.delenv(HARDWARE_YAML_ENV, raising=False)
+    monkeypatch.setattr("app.config.config.settings.FIT_ESTIMATOR_HARDWARE_YAML", None)
+    load_partitions.cache_clear()
+    yield
+    load_partitions.cache_clear()

@@ -1,16 +1,21 @@
-"""Delta GPU partition table, loaded from bundled package data.
+"""GPU partition table: bundled Delta data or a site-provided override.
 
-The YAML ships *inside* the package (``importlib.resources``), never resolved
-relative to the repo layout, so the estimator keeps working when installed as a
-wheel. Callers may also pass their own parsed partition list (tests, or a future
-infrastructure-specific override) without touching the file system.
+The default YAML ships *inside* the package (``importlib.resources``), never
+resolved relative to the repo layout, so the estimator keeps working when
+installed as a wheel. Other HPC sites point ``FIT_ESTIMATOR_HARDWARE_YAML`` at
+a file in the same schema — typically generated from Slurm by
+``python -m app.services.fit_estimator.discovery`` (see that module). Callers
+may also pass their own parsed partition list (tests) without touching the
+file system.
 """
 
 from __future__ import annotations
 
 import functools
+import os
 from dataclasses import dataclass
 from importlib import resources
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -19,6 +24,9 @@ from .constants import DEFAULT_FRAMEWORK_OVERHEAD_GIB, DEFAULT_TP_COMM_BUFFER_GI
 
 _DATA_PACKAGE = "app.services.fit_estimator.data"
 _HARDWARE_RESOURCE = "delta_hardware.yaml"
+
+# Path to a site-specific hardware YAML (same schema as the bundled table).
+HARDWARE_YAML_ENV = "FIT_ESTIMATOR_HARDWARE_YAML"
 
 NVIDIA_VENDOR = "NVIDIA"
 
@@ -70,8 +78,31 @@ def parse_partitions(data: Any) -> list[GpuPartition]:
     return [_parse_entry(entry) for entry in entries]
 
 
+def hardware_override_path() -> str | None:
+    """Site-specific table path from Settings (backend/.env) or the process env."""
+    try:
+        from app.config.config import settings
+
+        if settings.FIT_ESTIMATOR_HARDWARE_YAML:
+            return settings.FIT_ESTIMATOR_HARDWARE_YAML
+    except Exception:  # standalone / CLI use without the app config
+        pass
+    return os.getenv(HARDWARE_YAML_ENV)
+
+
 @functools.lru_cache(maxsize=1)
 def load_partitions() -> tuple[GpuPartition, ...]:
-    """Load the bundled Delta partition table (cached)."""
-    text = resources.files(_DATA_PACKAGE).joinpath(_HARDWARE_RESOURCE).read_text()
+    """Load the partition table (cached; read once at first use).
+
+    ``FIT_ESTIMATOR_HARDWARE_YAML`` selects a site-specific table; otherwise
+    the bundled Delta table applies. A configured-but-unreadable override
+    raises rather than silently falling back to Delta data on the wrong
+    cluster — and app.main calls this at STARTUP so that raise fails the boot
+    loudly instead of being swallowed per-launch by the gate's fail-open wrap.
+    """
+    override = hardware_override_path()
+    if override:
+        text = Path(override).read_text()
+    else:
+        text = resources.files(_DATA_PACKAGE).joinpath(_HARDWARE_RESOURCE).read_text()
     return tuple(parse_partitions(yaml.safe_load(text)))
