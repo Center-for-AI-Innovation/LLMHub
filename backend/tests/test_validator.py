@@ -197,7 +197,7 @@ def test_overhead_at_launch_concurrency_closes_boot_false_accept_window() -> Non
     """The gate must charge overhead at the mns the job boots with, not 1.
 
     Llama-3.3-70B on gpuA100x4 (TP=4): with overhead at mns=1 the certified
-    pool holds ~27.4k tokens, but the real job boots at the vLLM default 256
+    pool holds ~27.4k tokens, but a job booting at mns=256 (the then-assumed default)
     where the calibrated pool holds only ~20.8k. A context in that window
     (24102 here) used to pass the gate and then die at boot; with
     ``overhead_max_num_seqs`` it must be rejected, while contexts below the

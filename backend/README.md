@@ -85,4 +85,23 @@ isort .
 - [SQLAlchemy](https://www.sqlalchemy.org/)
 - [Pydantic](https://pydantic-docs.helpmanual.io/)
 - [llm-inference](https://github.com/VectorInstitute/vector-inference)
-- [uv](https://github.com/astral-sh/uv) - Fast Python package installer and resolver 
+- [uv](https://github.com/astral-sh/uv) - Fast Python package installer and resolver
+
+## GPU fit estimator & launch gate
+
+`app/services/fit_estimator/` sizes vLLM deployments before they reach Slurm:
+`POST /api/fit-estimate` surveys every partition (fit, bootability, sustainable
+concurrency, SU cost) and a pre-launch gate refuses configs whose KV pool
+cannot hold one full-context sequence. Configs the model cannot honestly size
+(multi-node, non-NVIDIA, unresolvable metadata, unmodeled vLLM flags) skip the
+gate with a logged warning instead of blocking. Full derivation, calibration
+data, and caveats: `docs/memory-estimator-writeup.tex` (PDF alongside) and
+`docs/concurrency-kv-findings.md`.
+
+Ops notes:
+- Set `HF_TOKEN` in production — without it, gated models (about half the
+  catalog) cannot be sized and launch ungated.
+- Port to another Slurm cluster with
+  `python -m app.services.fit_estimator.discovery --output hardware.yaml`
+  and `FIT_ESTIMATOR_HARDWARE_YAML=/path/to/hardware.yaml` (see the module
+  docstring for what transfers automatically and what needs hand-editing).

@@ -14,7 +14,7 @@ rather than OOMing. So the meaningful questions are:
   assumed: ``kv_pool_tokens / seq_len``, capped by the ``--max-num-seqs`` scheduler
   limit.
 
-This replaces the fictional ``ctx × 256`` worst-case product for the "will it run"
+This replaces the fictional ``ctx x max_num_seqs`` worst-case product for the "will it run"
 verdict. All quantities are per-GPU (KV shards across tensor-parallel ranks, and
 ``per_token_kv_bytes`` is already the per-GPU figure).
 """

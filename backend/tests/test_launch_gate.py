@@ -111,7 +111,7 @@ def test_resolve_codellama_catalog_spec() -> None:
 def test_gate_certifies_startup_not_peak_concurrency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Gate certifies boot (KV pool holds 1 full-context seq), not ×256 saturation.
+    """Gate certifies boot (KV pool holds 1 full-context seq), not saturation.
 
     Qwen 7B @ 32K starts fine on an A40 even though it could not hold 256 full
     concurrent sequences — that is a throughput ceiling, not an OOM, so it must
@@ -137,7 +137,7 @@ def test_gate_certifies_startup_not_peak_concurrency(
 
     def validate_fixture(_model_id, **kwargs):
         # KV budget at the ×1 boot contract, overhead at the resolved launch
-        # concurrency (no catalog/user override here -> vLLM default 256).
+        # concurrency (no catalog/user override here -> the vLLM default).
         assert kwargs["max_num_seqs"] == LAUNCH_GATE_MAX_NUM_SEQS
         assert kwargs["overhead_max_num_seqs"] == DEFAULT_MAX_NUM_SEQS
         return validate_config(meta, **kwargs)

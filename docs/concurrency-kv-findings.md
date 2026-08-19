@@ -154,8 +154,8 @@ Archetype factors must remain labeled advisory if shown in UI.
 ## 7. Phase 2 status
 
 1. **`resolve_max_num_seqs(ui_override, catalog_value)`** — done.
-2. **Precedence**: `ui_override` (only when user explicitly set) > catalog > 256 — done.
-3. **Regression fix**: UI defaults to catalog-resolved value (256 for most models; 32/64 for vision), not 16 — done.
+2. **Precedence**: `ui_override` (only when user explicitly set) > catalog > vLLM default — done. (Assumed 256 at the time; §8: the V1 engine default is 1024.)
+3. **Regression fix**: UI defaults to catalog-resolved value (the vLLM default for most models; 32/64 for vision), not 16 — done.
 4. **Gate/UI reconciliation** to the same concurrency for hard `valid` — ~~not done~~ **done, superseded by §8** (2026-08-14: overhead charged at the resolved launch concurrency; KV stays ×1).
 5. **Archetypes**: display-only, labeled uncalibrated — done.
 6. **Tests**: resolver precedence, vision catalog preservation, no silent 256→16 regression — done.
@@ -169,10 +169,10 @@ Phase-2 item 4 is now **done**, via a split contract in `validate_config`:
 - **KV budget** stays at the ×1 boot contract (`max_num_seqs=1`) — what vLLM
   checks at startup (Option B unchanged).
 - **Overhead** is now charged at the *resolved launch concurrency*
-  (`overhead_max_num_seqs` = user override > catalog `--max-num-seqs` > 256,
+  (`overhead_max_num_seqs` = user override > catalog `--max-num-seqs` > the vLLM default — 1024 on the V1 engine, live-validated,
   via `resolve_max_num_seqs`). vLLM's internal reservation grows
   0.002 GiB/seq regardless of KV usage, so charging it at mns=1 over-promised
-  the real pool by ~0.5 GiB at the default 256 — enough to pass configs that
+  the real pool by ~2 GiB at the V1-engine default of 1024 — enough to pass configs that
   then died at boot (calibration margins are 0.24–0.48 GiB). Regression test:
   `test_overhead_at_launch_concurrency_closes_boot_false_accept_window`.
 

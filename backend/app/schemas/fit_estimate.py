@@ -41,7 +41,9 @@ class FitEstimateRequest(BaseModel):
         None, gt=0, description="Max sequence length; defaults to the model's config"
     )
     max_num_seqs: Optional[int] = Field(
-        None, gt=0, description="Max concurrent sequences; defaults to vLLM's 256"
+        None,
+        gt=0,
+        description="Max concurrent sequences; defaults to the vLLM default (1024 on the V1 engine)",
     )
     workload_archetype: Optional[str] = Field(
         None, description="chat | summarization | code | batch (for 'typical' KV)"

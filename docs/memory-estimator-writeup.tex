@@ -78,7 +78,8 @@ full by \emph{every} rank.
 \subsection{Calibration}
 
 The internal-overhead line $0.8 + 0.002\,m$ was fitted as a conservative upper
-bound over eight real vLLM~0.11.0 startup probes on Delta (Qwen2.5-0.5B/7B;
+bound over eight historical vLLM~0.11.0 startup probes on Delta (a ninth,
+captured live from the production launch path, validates it --- \S\ref{sec:live}) (Qwen2.5-0.5B/7B;
 A40 and A100-40GB; TP 1/2/4; $m \in \{32,256,512,1024\}$), reading vLLM's own
 ``Model loading took'' and ``Available KV cache memory'' log lines against
 \code{nvidia-smi} totals. The model under-promises the measured KV pool at
@@ -281,7 +282,7 @@ educated guess of \textbf{140.0\gib} until probes run on real hardware.
   3000 SU/GPU-hr while every other interactive partition is exactly $2\times$
   its batch rate (which would give 2000). Cost display only --- gating is
   unaffected --- but worth confirming against Delta billing.
-\item \textbf{Calibration breadth:} eight probes, two models ($\le$7B), two
+\item \textbf{Calibration breadth:} nine probes, two models ($\le$7B), two
   GPU types, one vLLM version (0.11.0). The conservative-line + zero-slack
   regression test protects against silent drift, but two extrapolations are
   load-bearing and unprobed: 70B-class verdicts (vLLM's profile-run peak
@@ -333,13 +334,27 @@ local database (the shared database was never touched):
   ($\sim$0.6\gib{} optimistic); at the correct 1024 the model charges
   2.85\gib{} (conservative by 0.93\gib). \code{DEFAULT\_MAX\_NUM\_SEQS}
   is now 1024, and the live measurement is vendored as a ninth calibration
-  probe so regression tests pin it. (The frontend's own copy of the 256
-  constant needs the same update in the frontend pass.)
+  probe so regression tests pin it. (The frontend's copy of the constant is
+  updated in the same PR.)
 \end{itemize}
+
+\section{Portability to other Slurm clusters}
+
+\code{python -m app.services.fit\_estimator.discovery --output hardware.yaml}
+reads partitions, GPU GRES names, and walltimes from \code{sinfo} and emits a
+hardware table in the estimator's schema; \code{FIT\_ESTIMATOR\_HARDWARE\_YAML}
+activates it. VRAM resolves by (1) \code{--probe} (a tiny \code{srun
+nvidia-smi} per GPU type --- measured truth) or (2) a bundled table that
+deliberately assumes the \emph{smallest} memory variant for ambiguous GRES
+names, so an unprobed cluster can only produce false rejects. Unknown GPUs are
+excluded, never guessed. SU rates are site policy and must be hand-edited; the
+overhead calibration transfers as-is (it is a property of the vLLM version, not
+the GPU). Validated by regenerating Delta's own table from live \code{sinfo}
+and reproducing identical verdicts.
 
 \section{Verification status}
 
-133 backend tests pass (including the live production-container probe) (fully offline; real HF configs and the eight probe
+158 backend tests pass (including the live production-container probe and the Slurm hardware-discovery suite) (fully offline; real HF configs and the eight probe
 measurements are vendored as fixtures), including regression tests for the
 boot-window false accept, comma-joined flag parsing, model-identity
 protection, the skip semantics, nested-config resolution and its

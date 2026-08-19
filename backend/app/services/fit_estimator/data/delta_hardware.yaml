@@ -107,6 +107,9 @@ partitions:
     vram_gib_per_gpu: 40
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
+    # KNOWN-OPEN QUESTION: every other interactive queue is exactly 2x its
+    # batch rate (which would give 2000 here). 3000 is what the original
+    # source table carried; confirm against Delta billing before changing.
     su_per_gpu_hour: 3000
     max_walltime: "1:00:00"
 
