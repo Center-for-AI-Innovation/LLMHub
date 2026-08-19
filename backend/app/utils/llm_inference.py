@@ -42,8 +42,8 @@ def _apply_vec_inf_environment() -> None:
 _apply_vec_inf_environment()
 
 # Python SDK for vec-inf (imported AFTER env vars are set)
-from vec_inf.client.api import VecInfClient
-from vec_inf.client.models import LaunchOptions
+from vec_inf.client.api import VecInfClient  # noqa: E402
+from vec_inf.client.models import LaunchOptions  # noqa: E402
 
 logger = get_logger("llm_inference")
 

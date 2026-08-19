@@ -2,7 +2,7 @@ import concurrent.futures
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from sqlalchemy import delete
@@ -12,7 +12,6 @@ from app.config.logging import get_logger
 from app.models.available_model import AvailableModel
 from app.models.model_deployment import ModelDeployment
 from app.models.model_request import ModelRequest
-from app.schemas.available_model import AvailableModelCreate
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.services.resource_service import ResourceService
