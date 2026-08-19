@@ -598,8 +598,12 @@ class LLMInferenceClient:
             workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
             _ensure_shared_cache_dir_access(cluster_username)
             if workspace_dir is not None:
-                params.setdefault("work_dir", str(workspace_dir))
-                params.setdefault("log_dir", str(workspace_dir))
+                # These keys arrive from model_dump() already present and set to
+                # None, so setdefault() would never fire.
+                if not params.get("work_dir"):
+                    params["work_dir"] = str(workspace_dir)
+                if not params.get("log_dir"):
+                    params["log_dir"] = str(workspace_dir)
 
             if not params.get("account"):
                 prefer_gpu = params.get("num_gpus", 1) != 0
