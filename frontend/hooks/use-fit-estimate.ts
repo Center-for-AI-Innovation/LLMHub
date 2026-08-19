@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 export interface FitEstimateRequest {
   model_id: string;
@@ -76,5 +76,9 @@ export function useFitEstimate(
     enabled: enabled && request !== null,
     staleTime: 30_000,
     retry: false,
+    // Keep showing the previous estimate while a new debounced key is in
+    // flight, so the verdict and Launch button don't flicker to "pending" on
+    // every slider move.
+    placeholderData: keepPreviousData,
   });
 }

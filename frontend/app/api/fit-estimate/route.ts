@@ -1,9 +1,18 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/app/(auth)/auth';
 
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
 export async function POST(request: NextRequest) {
   try {
+    // The backend endpoint makes outbound HF requests with the server's
+    // HF_TOKEN for a caller-supplied model id; require a session like the
+    // deployment routes do (the model catalog routes are unauthenticated).
+    const session = await auth();
+    if (!(session?.user as { id?: string } | undefined)?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
 
     const response = await fetch(`${BACKEND_API_URL}/api/fit-estimate`, {

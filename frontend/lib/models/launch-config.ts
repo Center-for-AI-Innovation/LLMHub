@@ -1,11 +1,16 @@
-/** SLURM partition -> vec-inf resource_type for Delta launches. */
+/**
+ * SLURM partition -> vec-inf resource_type for Delta launches.
+ *
+ * Values are the cluster's real GRES names (`sinfo -o "%P %G"`), which is what
+ * the resource_type ends up requesting: nvidia_a40 / nvidia_a100 / h200.
+ */
 export const PARTITION_RESOURCE_TYPE: Record<string, string> = {
   gpuA40x4: 'nvidia_a40',
   'gpuA40x4-preempt': 'nvidia_a40',
-  gpuA100x4: 'A100',
-  'gpuA100x4-preempt': 'A100',
-  gpuA100x8: 'A100',
-  gpuH200x8: 'H200',
+  gpuA100x4: 'nvidia_a100',
+  'gpuA100x4-preempt': 'nvidia_a100',
+  gpuA100x8: 'nvidia_a100',
+  gpuH200x8: 'h200',
 };
 
 export const LAUNCH_PARTITIONS = [
@@ -37,8 +42,15 @@ export function isLaunchPartition(
 
 export const GPU_COUNT_OPTIONS = [1, 2, 4, 8] as const;
 
-/** vLLM built-in default when catalog omits ``--max-num-seqs``. */
-export const VLLM_DEFAULT_MAX_NUM_SEQS = 256;
+/**
+ * vLLM built-in default when catalog omits ``--max-num-seqs``.
+ *
+ * The V1 engine in the production Delta container defaults to 1024 (verified
+ * live; the V0-era default was 256). Keep in sync with the backend's
+ * DEFAULT_MAX_NUM_SEQS — the backend's resolved `specs.maxNumSeqs` is the
+ * source of truth; this constant is only the client-side fallback.
+ */
+export const VLLM_DEFAULT_MAX_NUM_SEQS = 1024;
 
 /** Max tensor-parallel size allowed on a Delta partition (GPUs per node). */
 export function maxGpusForPartition(partition: string): number {
@@ -199,7 +211,9 @@ export function formatFitConfigSummary(
   numGpus: number,
   typicalSeqLen: number,
 ): string {
-  return `Context ${contextLength.toLocaleString()} · up to ${concurrencyCap} concurrent · ~${typicalSeqLen.toLocaleString()} typical tokens · ${numGpus} GPU${numGpus > 1 ? 's' : ''}`;
+  // "cap N", not "up to N concurrent": the scheduler cap is not a capacity
+  // promise — sustainable concurrency is memory-bound and reported separately.
+  return `Context ${contextLength.toLocaleString()} · ~${typicalSeqLen.toLocaleString()} typical tokens · ${numGpus} GPU${numGpus > 1 ? 's' : ''} · cap ${concurrencyCap.toLocaleString()}`;
 }
 
 export interface CapacityVerdictInput {
@@ -210,17 +224,26 @@ export interface CapacityVerdictInput {
   concurrentAtFullContext: number | null | undefined;
   concurrentAtTypical: number | null | undefined;
   kvPoolTokens: number | null | undefined;
+  /**
+   * True while an estimate for the current inputs is still in flight. When the
+   * check has finished and `starts` is still unknown (estimator error, sparse
+   * model metadata, gated repo), the verdict is "unverified", not "pending" —
+   * mirroring the launch gate, which skips rather than blocks such configs.
+   */
+  pending: boolean;
 }
 
 /**
  * Capacity-model verdict. vLLM allocates a fixed KV pool at startup and queues
  * (never OOMs) beyond it, so the only hard block is "won't start"; concurrency
  * is reported as sustainable capacity, not a pass/fail on a saturation product.
+ * An unverifiable config warns but does not block — the backend launch gate is
+ * the enforcement point and it skips configs it cannot size.
  */
 export function formatCapacityVerdict(input: CapacityVerdictInput): {
   title: string;
   detail: string;
-  tone: 'success' | 'error' | 'pending';
+  tone: 'success' | 'error' | 'pending' | 'warning';
 } {
   const {
     starts,
@@ -230,6 +253,7 @@ export function formatCapacityVerdict(input: CapacityVerdictInput): {
     concurrentAtFullContext,
     concurrentAtTypical,
     kvPoolTokens,
+    pending,
   } = input;
 
   if (starts === false) {
@@ -254,9 +278,18 @@ export function formatCapacityVerdict(input: CapacityVerdictInput): {
     };
   }
 
+  if (pending) {
+    return {
+      tone: 'pending',
+      title: 'Checking capacity…',
+      detail: 'Sizing the KV pool for your context length and GPU count.',
+    };
+  }
+
   return {
-    tone: 'pending',
-    title: 'Checking capacity…',
-    detail: 'Sizing the KV pool for your context length and GPU count.',
+    tone: 'warning',
+    title: `Can't verify startup on ${partition}`,
+    detail:
+      'Model size metadata is unavailable, so startup memory could not be checked. You can still launch — the job may fail on the cluster if the model does not fit.',
   };
 }

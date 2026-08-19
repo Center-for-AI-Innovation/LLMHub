@@ -170,9 +170,7 @@ export function LaunchModelDialog({
   const [numGpus, setNumGpus] = React.useState(String(defaultGpus));
   const [numSeqs, setNumSeqs] = React.useState(String(defaultMaxNumSeqs));
   const [concurrencyTouched, setConcurrencyTouched] = React.useState(false);
-  const [typicalLen, setTypicalLen] = React.useState(
-    String(DEFAULT_TYPICAL_SEQ_LEN),
-  );
+  const [overrideOpen, setOverrideOpen] = React.useState(false);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -182,7 +180,7 @@ export function LaunchModelDialog({
       setNumGpus(String(clampGpuCount(defaultGpus, defaultPartition)));
       setNumSeqs(String(defaultMaxNumSeqs));
       setConcurrencyTouched(false);
-      setTypicalLen(String(DEFAULT_TYPICAL_SEQ_LEN));
+      setOverrideOpen(false);
     }
   }, [
     open,
@@ -199,7 +197,6 @@ export function LaunchModelDialog({
   const effectiveConcurrency = concurrencyTouched
     ? parsedNumSeqs
     : defaultMaxNumSeqs;
-  const parsedTypicalLen = parseInt(typicalLen || '0', 10);
 
   React.useEffect(() => {
     const clamped = clampGpuCount(parsedGpus, partition);
@@ -217,21 +214,34 @@ export function LaunchModelDialog({
 
   const hfModelId = resolveHfModelId(modelId, modelFamily, huggingfaceId);
 
-  const debouncedFitKey = useDebounce(
-    open
-      ? {
-          model_id: hfModelId,
-          model_family: modelFamily,
-          huggingface_id: huggingfaceId,
-          max_model_len: parsedContext,
-          max_num_seqs: effectiveConcurrency,
-          typical_seq_len: parsedTypicalLen > 0 ? parsedTypicalLen : undefined,
-          tensor_parallel_size: parsedGpus,
-          time: timeStr,
-        }
-      : null,
-    400,
+  // Memoized on primitives: a fresh object literal here re-arms useDebounce's
+  // effect every render, which re-renders the open dialog every 400ms forever.
+  const fitRequest = React.useMemo(
+    () =>
+      open
+        ? {
+            model_id: hfModelId,
+            model_family: modelFamily,
+            huggingface_id: huggingfaceId,
+            max_model_len: parsedContext,
+            max_num_seqs: effectiveConcurrency,
+            typical_seq_len: DEFAULT_TYPICAL_SEQ_LEN,
+            tensor_parallel_size: parsedGpus,
+            time: timeStr,
+          }
+        : null,
+    [
+      open,
+      hfModelId,
+      modelFamily,
+      huggingfaceId,
+      parsedContext,
+      effectiveConcurrency,
+      parsedGpus,
+      timeStr,
+    ],
   );
+  const debouncedFitKey = useDebounce(fitRequest, 400);
 
   const fitSurveyEnabled =
     open &&
@@ -251,8 +261,7 @@ export function LaunchModelDialog({
     (p) => p.partition === partition,
   );
   const effectiveTypicalLen =
-    fitEstimate?.typical_seq_len ??
-    (parsedTypicalLen > 0 ? parsedTypicalLen : DEFAULT_TYPICAL_SEQ_LEN);
+    fitEstimate?.typical_seq_len ?? DEFAULT_TYPICAL_SEQ_LEN;
   const capacityOpts = {
     perTokenKvBytes: fitEstimate?.per_token_kv_bytes,
     maxModelLen: fitEstimate?.max_model_len ?? parsedContext,
@@ -262,44 +271,56 @@ export function LaunchModelDialog({
   const selectedCapacity = selectedFit
     ? resolvePartitionCapacity(selectedFit, capacityOpts)
     : null;
-  const selectedStarts = selectedCapacity?.starts === true;
+  // The first estimate for this dialog is still in flight (no data, no error).
+  const fitPending = fitSurveyEnabled && isFetchingFit && !fitEstimate;
+  // Only a definite "won't start" blocks the launch. When the estimator cannot
+  // answer (error, sparse VLM metadata, gated repo without a token) we warn and
+  // allow — mirroring the backend launch gate, which skips configs it cannot
+  // size rather than blocking curated models. The gate re-validates
+  // server-side on submit either way.
+  const definiteNoStart = selectedCapacity?.starts === false;
+  // SU figures come from the (debounced) response; pair them with the
+  // request values the response echoes back, never live input state, so the
+  // "X SU/hr x duration = Y SU" string is always internally consistent.
+  const estimateGpus = fitEstimate?.tensor_parallel_size ?? parsedGpus;
+  const estimateDurationHours = fitEstimate?.duration_hours ?? durationHours;
 
-  // Context determines whether vLLM can start. max_num_seqs is a scheduler cap:
-  // requests above the resident KV capacity queue, so it must not artificially
-  // shorten the selectable context range.
+  // Context determines whether vLLM can start; the scheduler cap is a demoted
+  // readout with an explicit override (it reserves no memory and rarely needs
+  // changing — see the launch-config verdict helpers).
   const MIN_CONTEXT = 512;
   const modelMaxContext = Math.max(MIN_CONTEXT, defaultContextLength);
-  const concurrencySliderMax = Math.max(512, defaultMaxNumSeqs, parsedNumSeqs);
   const displayContext = Math.min(
     Math.max(parsedContext || MIN_CONTEXT, MIN_CONTEXT),
     modelMaxContext,
   );
-  const displayConcurrency = Math.min(
-    Math.max(parsedNumSeqs || 1, 1),
-    concurrencySliderMax,
-  );
 
+  // Verdict/summary values must all come from the same snapshot: capacity is
+  // computed from the (possibly previous) response, so pair it with the
+  // context/cap/GPUs that response echoes back — never live input state, which
+  // runs ahead of it during the debounce window.
   const fitConfigSummary = formatFitConfigSummary(
-    parsedContext,
-    effectiveConcurrency,
-    parsedGpus,
+    capacityOpts.maxModelLen,
+    capacityOpts.maxNumSeqs,
+    estimateGpus,
     effectiveTypicalLen,
   );
   const fitVerdict = formatCapacityVerdict({
     starts: selectedCapacity?.starts,
     partition,
-    contextLength: parsedContext,
+    contextLength: capacityOpts.maxModelLen,
     typicalSeqLen: effectiveTypicalLen,
     concurrentAtFullContext: selectedCapacity?.concurrentAtFullContext,
     concurrentAtTypical: selectedCapacity?.concurrentAtTypical,
     kvPoolTokens: selectedCapacity?.kvPoolTokens,
+    pending: fitPending || (isFetchingFit && selectedCapacity?.starts == null),
   });
   const selectedSuBreakdown =
     selectedFit?.su_per_gpu_hour != null && selectedFit.estimated_job_su != null
       ? formatSuBreakdown(
           selectedFit.su_per_gpu_hour,
-          parsedGpus,
-          durationHours,
+          estimateGpus,
+          estimateDurationHours,
           selectedFit.estimated_job_su,
         )
       : null;
@@ -309,7 +330,8 @@ export function LaunchModelDialog({
     minutes !== '' &&
     parsedContext > 0 &&
     parsedNumSeqs > 0 &&
-    selectedStarts;
+    !definiteNoStart &&
+    !fitPending;
 
   const validationErrorMessage =
     hours === ''
@@ -318,19 +340,13 @@ export function LaunchModelDialog({
         ? 'Minutes cannot be empty.'
         : isZeroDuration
           ? 'Duration must be at least 1 minute.'
-          : parsedContext <= 0
+          : !(parsedContext > 0)
             ? 'Context length must be positive.'
-            : parsedNumSeqs <= 0
-              ? 'Concurrency must be at least 1.'
-              : selectedCapacity?.starts === false
+            : !(parsedNumSeqs > 0)
+              ? 'Scheduler cap must be at least 1.'
+              : definiteNoStart
                 ? 'This context length will not start on the selected partition.'
-                : selectedCapacity?.starts == null &&
-                    fitEstimate &&
-                    !isFetchingFit
-                  ? fitEstimate.warnings.length > 0
-                    ? fitEstimate.warnings.join(' ')
-                    : 'Startup could not be verified — model weight or KV metadata is missing.'
-                  : null;
+                : null;
 
   function handleHoursChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
@@ -460,11 +476,17 @@ export function LaunchModelDialog({
                   'border-emerald-500/30 bg-emerald-500/5',
                 fitVerdict.tone === 'error' &&
                   'border-destructive/30 bg-destructive/5',
+                fitVerdict.tone === 'warning' &&
+                  'border-amber-500/30 bg-amber-500/5',
                 fitVerdict.tone === 'pending' && 'bg-muted/30',
               )}
             >
               <div className="flex items-start gap-2">
-                <FitStatusIcon status={selectedCapacity?.starts ?? null} />
+                {fitVerdict.tone === 'warning' ? (
+                  <AlertCircle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                ) : (
+                  <FitStatusIcon status={selectedCapacity?.starts ?? null} />
+                )}
                 <div className="min-w-0 space-y-1">
                   <p
                     className={cn(
@@ -472,6 +494,8 @@ export function LaunchModelDialog({
                       fitVerdict.tone === 'success' &&
                         'text-emerald-700 dark:text-emerald-400',
                       fitVerdict.tone === 'error' && 'text-destructive',
+                      fitVerdict.tone === 'warning' &&
+                        'text-amber-600 dark:text-amber-400',
                     )}
                   >
                     {fitVerdict.title}
@@ -481,6 +505,13 @@ export function LaunchModelDialog({
                   </p>
                   <p className="text-muted-foreground">{fitConfigSummary}</p>
                   <p className="text-muted-foreground">{fitVerdict.detail}</p>
+                  {fitError && (
+                    <p className="text-amber-600 dark:text-amber-400">
+                      {fitError instanceof Error
+                        ? fitError.message
+                        : 'Fit estimate failed'}
+                    </p>
+                  )}
                   {!advancedOpen && selectedSuBreakdown && fitEnabled && (
                     <p className="pt-1 text-muted-foreground">
                       {selectedSuBreakdown}
@@ -554,32 +585,74 @@ export function LaunchModelDialog({
                   <div className="flex items-center justify-between text-sm">
                     <span className="flex items-center gap-1.5 text-muted-foreground">
                       <Layers className="size-3.5" />
-                      Concurrency
+                      Scheduler cap
                     </span>
-                    <span className="font-medium tabular-nums">
-                      {displayConcurrency.toLocaleString()}
-                      <span className="font-normal text-muted-foreground">
-                        {' '}
-                        / {concurrencySliderMax.toLocaleString()} max
+                    {overrideOpen ? (
+                      <Input
+                        aria-label="Scheduler cap override"
+                        type="number"
+                        min={1}
+                        value={numSeqs}
+                        onChange={(e) => {
+                          setConcurrencyTouched(true);
+                          setNumSeqs(e.target.value);
+                        }}
+                        className="h-7 w-24 text-right tabular-nums"
+                      />
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <span className="font-medium tabular-nums">
+                          {defaultMaxNumSeqs.toLocaleString()}
+                          <span className="font-normal text-muted-foreground">
+                            {' '}
+                            ·{' '}
+                            {defaultMaxNumSeqs === VLLM_DEFAULT_MAX_NUM_SEQS
+                              ? 'vLLM default'
+                              : 'set by catalog'}
+                          </span>
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[11px]"
+                          onClick={() => setOverrideOpen(true)}
+                        >
+                          Override
+                        </Button>
                       </span>
-                    </span>
+                    )}
                   </div>
-                  <TrackSlider
-                    label="Concurrency cap"
-                    min={1}
-                    max={concurrencySliderMax}
-                    step={1}
-                    value={displayConcurrency}
-                    onValueChange={(v) => {
-                      setConcurrencyTouched(true);
-                      setNumSeqs(String(v));
-                    }}
-                  />
-                  <p className="text-[10px] text-muted-foreground">
-                    Scheduler limit (vLLM max-num-seqs). Requests beyond the
-                    sustainable capacity shown above queue instead of reserving
-                    more KV memory at startup.
-                  </p>
+                  {overrideOpen ? (
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-[10px] text-muted-foreground">
+                        Max requests scheduled at once (vLLM max-num-seqs).
+                        Lower caps free ~2 MiB per request for the KV pool;
+                        higher caps never speed anything up — memory is the
+                        real limit. The sustainable concurrency above is
+                        computed from memory, not this cap.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 shrink-0 px-2 text-[11px]"
+                        onClick={() => {
+                          setNumSeqs(String(defaultMaxNumSeqs));
+                          setConcurrencyTouched(false);
+                          setOverrideOpen(false);
+                        }}
+                      >
+                        Use default
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">
+                      Requests beyond the sustainable capacity shown above
+                      queue; the cap reserves no memory and rarely needs
+                      changing.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -646,14 +719,6 @@ export function LaunchModelDialog({
                   memory up front. SU scales with GPU count.
                 </p>
 
-                {fitError && (
-                  <p className="text-xs text-destructive">
-                    {fitError instanceof Error
-                      ? fitError.message
-                      : 'Fit estimate failed'}
-                  </p>
-                )}
-
                 <div className="space-y-1">
                   {nvidiaPartitions.map((p) => {
                     const isCheapest =
@@ -667,8 +732,8 @@ export function LaunchModelDialog({
                       p.su_per_gpu_hour != null && p.estimated_job_su != null
                         ? formatSuBreakdown(
                             p.su_per_gpu_hour,
-                            parsedGpus,
-                            durationHours,
+                            estimateGpus,
+                            estimateDurationHours,
                             p.estimated_job_su,
                           )
                         : null;
@@ -734,9 +799,9 @@ export function LaunchModelDialog({
                 {selectedCapacity?.starts === false && (
                   <p className="text-xs text-destructive">
                     {partition} can&apos;t start at context{' '}
-                    {parsedContext.toLocaleString()}: the KV pool can&apos;t
-                    hold one full-length sequence. Lower the context or add
-                    GPUs.
+                    {capacityOpts.maxModelLen.toLocaleString()}: the KV pool
+                    can&apos;t hold one full-length sequence. Lower the context
+                    or add GPUs.
                   </p>
                 )}
               </div>
