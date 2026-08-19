@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+
 import yaml
 
 from app.config.config import settings
@@ -19,16 +20,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 def _apply_vec_inf_environment() -> None:
     """Set vec-inf env vars before importing the SDK."""
-    if getattr(settings, "VEC_INF_CONFIG_DIR", None) and not os.getenv("VEC_INF_CONFIG_DIR"):
+    if getattr(settings, "VEC_INF_CONFIG_DIR", None) and not os.getenv(
+        "VEC_INF_CONFIG_DIR"
+    ):
         os.environ["VEC_INF_CONFIG_DIR"] = str(settings.VEC_INF_CONFIG_DIR)
-    if (
-        not os.getenv("VEC_INF_ACCOUNT")
-        and (getattr(settings, "VEC_INF_ACCOUNT", None) or getattr(settings, "SLURM_ACCOUNT", None))
+    if not os.getenv("VEC_INF_ACCOUNT") and (
+        getattr(settings, "VEC_INF_ACCOUNT", None)
+        or getattr(settings, "SLURM_ACCOUNT", None)
     ):
         os.environ["VEC_INF_ACCOUNT"] = str(
             getattr(settings, "VEC_INF_ACCOUNT", None) or settings.SLURM_ACCOUNT
         )
-    if getattr(settings, "VEC_INF_WORK_DIR", None) and not os.getenv("VEC_INF_WORK_DIR"):
+    if getattr(settings, "VEC_INF_WORK_DIR", None) and not os.getenv(
+        "VEC_INF_WORK_DIR"
+    ):
         os.environ["VEC_INF_WORK_DIR"] = str(settings.VEC_INF_WORK_DIR)
     if getattr(settings, "VEC_INF_LOG_DIR", None) and not os.getenv("VEC_INF_LOG_DIR"):
         os.environ["VEC_INF_LOG_DIR"] = str(settings.VEC_INF_LOG_DIR)
@@ -55,7 +60,10 @@ def _normalize_cluster_username(cluster_username: str) -> str:
 
 
 def _resolve_impersonated_workspace_root() -> Optional[Path]:
-    raw_root = getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None) or get_vec_inf_log_base_dir()
+    raw_root = (
+        getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
+        or get_vec_inf_log_base_dir()
+    )
     if not isinstance(raw_root, str) or not raw_root.strip():
         return None
     return Path(raw_root).expanduser()
@@ -99,7 +107,9 @@ def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
 
 
 def _get_shared_cache_dirs() -> List[Path]:
-    config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.getenv("VEC_INF_CONFIG_DIR")
+    config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.getenv(
+        "VEC_INF_CONFIG_DIR"
+    )
     if not isinstance(config_dir, str) or not config_dir.strip():
         return []
 
@@ -123,7 +133,10 @@ def _get_shared_cache_dirs() -> List[Path]:
         if len(parts) != 2:
             continue
         host_path, container_path = parts
-        if container_path not in {"/root/.cache/huggingface", "/root/.cache/torch_inductor"}:
+        if container_path not in {
+            "/root/.cache/huggingface",
+            "/root/.cache/torch_inductor",
+        }:
             continue
         host_dirs.append(Path(host_path).expanduser())
     return host_dirs
@@ -146,7 +159,9 @@ def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
             try:
                 subprocess.run(command, text=True, capture_output=True, check=True)
             except FileNotFoundError as exc:
-                raise RuntimeError(f"Required ACL command not found: {command[0]}") from exc
+                raise RuntimeError(
+                    f"Required ACL command not found: {command[0]}"
+                ) from exc
             except subprocess.CalledProcessError as exc:
                 stderr = (exc.stderr or "").strip()
                 raise RuntimeError(
@@ -156,7 +171,9 @@ def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
 
 def _select_user_slurm_account(cluster_username: str, prefer_gpu: bool = True) -> str:
     cluster_username = _normalize_cluster_username(cluster_username)
-    script_path = Path(getattr(settings, "VEC_INF_ACCOUNTS_SCRIPT", "/sw/user/scripts/accounts"))
+    script_path = Path(
+        getattr(settings, "VEC_INF_ACCOUNTS_SCRIPT", "/sw/user/scripts/accounts")
+    )
     if not script_path.exists():
         raise RuntimeError(f"Accounts helper not found: {script_path}")
 
@@ -168,7 +185,9 @@ def _select_user_slurm_account(cluster_username: str, prefer_gpu: bool = True) -
     )
     if result.returncode != 0:
         stderr = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(f"Failed to resolve Slurm account for {cluster_username}: {stderr}")
+        raise RuntimeError(
+            f"Failed to resolve Slurm account for {cluster_username}: {stderr}"
+        )
 
     accounts: List[str] = []
     for raw_line in result.stdout.splitlines():
@@ -264,7 +283,9 @@ class LLMInferenceDirectClient:
                 minutes = (time_value % 3600) // 60
                 seconds = time_value % 60
                 mapped["time"] = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-                logger.info("Converted time from %s seconds to %s", time_value, mapped["time"])
+                logger.info(
+                    "Converted time from %s seconds to %s", time_value, mapped["time"]
+                )
             elif isinstance(time_value, str):
                 mapped["time"] = time_value
             else:
@@ -321,7 +342,11 @@ class LLMInferenceDirectClient:
             resp = self.client.launch_model(model_name, options=options)
             slurm_job_id = getattr(resp, "slurm_job_id", None)
             logger.info("Launched model %s -> %s", model_name, slurm_job_id)
-            return {"success": True, "slurm_job_id": slurm_job_id, "job_id": slurm_job_id}
+            return {
+                "success": True,
+                "slurm_job_id": slurm_job_id,
+                "job_id": slurm_job_id,
+            }
         except Exception as exc:
             logger.error("Failed to launch model: %s", exc)
             return {"success": False, "error": str(exc)}
@@ -349,7 +374,10 @@ class LLMInferenceDirectClient:
     def get_model_metrics(self, slurm_job_id: str):
         try:
             metrics = self.client.get_metrics(slurm_job_id)
-            return {"success": True, **(metrics if isinstance(metrics, dict) else {"metrics": metrics})}
+            return {
+                "success": True,
+                **(metrics if isinstance(metrics, dict) else {"metrics": metrics}),
+            }
         except Exception as exc:
             logger.error("Failed to get model metrics: %s", exc)
             return {"success": False, "error": str(exc)}
@@ -477,7 +505,9 @@ class LLMInferenceClient:
     """Launch wrapper that can impersonate the submitting cluster user."""
 
     def __init__(self):
-        self.execution_mode = str(getattr(settings, "VEC_INF_EXECUTION_MODE", "direct") or "direct")
+        self.execution_mode = str(
+            getattr(settings, "VEC_INF_EXECUTION_MODE", "direct") or "direct"
+        )
         self.direct_client = LLMInferenceDirectClient()
 
     @staticmethod
@@ -508,7 +538,9 @@ class LLMInferenceClient:
 
     @staticmethod
     def _parse_impersonated_response(stdout: str, stderr: str) -> Dict[str, Any]:
-        for line in reversed([item.strip() for item in stdout.splitlines() if item.strip()]):
+        for line in reversed(
+            [item.strip() for item in stdout.splitlines() if item.strip()]
+        ):
             line = _CONTROL_CHARS_RE.sub("", line)
             if "{" in line and "}" in line:
                 line = line[line.find("{") : line.rfind("}") + 1]
@@ -524,7 +556,11 @@ class LLMInferenceClient:
             error_parts.append(stderr.strip())
         if stdout.strip():
             error_parts.append(stdout.strip())
-        error = "\n".join(error_parts) if error_parts else "Impersonated launch returned no JSON payload"
+        error = (
+            "\n".join(error_parts)
+            if error_parts
+            else "Impersonated launch returned no JSON payload"
+        )
         return {"success": False, "error": error}
 
     def _launch_model_impersonated(
@@ -574,7 +610,9 @@ class LLMInferenceClient:
         except RuntimeError as exc:
             return {"success": False, "error": str(exc)}
 
-        payload = self._build_launch_payload(model_name, enable_cloudflare_tunnel, params)
+        payload = self._build_launch_payload(
+            model_name, enable_cloudflare_tunnel, params
+        )
         command = [str(wrapper_path)]
         if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
             command.append("--no-login-shell")
@@ -612,7 +650,8 @@ class LLMInferenceClient:
         if result.returncode != 0 and parsed.get("success", True):
             parsed = {
                 "success": False,
-                "error": parsed.get("error") or f"Impersonated launch failed with code {result.returncode}",
+                "error": parsed.get("error")
+                or f"Impersonated launch failed with code {result.returncode}",
             }
         return parsed
 

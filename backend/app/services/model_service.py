@@ -12,9 +12,9 @@ from app.config.logging import get_logger
 from app.models.available_model import AvailableModel
 from app.models.model_deployment import ModelDeployment
 from app.models.model_request import ModelRequest
+from app.schemas.available_model import AvailableModelCreate
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
-from app.schemas.available_model import AvailableModelCreate
 from app.services.resource_service import ResourceService
 from app.utils.infrastructure import (
     get_vec_inf_log_base_dir,
@@ -694,7 +694,10 @@ class ModelService:
         if isinstance(db_deployment.resourceAllocation, dict):
             cluster_username = db_deployment.resourceAllocation.get("cluster_username")
 
-        log_base = get_vec_inf_user_workspace_dir(cluster_username) or get_vec_inf_log_base_dir()
+        log_base = (
+            get_vec_inf_user_workspace_dir(cluster_username)
+            or get_vec_inf_log_base_dir()
+        )
         if not log_base:
             return {
                 "success": False,

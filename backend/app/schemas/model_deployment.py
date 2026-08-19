@@ -1,12 +1,11 @@
-from datetime import datetime
 import re
+from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas._base import ORMBaseModel
-
 
 _CLUSTER_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 
@@ -33,7 +32,9 @@ class ModelDeploymentCreate(BaseModel):
     qos: Optional[str] = None
     time: Optional[str] = None
     data_type: Optional[str] = None
-    resource_type: Optional[str] = None  # GPU type (e.g., "l40s", "h100", "A100", "H200")
+    resource_type: Optional[str] = (
+        None  # GPU type (e.g., "l40s", "h100", "A100", "H200")
+    )
     cluster_username: Optional[str] = Field(default=None, alias="clusterUsername")
     work_dir: Optional[str] = None  # Optional working directory for vec-inf jobs
     hf_model: Optional[str] = (

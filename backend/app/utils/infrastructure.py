@@ -25,13 +25,17 @@ _CLUSTER_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 
 def get_vec_inf_log_base_dir(infrastructure: Optional[str] = None) -> Optional[str]:
     """Return vec-inf's configured base log directory from environment.yaml."""
-    env_override = getattr(settings, "VEC_INF_LOG_DIR", None) or os.environ.get("VEC_INF_LOG_DIR")
+    env_override = getattr(settings, "VEC_INF_LOG_DIR", None) or os.environ.get(
+        "VEC_INF_LOG_DIR"
+    )
     if isinstance(env_override, str) and env_override.strip():
         return str(Path(env_override).expanduser())
 
     try:
         mgr = InfrastructureManager()
-        default_args = (mgr.get_environment_config(infrastructure) or {}).get("default_args") or {}
+        default_args = (mgr.get_environment_config(infrastructure) or {}).get(
+            "default_args"
+        ) or {}
         raw = default_args.get("log_dir")
         if isinstance(raw, str) and raw.strip():
             return str(Path(raw).expanduser())
@@ -49,7 +53,10 @@ def get_vec_inf_user_workspace_dir(
         return None
     username = cluster_username.strip()
     if not _CLUSTER_USERNAME_RE.fullmatch(username):
-        logger.warning("Ignoring invalid cluster username for workspace lookup: %r", cluster_username)
+        logger.warning(
+            "Ignoring invalid cluster username for workspace lookup: %r",
+            cluster_username,
+        )
         return None
 
     raw_root = (
