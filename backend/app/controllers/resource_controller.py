@@ -16,7 +16,9 @@ router = APIRouter()
 resource_service = ResourceService()
 
 
-@router.post("/", response_model=ResourceAllocationResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=ResourceAllocationResponse, status_code=status.HTTP_201_CREATED
+)
 def create_resource(
     resource: ResourceAllocationCreate,
     db: Session = Depends(get_db),
@@ -36,8 +38,12 @@ def list_resources(
 ) -> Any:
     """List resource allocations with optional filters."""
     return resource_service.get_resources(
-        db=db, resource_type=resourceType, resource_name=resourceName, 
-        is_active=isActive, skip=skip, limit=limit
+        db=db,
+        resource_type=resourceType,
+        resource_name=resourceName,
+        is_active=isActive,
+        skip=skip,
+        limit=limit,
     )
 
 
@@ -79,4 +85,4 @@ def update_resource(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Resource allocation not found",
         )
-    return db_resource 
+    return db_resource

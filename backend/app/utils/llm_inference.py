@@ -12,6 +12,8 @@ from app.config.config import settings
 from app.config.logging import get_logger
 from app.utils.infrastructure import get_vec_inf_log_base_dir
 
+# IMPORTANT: Set VEC_INF env vars BEFORE importing vec-inf.
+# vec-inf loads/caches config at import time.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -215,8 +217,11 @@ class LLMInferenceDirectClient:
             logger.info("Using VEC_INF_CONFIG_DIR: %s", vec_inf_config_dir)
             self._verify_config_files(vec_inf_config_dir)
         else:
-            logger.info("VEC_INF_CONFIG_DIR not set, using vec-inf default config location")
+            logger.info(
+                "VEC_INF_CONFIG_DIR not set, using vec-inf default config location"
+            )
 
+        # MODEL_CONFIG_PATH can still be used for explicit models.yaml path override
         config_path = getattr(settings, "MODEL_CONFIG_PATH", None)
         if config_path:
             logger.info("Using custom model config path: %s", config_path)
@@ -224,6 +229,7 @@ class LLMInferenceDirectClient:
                 os.environ["VEC_INF_MODEL_CONFIG"] = str(config_path)
                 logger.info("Set VEC_INF_MODEL_CONFIG to: %s", config_path)
 
+        # Initialize VecInfClient - it will use VEC_INF_CONFIG_DIR if set
         self.client = VecInfClient()
         self.slurm_account = os.getenv("SLURM_ACCOUNT") or settings.SLURM_ACCOUNT
 
@@ -304,8 +310,11 @@ class LLMInferenceDirectClient:
 
         return LaunchOptions(**mapped)
 
-    def launch_model(self, model_name: str, enable_cloudflare_tunnel: bool = False, **params):
+    def launch_model(
+        self, model_name: str, enable_cloudflare_tunnel: bool = False, **params
+    ):
         """Launch a model using the vec-inf Python API."""
+        # SDK tunnel support is handled externally for now.
         _ = enable_cloudflare_tunnel
         try:
             options = self._build_launch_options(**params)
@@ -360,6 +369,7 @@ class LLMInferenceDirectClient:
             user_config_path = self._resolve_user_models_config_path()
             if user_config_path:
                 import yaml as _yaml
+
                 with open(user_config_path) as fh:
                     raw = _yaml.safe_load(fh) or {}
                 names = list(raw.get("models", {}).keys())
@@ -447,7 +457,9 @@ class LLMInferenceDirectClient:
         if not log_base:
             logger.error("Vec-inf log directory not configured")
             return None
-        tunnel_url_file = os.path.join(log_base, f"{job_name}.{slurm_job_id}.tunnel_url")
+        tunnel_url_file = os.path.join(
+            log_base, f"{job_name}.{slurm_job_id}.tunnel_url"
+        )
         try:
             if os.path.exists(tunnel_url_file):
                 with open(tunnel_url_file, "r") as file_obj:

@@ -13,7 +13,7 @@ export default [
       '**/components/ui/**',
     ],
   },
-  ...nextCoreWebVitals,
+  ...nextCoreWebVitals, // Next.js’s recommended rules
   {
     plugins: {
       import: importPlugin,

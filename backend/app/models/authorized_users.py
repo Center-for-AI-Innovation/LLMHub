@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.repositories.base import Base
@@ -28,8 +28,12 @@ class AuthorizedUsers(Base):
     )
     userId = Column(UUID(as_uuid=True), ForeignKey("User.id"), nullable=False)
     permission = Column(String, nullable=False, default="owner")  # "owner" | "user"
-    updatedAt = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updatedAt = Column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
     __table_args__ = (
-        UniqueConstraint("deploymentId", "userId", name="AuthorizedUsers_deploymentId_userId_unique"),
+        UniqueConstraint(
+            "deploymentId", "userId", name="AuthorizedUsers_deploymentId_userId_unique"
+        ),
     )

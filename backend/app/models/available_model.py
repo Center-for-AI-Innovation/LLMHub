@@ -1,7 +1,8 @@
-from sqlalchemy import Column, String, Integer, JSON, DateTime, func
+from sqlalchemy import JSON, Column, DateTime, Integer, String, func
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
+
 
 class AvailableModel(Base):
     """Model for available models."""
@@ -20,7 +21,9 @@ class AvailableModel(Base):
     vocabSize = Column(Integer, nullable=True)
     huggingfaceId = Column(String(255), nullable=True)
     createdAt = Column(DateTime, default=func.now(), nullable=False)
-    updatedAt = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+    updatedAt = Column(
+        DateTime, default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     def __repr__(self):
-        return f"<AvailableModel(id='{self.id}', name='{self.name}', family='{self.family}', variant='{self.variant}')>" 
+        return f"<AvailableModel(id='{self.id}', name='{self.name}', family='{self.family}', variant='{self.variant}')>"
