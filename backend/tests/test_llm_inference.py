@@ -37,9 +37,12 @@ class FakeDirectClient:
         return None
 
 
-def test_select_user_slurm_account_prefers_gpu(monkeypatch):
+def test_select_user_slurm_account_prefers_gpu(monkeypatch, tmp_path):
+    accounts_script = tmp_path / "accounts"
+    accounts_script.write_text("#!/bin/sh\n")
+
     def fake_run(command, **kwargs):
-        assert command == [settings.VEC_INF_ACCOUNTS_SCRIPT, "-u", "alice"]
+        assert command == [str(accounts_script), "-u", "alice"]
         return SimpleNamespace(
             returncode=0,
             stdout=(
@@ -53,9 +56,7 @@ def test_select_user_slurm_account_prefers_gpu(monkeypatch):
         )
 
     monkeypatch.setattr(llm_inference.subprocess, "run", fake_run)
-    monkeypatch.setattr(
-        settings, "VEC_INF_ACCOUNTS_SCRIPT", "/sw/user/scripts/accounts"
-    )
+    monkeypatch.setattr(settings, "VEC_INF_ACCOUNTS_SCRIPT", str(accounts_script))
 
     assert llm_inference._select_user_slurm_account("alice") == "proj-delta-gpu"
 
