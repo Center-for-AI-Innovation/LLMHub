@@ -4,15 +4,30 @@
 #SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-# 16 CPUs / 150 GB is not arbitrary. mksquashfs sizes its memory pool at ~25% of
-# PHYSICAL RAM — about 62 GB on a 251 GB cn node — and Delta's apptainer.conf
-# ships `mksquashfs procs = 0`, so apptainer does not constrain it to the
-# cgroup. At 8 CPUs / 64 GB that lands right at the cgroup ceiling and dies:
-# jobs 21307782 and 21307943 both hit
-#     mksquashfs command failed: exit status 139   (SIGSEGV)
-# at ~32 GB MaxRSS. Diagnostic job 21308120 ran mksquashfs directly on the same
-# rootfs inside a 16 CPU / 120 GB allocation and it completed cleanly — gzip
-# exit 0 (8.3 GB), zstd exit 0 (7.6 GB). Headroom, not tooling, was the issue.
+# NOTE: this one-shot build DOES NOT WORK on Delta as of apptainer 1.5.1.
+# Use builds/apptainer/vllm/build-vllm-slingshot.sbatch in the
+# llm-service-software workspace, which splits the build in two.
+#
+# An earlier version of this comment claimed the SIGSEGV was memory headroom —
+# that mksquashfs sizes its pool at ~25% of physical RAM and overruns the
+# cgroup. That was WRONG. Job 21308307 ran with 16 CPUs / 150 GB, used 35.5 GB
+# (a 4x margin), already capped the pool with -mem 8G, and still died:
+#     job       cpus  --mem   MaxRSS   result
+#     21307782     8    64G   31.9 GB  SIGSEGV
+#     21307943     8    64G   32.2 GB  SIGSEGV
+#     21308307    16   150G   35.5 GB  SIGSEGV
+# A cgroup OOM is SIGKILL (137) and reports OUT_OF_MEMORY. All three are
+# FAILED 255:0 with a SIGSEGV core. DO NOT RAISE --mem AGAIN.
+#
+# The cause is proot. apptainer-suid is not installed and /etc/subuid has no
+# entry for ordinary users, so apptainer emulates root for the unprivileged
+# unpack with proot, and mksquashfs inherits that prooted tree. The cores name
+# it: execfn '/tmp/prooted-1634524-76qhWj'. gdb puts the fault in
+# order_queue_get() with 61 live threads — squashfs-tools' write-ordering
+# queue, perturbed by proot's ptrace interception. proot attaches to the
+# source->rootfs step, not to SIF packing: building a SIF from a local
+# directory spawns no proot and still yields root/root, so the fix is to
+# extract under proot and pack outside it.
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=150G
 #SBATCH --time=02:00:00
