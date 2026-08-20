@@ -199,12 +199,22 @@ class InfrastructureManager:
     def get_config_path(self, infrastructure: Optional[str] = None) -> Path:
         """Get path to infrastructure-specific config directory.
 
+        If VEC_INF_CONFIG_DIR is explicitly configured (env var or .env), it is
+        treated as an absolute override of the config directory and returned
+        as-is, bypassing infrastructure auto-detection entirely.
+
         Args:
             infrastructure: Infrastructure identifier. If None, auto-detects.
 
         Returns:
             Path to infrastructure config directory.
         """
+        override = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.environ.get(
+            "VEC_INF_CONFIG_DIR"
+        )
+        if isinstance(override, str) and override.strip():
+            return Path(override.strip()).expanduser().resolve()
+
         infra_id = self.get_infrastructure(infrastructure)
         infra_path = self.infrastructures_dir / infra_id
 
@@ -214,7 +224,7 @@ class InfrastructureManager:
             return self.config_dir
 
         return infra_path
-
+    
     def get_environment_config(
         self, infrastructure: Optional[str] = None
     ) -> Dict[str, Any]:
