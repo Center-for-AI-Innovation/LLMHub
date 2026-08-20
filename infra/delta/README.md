@@ -22,7 +22,8 @@ infra/delta/
     ├── db-migrate.sh         create the schema without node (dry-run default)
     ├── start.sh              start postgres + backend
     ├── stop.sh               stop them
-    └── status.sh             what is deployed and running
+    ├── status.sh             what is deployed and running
+    └── build-vllm-sif.sbatch rebuild the vLLM image (SLURM, CPU partition)
 ```
 
 ## Quick start
@@ -100,6 +101,36 @@ ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois
 
 Do not reach for `StrictHostKeyChecking=no`. The stale entry is a site
 bookkeeping issue and wants an admin fix.
+
+## The vLLM container image
+
+`config/infrastructures/delta/environment.yaml` points inference at
+`/sw/llmhub/vllm.sif`. Rebuild it with:
+
+```bash
+sbatch infra/delta/bin/build-vllm-sif.sbatch
+# or a different tag:
+IMAGE_TAG=v0.19.1 sbatch infra/delta/bin/build-vllm-sif.sbatch /path/to/out.sif
+```
+
+This is the Delta counterpart to `devops/apptainers/build_vllm_sif.sbatch`,
+which is written for Magic Castle Radiant and **does not run here**. The
+differences are not cosmetic:
+
+| Magic Castle version | Delta version | Why |
+|---|---|---|
+| `--fakeroot` | no fakeroot | Delta has no subuid/subgid mapping for ordinary users; `--fakeroot` fails outright. Apptainer 1.5 converts OCI → SIF unprivileged. |
+| sandbox → SIF round-trip | direct build | The sandbox step dodged NFS xattr limits. Node-local disk here has no such limit. |
+| `module load apptainer` | none | It is `/usr/bin/apptainer` on Delta. |
+| `-p node` | `-p cpu`, `--account=…-delta-cpu` | The build uses no GPU; a GPU partition would idle an A100. |
+| cache on `/project` | cache on node-local disk | ~10 GB of layers onto Lustre is slow, and `/projects` runs near quota. |
+
+The job builds and verifies locally, then copies the finished image to the
+output path — it never writes a partial 20 GB file to the destination.
+
+**Installing it is a separate, privileged step.** The job prints the exact
+commands; the existing image is renamed to a dated `.bak` rather than deleted,
+so a bad image can be rolled back.
 
 ## Per-user impersonation
 
