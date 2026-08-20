@@ -4,8 +4,17 @@
 #SBATCH --partition=cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
+# 16 CPUs / 150 GB is not arbitrary. mksquashfs sizes its memory pool at ~25% of
+# PHYSICAL RAM — about 62 GB on a 251 GB cn node — and Delta's apptainer.conf
+# ships `mksquashfs procs = 0`, so apptainer does not constrain it to the
+# cgroup. At 8 CPUs / 64 GB that lands right at the cgroup ceiling and dies:
+# jobs 21307782 and 21307943 both hit
+#     mksquashfs command failed: exit status 139   (SIGSEGV)
+# at ~32 GB MaxRSS. Diagnostic job 21308120 ran mksquashfs directly on the same
+# rootfs inside a 16 CPU / 120 GB allocation and it completed cleanly — gzip
+# exit 0 (8.3 GB), zstd exit 0 (7.6 GB). Headroom, not tooling, was the issue.
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=150G
 #SBATCH --time=02:00:00
 #SBATCH --output=%x-%j.out
 #SBATCH --error=%x-%j.err
