@@ -20,7 +20,13 @@ class FakeLLMClient:
     def __init__(self):
         self.calls = []
 
-    def launch_model(self, model_name, enable_cloudflare_tunnel=False, cluster_username=None, **params):
+    def launch_model(
+        self,
+        model_name,
+        enable_cloudflare_tunnel=False,
+        cluster_username=None,
+        **params,
+    ):
         self.calls.append(
             {
                 "model_name": model_name,

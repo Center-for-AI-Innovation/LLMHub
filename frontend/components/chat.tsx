@@ -467,11 +467,8 @@ function ChatInner({
     // Route through guardedSendMessage so that logged-in temporary chats
     // redirect to /chat/[id] before streaming begins.
     void guardedSendMessage({ text: initialPrompt });
-  }, [
-    initialPrompt,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    messages.length,
-  ]);
+  }, [initialPrompt, messages.length]);
 
   // On the real /chat/[id] route, fire the stashed payload from a prior redirect
   // and immediately clear the store so it never runs twice.
