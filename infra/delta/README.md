@@ -23,6 +23,7 @@ infra/delta/
     ├── start.sh              start postgres + backend
     ├── stop.sh               stop them
     ├── status.sh             what is deployed and running
+    ├── smoke-test.sh         exercise a running backend for functionality
     └── build-vllm-sif.sbatch rebuild the vLLM image (SLURM, CPU partition)
 ```
 
@@ -46,6 +47,25 @@ cd infra/delta
 ```
 
 `deploy.sh` and `db-migrate.sh` are **dry runs unless given `--apply`**.
+
+## Testing a running backend
+
+```bash
+./bin/smoke-test.sh                      # production ports
+./bin/smoke-test.sh --profile staging    # a test stack on the +100 block
+./bin/smoke-test.sh --with-sync          # also exercise the DB write path
+```
+
+Every check is a GET by default, so it is safe against a live deployment. It
+covers liveness, the OpenAPI surface, the model catalogue (which exercises the
+database read path), deployments, requests and resources, and the backend log.
+
+`--with-sync` adds `POST /api/models/sync`, which rewrites the model catalogue
+in the database — idempotent, but a write.
+
+**Inference is deliberately not covered.** `POST /api/models/deployments`
+submits a real SLURM job and depends on a current `/sw/llmhub/vllm.sif`; that
+belongs in a deliberate test, not a smoke test.
 
 ## Profiles
 

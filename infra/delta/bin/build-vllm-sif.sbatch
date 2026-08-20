@@ -74,8 +74,22 @@ echo
 # Lustre is worse than a local one, and the local build is markedly faster.
 STAGE_SIF="${WORK}/vllm-${IMAGE_TAG}.sif"
 
-echo "=== building (this pulls ~10 GB of layers; expect 15-40 min) ==="
-time apptainer build "$STAGE_SIF" "$IMAGE_URI"
+# mksquashfs must be told the size of our ALLOCATION, not the node.
+# Delta's apptainer.conf ships `mksquashfs procs = 0`, meaning "use every CPU",
+# and mksquashfs sizes its memory pool from *physical* RAM. On a 128-core /
+# 251 GB cn node inside an 8-CPU / 64 GB cgroup that over-commits badly: the
+# first attempt (job 21307782) died with
+#   mksquashfs command failed: exit status 139
+# which is SIGSEGV, at 30 GB MaxRSS — a crash from over-allocation, not an OOM
+# kill. Pinning both to the cgroup makes the step deterministic.
+MKSQ_PROCS="${MKSQ_PROCS:-${SLURM_CPUS_PER_TASK:-4}}"
+MKSQ_MEM="${MKSQ_MEM:-8G}"
+
+echo "=== building (pulls ~10 GB of layers; expect 15-40 min) ==="
+echo "mksquashfs: -processors ${MKSQ_PROCS} -mem ${MKSQ_MEM}"
+time apptainer build \
+    --mksquashfs-args "-processors ${MKSQ_PROCS} -mem ${MKSQ_MEM}" \
+    "$STAGE_SIF" "$IMAGE_URI"
 echo
 
 echo "=== built ==="
