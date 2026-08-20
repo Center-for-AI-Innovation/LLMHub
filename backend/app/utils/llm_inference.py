@@ -659,6 +659,58 @@ class LLMInferenceClient:
             }
         return parsed
 
+    def _shutdown_model_impersonated(
+        self,
+        slurm_job_id: str,
+        cluster_username: Optional[str],
+    ):
+        """
+        Cancel a Slurm job as impersonated user
+        """
+        if not cluster_username:
+            return {
+                "success": False,
+                "error": "Cluster username is required when impersonation mode is enabled",
+            }
+        try:
+            cluster_username = _normalize_cluster_username(cluster_username)
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
+
+        wrapper_path = Path(
+            getattr(
+                settings,
+                "VEC_INF_IMPERSONATE_SCRIPT",
+                PROJECT_ROOT / "scripts" / "impersonate-wrapper.py",
+            )
+        )
+        if not wrapper_path.exists():
+            return {
+                "success": False,
+                "error": f"Impersonation wrapper not found: {wrapper_path}",
+            }
+
+        command = [str(wrapper_path)]
+        if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
+            command.append("--no-login-shell")
+        command.extend([cluster_username, "--", "scancel", str(slurm_job_id)])
+
+        result = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            cwd=str(PROJECT_ROOT),
+        )
+
+        if result.returncode != 0:
+            error = (result.stderr or "").strip() or (result.stdout or "").strip()
+            return {
+                "success": False,
+                "error": error
+                or f"Impersonated scancel failed with code {result.returncode}",
+            }
+        return {"success": True}
+
     def launch_model(
         self,
         model_name: str,
@@ -685,7 +737,11 @@ class LLMInferenceClient:
     def get_model_metrics(self, slurm_job_id: str):
         return self.direct_client.get_model_metrics(slurm_job_id)
 
-    def shutdown_model(self, slurm_job_id: str):
+    def shutdown_model(
+        self, slurm_job_id: str, cluster_username: Optional[str] = None
+    ):
+        if self.execution_mode == "impersonate":
+            return self._shutdown_model_impersonated(slurm_job_id, cluster_username)
         return self.direct_client.shutdown_model(slurm_job_id)
 
     def list_available_models(self):
