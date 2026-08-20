@@ -14,7 +14,7 @@
 #
 # Usage:
 #   ./deploy.sh [--apply] [--profile staging|production] [--ref vX.Y.Z]
-#               [--stage sync|tools|backend|render|all]
+#               [--recreate] [--stage sync|tools|backend|render|all]
 
 # Resolve --profile / --ref BEFORE sourcing the config. delta.env self-defaults
 # (VAR="${VAR:-...}"), so values are frozen on first source and a later
@@ -33,12 +33,14 @@ unset _prev _a
 
 APPLY=0
 STAGE=all
+RECREATE_VENV=0
 while [ $# -gt 0 ]; do
     case "$1" in
-        --apply)   APPLY=1; shift ;;
-        --profile) export LLMHUB_PROFILE="$2"; shift 2 ;;
-        --ref)     export LLMHUB_REF="$2"; shift 2 ;;
-        --stage)   STAGE="$2"; shift 2 ;;
+        --apply)    APPLY=1; shift ;;
+        --profile)  export LLMHUB_PROFILE="$2"; shift 2 ;;
+        --ref)      export LLMHUB_REF="$2"; shift 2 ;;
+        --stage)    STAGE="$2"; shift 2 ;;
+        --recreate) RECREATE_VENV=1; shift ;;
         -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -95,7 +97,16 @@ else
     info "uv already present"
 fi
 export UV_CACHE_DIR="${LLMHUB_DEPLOY_ROOT}/.uvcache"
-run "${LLMHUB_UV_DIR}/bin/uv" venv --python "$LLMHUB_PYTHON_VERSION" "$LLMHUB_VENV_DIR"
+# `uv venv` refuses to overwrite an existing environment, so re-running deploy
+# must skip it — otherwise every redeploy fails at this step. Use --recreate to
+# rebuild the interpreter deliberately.
+if [ -x "${LLMHUB_VENV_DIR}/bin/python" ] && [ "$RECREATE_VENV" != "1" ]; then
+    info "venv already present: $("${LLMHUB_VENV_DIR}/bin/python" -V 2>&1) (pass --recreate to rebuild)"
+else
+    [ "$RECREATE_VENV" = "1" ] && info "recreating venv"
+    run "${LLMHUB_UV_DIR}/bin/uv" venv ${RECREATE_VENV:+--clear} \
+        --python "$LLMHUB_PYTHON_VERSION" "$LLMHUB_VENV_DIR"
+fi
 [ "$APPLY" = "1" ] && ok "venv python: $("${LLMHUB_VENV_DIR}/bin/python" -V 2>&1)"
 fi
 
@@ -135,24 +146,31 @@ if [ "$APPLY" = "1" ]; then
         echo "SLURM_ACCOUNT=\"${LLMHUB_SLURM_ACCOUNT}\""
         echo "VEC_INF_ACCOUNT=\"${LLMHUB_SLURM_ACCOUNT}\""
         echo "VEC_INF_WORK_DIR=\"${LLMHUB_VEC_INF_WORK_DIR}\""
-        echo "VEC_INF_LOG_DIR=\"${LLMHUB_VEC_INF_LOG_DIR}\""
         echo "VEC_INF_ENV=\"${LLMHUB_VEC_INF_ENV}\""
         [ -n "$LLMHUB_VEC_INF_CONFIG_DIR" ] && echo "VEC_INF_CONFIG_DIR=${LLMHUB_VEC_INF_CONFIG_DIR}"
-        # Impersonation keys only exist once PR #40/#49 land; emitting them on
-        # v0.1.1 would be inert noise, so they are gated on an explicit mode.
+        # The backend's Settings model FORBIDS unknown keys, so writing a key
+        # the deployed version does not define is not merely inert — it aborts
+        # startup with 'Extra inputs are not permitted'. VEC_INF_LOG_DIR and the
+        # impersonation keys all arrive together with PR #40/#49 and are absent
+        # from config.py at v0.1.1, so they are gated behind an explicit mode.
         if [ -n "$LLMHUB_EXECUTION_MODE" ]; then
             echo "VEC_INF_EXECUTION_MODE=${LLMHUB_EXECUTION_MODE}"
             echo "VEC_INF_SHARED_WORK_ROOT=${LLMHUB_SHARED_WORK_ROOT}"
+            [ -n "$LLMHUB_VEC_INF_LOG_DIR" ]   && echo "VEC_INF_LOG_DIR=\"${LLMHUB_VEC_INF_LOG_DIR}\""
             [ -n "$LLMHUB_IMPERSONATE_SCRIPT" ] && echo "VEC_INF_IMPERSONATE_SCRIPT=${LLMHUB_IMPERSONATE_SCRIPT}"
             [ -n "$LLMHUB_IMPERSONATE_PYTHON" ] && echo "VEC_INF_IMPERSONATE_PYTHON=${LLMHUB_IMPERSONATE_PYTHON}"
-            [ -n "$LLMHUB_ACCOUNTS_SCRIPT" ] && echo "VEC_INF_ACCOUNTS_SCRIPT=${LLMHUB_ACCOUNTS_SCRIPT}"
+            [ -n "$LLMHUB_ACCOUNTS_SCRIPT" ]    && echo "VEC_INF_ACCOUNTS_SCRIPT=${LLMHUB_ACCOUNTS_SCRIPT}"
         fi
         echo "SYNC_INTERVAL=${LLMHUB_SYNC_INTERVAL:-60}"
         echo "EXPIRY_CHECK_INTERVAL=${LLMHUB_EXPIRY_CHECK_INTERVAL:-3000}"
         echo "MAX_DEPLOYMENTS_PER_CYCLE=${LLMHUB_MAX_DEPLOYMENTS_PER_CYCLE:-10}"
-        echo "SMTP_HOST=${SMTP_HOST}"
-        echo "SMTP_PORT=${SMTP_PORT}"
-        echo "SMTP_FROM=${SMTP_FROM}"
+        # SMTP_PORT is typed int: an empty value fails validation rather than
+        # being treated as unset, so omit the block entirely when unconfigured.
+        if [ -n "$SMTP_HOST" ]; then
+            echo "SMTP_HOST=${SMTP_HOST}"
+            echo "SMTP_PORT=${SMTP_PORT:-25}"
+            echo "SMTP_FROM=${SMTP_FROM}"
+        fi
     } > "$BACKEND_ENV"
     chmod 0640 "$BACKEND_ENV"
     ok "wrote $(grep -cE '^[A-Z_]+=' "$BACKEND_ENV") keys"
