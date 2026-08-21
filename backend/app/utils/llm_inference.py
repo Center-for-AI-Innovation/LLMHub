@@ -737,9 +737,7 @@ class LLMInferenceClient:
     def get_model_metrics(self, slurm_job_id: str):
         return self.direct_client.get_model_metrics(slurm_job_id)
 
-    def shutdown_model(
-        self, slurm_job_id: str, cluster_username: Optional[str] = None
-    ):
+    def shutdown_model(self, slurm_job_id: str, cluster_username: Optional[str] = None):
         if self.execution_mode == "impersonate":
             return self._shutdown_model_impersonated(slurm_job_id, cluster_username)
         return self.direct_client.shutdown_model(slurm_job_id)

@@ -224,7 +224,7 @@ class InfrastructureManager:
             return self.config_dir
 
         return infra_path
-    
+
     def get_environment_config(
         self, infrastructure: Optional[str] = None
     ) -> Dict[str, Any]:

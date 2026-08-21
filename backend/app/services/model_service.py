@@ -617,9 +617,9 @@ class ModelService:
                 db_deployment.slurmJobId,
                 shutdown_result.get("error"),
             )
-            db_deployment.errorMessage = shutdown_result.get(
-                "error"
-            ) or "Failed to cancel Slurm job"
+            db_deployment.errorMessage = (
+                shutdown_result.get("error") or "Failed to cancel Slurm job"
+            )
             db_deployment.updatedAt = datetime.utcnow()
             db.commit()
             db.refresh(db_deployment)
