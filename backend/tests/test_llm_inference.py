@@ -61,19 +61,6 @@ def test_select_user_slurm_account_prefers_gpu(monkeypatch, tmp_path):
     assert llm_inference._select_user_slurm_account("alice") == "proj-delta-gpu"
 
 
-def test_normalize_cluster_username_rejects_path_traversal():
-    try:
-        llm_inference._normalize_cluster_username("../alice")
-    except RuntimeError as exc:
-        assert "Invalid cluster username" in str(exc)
-    else:
-        raise AssertionError("Expected invalid cluster username to be rejected")
-
-
-def test_normalize_cluster_username_accepts_trimmed_login():
-    assert llm_inference._normalize_cluster_username(" alice_13 ") == "alice_13"
-
-
 def test_launch_model_uses_direct_mode(monkeypatch):
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
     monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "direct")

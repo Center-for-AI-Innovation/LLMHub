@@ -7,7 +7,6 @@ magic-castle-radiant, etc.).
 """
 
 import os
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -15,12 +14,12 @@ import yaml
 
 from app.config.config import settings
 from app.config.logging import get_logger
+from app.utils.cluster_users import normalize_cluster_username
 
 logger = get_logger("infrastructure")
 
 # Environment variable that overrides auto-detection (e.g. INFRASTRUCTURE=delta-ai-ncsa)
 INFRASTRUCTURE_ENV_VAR = "INFRASTRUCTURE"
-_CLUSTER_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 
 
 def get_vec_inf_log_base_dir(infrastructure: Optional[str] = None) -> Optional[str]:
@@ -51,8 +50,9 @@ def get_vec_inf_user_workspace_dir(
     """Return the per-user workspace dir when vec-inf logs/scripts are segregated by user."""
     if not isinstance(cluster_username, str) or not cluster_username.strip():
         return None
-    username = cluster_username.strip()
-    if not _CLUSTER_USERNAME_RE.fullmatch(username):
+    try:
+        username = normalize_cluster_username(cluster_username)
+    except ValueError:
         logger.warning(
             "Ignoring invalid cluster username for workspace lookup: %r",
             cluster_username,
