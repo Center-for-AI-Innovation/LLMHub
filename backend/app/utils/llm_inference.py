@@ -11,6 +11,7 @@ import yaml
 
 from app.config.config import settings
 from app.config.logging import get_logger
+from app.utils.cluster_users import normalize_cluster_username
 from app.utils.infrastructure import get_vec_inf_log_base_dir
 
 # IMPORTANT: Set VEC_INF env vars BEFORE importing vec-inf.
@@ -49,14 +50,24 @@ logger = get_logger("llm_inference")
 
 _ACCOUNT_LINE_RE = re.compile(r"^(?P<account>\S+)\s+\d+\s+\d+\s+.+$")
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
-_CLUSTER_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
 
 
-def _normalize_cluster_username(cluster_username: str) -> str:
-    username = cluster_username.strip()
-    if not _CLUSTER_USERNAME_RE.fullmatch(username):
-        raise RuntimeError(f"Invalid cluster username: {cluster_username!r}")
-    return username
+def _grant_acl_access(path: Path, usernames: List[str], failure_context: str) -> None:
+    """Grant each user rwx on ``path``, plus a default ACL for new entries."""
+    for username in usernames:
+        for extra_flags in ([], ["-d"]):
+            command = ["setfacl", *extra_flags, "-m", f"u:{username}:rwx", str(path)]
+            try:
+                subprocess.run(command, text=True, capture_output=True, check=True)
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    f"Required ACL command not found: {command[0]}"
+                ) from exc
+            except subprocess.CalledProcessError as exc:
+                stderr = (exc.stderr or "").strip()
+                raise RuntimeError(
+                    f"Failed to prepare {failure_context}: {stderr or exc}"
+                ) from exc
 
 
 def _resolve_impersonated_workspace_root() -> Optional[Path]:
@@ -70,7 +81,7 @@ def _resolve_impersonated_workspace_root() -> Optional[Path]:
 
 
 def _resolve_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
-    cluster_username = _normalize_cluster_username(cluster_username)
+    """Build the per-user workspace path. Expects a validated username."""
     root = _resolve_impersonated_workspace_root()
     if root is None:
         return None
@@ -78,30 +89,18 @@ def _resolve_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]
 
 
 def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
-    cluster_username = _normalize_cluster_username(cluster_username)
+    """Create the per-user workspace and its ACLs. Expects a validated username."""
     workspace_dir = _resolve_impersonated_workspace_dir(cluster_username)
     if workspace_dir is None:
         return None
 
     workspace_dir.mkdir(parents=True, exist_ok=True)
     service_account = pwd.getpwuid(os.geteuid()).pw_name
-
-    acl_commands = [
-        ["setfacl", "-m", f"u:{cluster_username}:rwx", str(workspace_dir)],
-        ["setfacl", "-m", f"u:{service_account}:rwx", str(workspace_dir)],
-        ["setfacl", "-d", "-m", f"u:{cluster_username}:rwx", str(workspace_dir)],
-        ["setfacl", "-d", "-m", f"u:{service_account}:rwx", str(workspace_dir)],
-    ]
-    for command in acl_commands:
-        try:
-            subprocess.run(command, text=True, capture_output=True, check=True)
-        except FileNotFoundError as exc:
-            raise RuntimeError(f"Required ACL command not found: {command[0]}") from exc
-        except subprocess.CalledProcessError as exc:
-            stderr = (exc.stderr or "").strip()
-            raise RuntimeError(
-                f"Failed to prepare workspace {workspace_dir} for {cluster_username}: {stderr or exc}"
-            ) from exc
+    _grant_acl_access(
+        workspace_dir,
+        [cluster_username, service_account],
+        f"workspace {workspace_dir} for {cluster_username}",
+    )
 
     return workspace_dir
 
@@ -143,34 +142,21 @@ def _get_shared_cache_dirs() -> List[Path]:
 
 
 def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
-    cluster_username = _normalize_cluster_username(cluster_username)
+    """Grant cache write access. Expects a validated username."""
     # TODO: Remove this temporary user write access once model cache population is
     # managed manually and launch-time downloads are no longer needed.
     service_account = pwd.getpwuid(os.geteuid()).pw_name
     for cache_dir in _get_shared_cache_dirs():
         cache_dir.mkdir(parents=True, exist_ok=True)
-        acl_commands = [
-            ["setfacl", "-m", f"u:{cluster_username}:rwx", str(cache_dir)],
-            ["setfacl", "-m", f"u:{service_account}:rwx", str(cache_dir)],
-            ["setfacl", "-d", "-m", f"u:{cluster_username}:rwx", str(cache_dir)],
-            ["setfacl", "-d", "-m", f"u:{service_account}:rwx", str(cache_dir)],
-        ]
-        for command in acl_commands:
-            try:
-                subprocess.run(command, text=True, capture_output=True, check=True)
-            except FileNotFoundError as exc:
-                raise RuntimeError(
-                    f"Required ACL command not found: {command[0]}"
-                ) from exc
-            except subprocess.CalledProcessError as exc:
-                stderr = (exc.stderr or "").strip()
-                raise RuntimeError(
-                    f"Failed to prepare shared cache dir {cache_dir} for {cluster_username}: {stderr or exc}"
-                ) from exc
+        _grant_acl_access(
+            cache_dir,
+            [cluster_username, service_account],
+            f"shared cache dir {cache_dir} for {cluster_username}",
+        )
 
 
 def _select_user_slurm_account(cluster_username: str, prefer_gpu: bool = True) -> str:
-    cluster_username = _normalize_cluster_username(cluster_username)
+    """Resolve the user's Slurm account. Expects a validated username."""
     script_path = Path(
         getattr(settings, "VEC_INF_ACCOUNTS_SCRIPT", "/sw/user/scripts/accounts")
     )
@@ -478,6 +464,11 @@ class LLMInferenceDirectClient:
     ):
         """Get the Cloudflare tunnel URL for a deployed model."""
         if cluster_username:
+            try:
+                cluster_username = normalize_cluster_username(cluster_username)
+            except ValueError as exc:
+                logger.error("Cannot resolve tunnel URL: %s", exc)
+                return None
             workspace_dir = _resolve_impersonated_workspace_dir(cluster_username)
             log_base = str(workspace_dir) if workspace_dir else None
         else:
@@ -576,8 +567,8 @@ class LLMInferenceClient:
                 "error": "Cluster username is required when impersonation mode is enabled",
             }
         try:
-            cluster_username = _normalize_cluster_username(cluster_username)
-        except RuntimeError as exc:
+            cluster_username = normalize_cluster_username(cluster_username)
+        except ValueError as exc:
             return {"success": False, "error": str(exc)}
 
         params = dict(params)
@@ -673,8 +664,8 @@ class LLMInferenceClient:
                 "error": "Cluster username is required when impersonation mode is enabled",
             }
         try:
-            cluster_username = _normalize_cluster_username(cluster_username)
-        except RuntimeError as exc:
+            cluster_username = normalize_cluster_username(cluster_username)
+        except ValueError as exc:
             return {"success": False, "error": str(exc)}
 
         wrapper_path = Path(

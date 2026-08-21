@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.config.config import settings  # noqa: E402
+from app.utils.cluster_users import normalize_cluster_username  # noqa: E402
 from app.utils.llm_inference import (  # noqa: E402
     _ensure_impersonated_workspace_dir,
     _get_impersonation_python,
@@ -88,17 +89,24 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    print(f"user={args.user}")
+    # The impersonation helpers assume a validated username, so check it here.
+    try:
+        cluster_username = normalize_cluster_username(args.user)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+
+    print(f"user={cluster_username}")
     print(f"execution_mode={settings.VEC_INF_EXECUTION_MODE}")
     print(f"shared_work_root={settings.VEC_INF_SHARED_WORK_ROOT}")
     print(f"wrapper={settings.VEC_INF_IMPERSONATE_SCRIPT}")
     print(f"impersonate_python={_get_impersonation_python()}")
     print(f"accounts_script={settings.VEC_INF_ACCOUNTS_SCRIPT}")
 
-    account = _select_user_slurm_account(args.user)
+    account = _select_user_slurm_account(cluster_username)
     print(f"resolved_account={account}")
 
-    workspace_dir = _ensure_impersonated_workspace_dir(args.user)
+    workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
     if workspace_dir is None:
         print("workspace_dir=<none>")
     else:
@@ -111,7 +119,7 @@ def main() -> int:
         print("wrapper_probe=skipped (no workspace dir)")
         return 1
 
-    probe_result = _run_wrapper_probe(args.user, account, workspace_dir)
+    probe_result = _run_wrapper_probe(cluster_username, account, workspace_dir)
     print("wrapper_probe=" + json.dumps(probe_result, indent=2, sort_keys=True))
     return 0 if probe_result["returncode"] == 0 else 1
 

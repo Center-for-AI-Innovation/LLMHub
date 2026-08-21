@@ -1,4 +1,3 @@
-import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
@@ -6,8 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas._base import ORMBaseModel
-
-_CLUSTER_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._-]{0,63}$")
+from app.utils.cluster_users import normalize_cluster_username
 
 
 class ModelDeploymentCreate(BaseModel):
@@ -57,14 +55,14 @@ class ModelDeploymentCreate(BaseModel):
     @field_validator("cluster_username")
     @classmethod
     def _validate_cluster_username(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
+        if value is None or not value.strip():
             return None
-        username = value.strip()
-        if not username:
-            return None
-        if not _CLUSTER_USERNAME_RE.fullmatch(username):
-            raise ValueError("clusterUsername must be a valid cluster login name")
-        return username
+        try:
+            return normalize_cluster_username(value)
+        except ValueError as exc:
+            raise ValueError(
+                "clusterUsername must be a valid cluster login name"
+            ) from exc
 
 
 class ModelDeploymentUpdate(BaseModel):
