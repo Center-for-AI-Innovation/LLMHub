@@ -1,9 +1,9 @@
 """Shared validation for cluster login names.
 
 Cluster usernames reach the backend from request payloads and end up in
-filesystem paths and ``sudo -u`` arguments, so they are validated in exactly
-one place: here. Callers normalize at their entry point and pass the result
-down; the impersonation helpers assume an already-validated name.
+filesystem paths and ``sudo -u`` arguments, so this module holds the single
+validation routine for them. Callers normalize at their entry point and pass
+the result down; the impersonation helpers assume an already-validated name.
 
 """
 
