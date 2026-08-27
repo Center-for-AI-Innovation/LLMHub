@@ -8,6 +8,7 @@
 #   ./llmhub start | stop [--all] | restart [--profile P]
 #   ./llmhub status    [--profile P]
 #   ./llmhub smoke     [--profile P] [--with-sync]   exercise a running stack
+#   ./llmhub launch-test [--profile P] [--keep]      real inference job via the API
 #   ./llmhub logs      backend|frontend|postgres|build [-f]
 #
 # Profiles: production (5433/8000/3000, service user only) and staging
@@ -20,8 +21,8 @@ set -eo pipefail   # no -u: helpers pipe into head/grep, and SIGPIPE would abort
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------ args ----
-CMD=""; TARGET=""; REF_ARG=""; APPLY=0; STOP_ALL=0; WITH_SYNC=0; RECREATE=0; FOLLOW=0
-usage() { sed -n '2,16p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
+CMD=""; TARGET=""; REF_ARG=""; APPLY=0; STOP_ALL=0; WITH_SYNC=0; RECREATE=0; FOLLOW=0; KEEP=0
+usage() { sed -n '2,17p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --profile)   export LLMHUB_PROFILE="$2"; shift 2 ;;
@@ -30,6 +31,7 @@ while [ $# -gt 0 ]; do
         --all)       STOP_ALL=1; shift ;;
         --with-sync) WITH_SYNC=1; shift ;;
         --recreate)  RECREATE=1; shift ;;
+        --keep)      KEEP=1; shift ;;
         -f|--follow) FOLLOW=1; shift ;;
         -h|--help)   usage ;;
         -*)          echo "unknown option: $1" >&2; usage 2 ;;
@@ -41,7 +43,10 @@ done
 # ---------------------------------------------------------------- config ----
 REF_ENV="${LLMHUB_REF:-}"          # an explicit export outranks the recorded ref
 . "${HERE}/config/delta.env"
+# shellcheck disable=SC1091
+[ -r "${LLMHUB_DEPLOY_ROOT}/local.env" ] && . "${LLMHUB_DEPLOY_ROOT}/local.env"
 DEPLOYED_FILE="${LLMHUB_DEPLOY_ROOT}/DEPLOYED"
+VIC="${LLMHUB_DEPLOY_ROOT}/vec-inf-config"
 if   [ -n "$REF_ARG" ]; then LLMHUB_REF="$REF_ARG"
 elif [ -n "$REF_ENV" ]; then LLMHUB_REF="$REF_ENV"
 elif [ -r "$DEPLOYED_FILE" ]; then LLMHUB_REF="$(sed -n 's/^ref=//p' "$DEPLOYED_FILE")"
@@ -168,16 +173,31 @@ pg_stop() {
     pg_ready && bad "postgres did not stop" || ok "postgres: stopped"
 }
 
+# The backend refuses any launch that names num_gpus until its own GPU pool
+# (ResourceAllocation GPU/default) exists. Seed it once; it lives in the DB.
+seed_gpu_pool() {
+    local have; have="$(curl -s --max-time 20 "${BACKEND_URL}/api/resources/" 2>/dev/null | jq -r '.[] | select(.resourceType=="GPU" and .resourceName=="default") | .totalCount' 2>/dev/null | head -1)"
+    if [ -n "$have" ]; then info "GPU pool: ${have} (backend bookkeeping)"; return 0; fi
+    local code; code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 -X POST -H 'Content-Type: application/json' \
+        -d "{\"resourceType\":\"GPU\",\"resourceName\":\"default\",\"totalCount\":${LLMHUB_GPU_POOL},\"allocatedCount\":0,\"isActive\":true}" \
+        "${BACKEND_URL}/api/resources/" 2>/dev/null || echo 000)"
+    case "$code" in 2*) ok "seeded GPU pool GPU/default = ${LLMHUB_GPU_POOL} (backend bookkeeping; SLURM enforces the real limits)" ;;
+        *) warn "could not seed the GPU pool (HTTP ${code}) — launches with num_gpus will be refused" ;; esac
+}
+
 start_backend() {
     local pidf="${LLMHUB_RUN_DIR}/backend.pid"
-    if alive "$pidf"; then ok "backend already running (pid $(cat "$pidf"))"; return 0; fi
-    [ -x "${LLMHUB_VENV_DIR}/bin/uvicorn" ] && [ -r "${BE}/.env" ] || die "backend not deployed — run: ./llmhub deploy --apply"
-    claim_port backend "$pidf" "$LLMHUB_BACKEND_PORT" && return 0
-    start_daemon "$pidf" "${LLMHUB_LOG_DIR}/backend.log" "$BE" \
-        "${LLMHUB_VENV_DIR}/bin/uvicorn" app.main:app --host "$LLMHUB_BIND_HOST" --port "$LLMHUB_BACKEND_PORT"
-    info "backend pid $(cat "$pidf") — waiting for /api/health (startup runs a model sync)"
-    if wait_http "${BACKEND_URL}/api/health" 60; then ok "backend healthy — ${BACKEND_URL}/api/health"
-    else bad "backend did not become healthy"; tail -15 "${LLMHUB_LOG_DIR}/backend.log" | sed 's/^/    /'; exit 1; fi
+    if alive "$pidf"; then ok "backend already running (pid $(cat "$pidf"))"
+    elif claim_port backend "$pidf" "$LLMHUB_BACKEND_PORT"; then :
+    else
+        [ -x "${LLMHUB_VENV_DIR}/bin/uvicorn" ] && [ -r "${BE}/.env" ] || die "backend not deployed — run: ./llmhub deploy --apply"
+        start_daemon "$pidf" "${LLMHUB_LOG_DIR}/backend.log" "$BE" \
+            "${LLMHUB_VENV_DIR}/bin/uvicorn" app.main:app --host "$LLMHUB_BIND_HOST" --port "$LLMHUB_BACKEND_PORT"
+        info "backend pid $(cat "$pidf") — waiting for /api/health (startup runs a model sync)"
+        if wait_http "${BACKEND_URL}/api/health" 60; then ok "backend healthy — ${BACKEND_URL}/api/health"
+        else bad "backend did not become healthy"; tail -15 "${LLMHUB_LOG_DIR}/backend.log" | sed 's/^/    /'; exit 1; fi
+    fi
+    seed_gpu_pool
 }
 
 start_frontend() {
@@ -242,6 +262,29 @@ resolve_ref() {  # name -> "kind sha"
     else die "ref '${r}' is not a tag, branch or commit of ${LLMHUB_REPO}"; fi
 }
 
+render_vec_inf_config() {
+    local src="${BE}/config/infrastructures/delta/environment.yaml"
+    [ -r "$src" ] || { warn "no ${src} — VEC_INF_CONFIG_DIR not rendered"; return 0; }
+    mkdir -p "$VIC"
+    export LLMHUB_VLLM_SIF LLMHUB_HF_CACHE LLMHUB_TORCH_CACHE LLMHUB_MODEL_WEIGHTS_PARENT_DIR \
+           LLMHUB_LAUNCH_PARTITION LLMHUB_LAUNCH_RESOURCE_TYPE LLMHUB_LAUNCH_TIME LLMHUB_SLURM_ACCOUNT LLMHUB_VEC_INF_LOG_DIR
+    "$PY" - "$src" "${VIC}/environment.yaml" <<'PY'
+import os, sys, yaml
+src, dst = sys.argv[1:3]; e = os.environ
+d = yaml.safe_load(open(src)) or {}
+p = d.setdefault("paths", {})
+p["image_path"] = e["LLMHUB_VLLM_SIF"]; p["vllm_image_path"] = e["LLMHUB_VLLM_SIF"]
+a = d.setdefault("default_args", {})
+a.update(account=e["LLMHUB_SLURM_ACCOUNT"], partition=e["LLMHUB_LAUNCH_PARTITION"],
+         resource_type=e["LLMHUB_LAUNCH_RESOURCE_TYPE"], time=e["LLMHUB_LAUNCH_TIME"],
+         log_dir=e["LLMHUB_VEC_INF_LOG_DIR"], model_weights_parent_dir=e["LLMHUB_MODEL_WEIGHTS_PARENT_DIR"],
+         bind=f"{e['LLMHUB_HF_CACHE']}:/root/.cache/huggingface,{e['LLMHUB_TORCH_CACHE']}:/root/.cache/torch_inductor")
+yaml.safe_dump(d, open(dst, "w"), sort_keys=False)
+PY
+    cp "${BE}/config/models.yaml" "${VIC}/models.yaml"
+    ok "vec-inf-config: image ${LLMHUB_VLLM_SIF}; defaults ${LLMHUB_LAUNCH_PARTITION}/${LLMHUB_LAUNCH_RESOURCE_TYPE}/${LLMHUB_LAUNCH_TIME}"
+}
+
 render_backend_env() {
     local cfg="${BE}/app/config/config.py" out="${BE}/.env"
     # The backend's Settings model FORBIDS unknown keys — a key the deployed
@@ -261,7 +304,8 @@ render_backend_env() {
         emit VEC_INF_ACCOUNT "$LLMHUB_SLURM_ACCOUNT"
         emit VEC_INF_WORK_DIR "$LLMHUB_VEC_INF_WORK_DIR"
         emit VEC_INF_LOG_DIR "$LLMHUB_VEC_INF_LOG_DIR"
-        emit VEC_INF_ENV "\"${LLMHUB_VEC_INF_ENV}\""
+        emit VEC_INF_ENV "${LLMHUB_VEC_INF_ENV}"   # unquoted on purpose — see delta.env
+        [ -r "${VIC}/environment.yaml" ] && emit VEC_INF_CONFIG_DIR "$VIC"
         emit VEC_INF_EXECUTION_MODE "$LLMHUB_EXECUTION_MODE"
         emit VEC_INF_SHARED_WORK_ROOT "$LLMHUB_SHARED_WORK_ROOT"
         emit VEC_INF_IMPERSONATE_SCRIPT "$LLMHUB_IMPERSONATE_SCRIPT"
@@ -310,7 +354,7 @@ render_frontend_env() {
 cmd_deploy() {
     require_operator
     if [ "$APPLY" = 1 ]; then printf 'LLMHub deploy [APPLY]\n'; else printf 'LLMHub deploy [DRY RUN — pass --apply to act]\n'; fi
-    printf 'profile %s   ref %s   as %s\nroot   %s\nlocal  %s\n' "$LLMHUB_PROFILE" "$LLMHUB_REF" "$ME" "$LLMHUB_DEPLOY_ROOT" "$LLMHUB_LOCAL_ROOT"
+    printf 'profile %s   ref %s   as %s\nroot   %s\nlocal  %s\nimage  %s\n' "$LLMHUB_PROFILE" "$LLMHUB_REF" "$ME" "$LLMHUB_DEPLOY_ROOT" "$LLMHUB_LOCAL_ROOT" "$LLMHUB_VLLM_SIF"
 
     step "Source — ${LLMHUB_REF}"
     run mkdir -p "$LLMHUB_DEPLOY_ROOT" "$LLMHUB_LOG_DIR" "$LLMHUB_RUN_DIR" "$LLMHUB_VEC_INF_WORK_DIR" "$CACHE"
@@ -370,7 +414,7 @@ cmd_deploy() {
         fi
     fi
     load_secrets
-    if [ "$APPLY" = 1 ]; then render_backend_env; render_frontend_env
+    if [ "$APPLY" = 1 ]; then render_vec_inf_config; render_backend_env; render_frontend_env
     else info "would write ${BE}/.env and ${FE}/.env (database: $(db_url | sed 's#:[^:@]*@#:***@#'))"; fi
 
     step "Build — Drizzle migrations + next build"
@@ -403,6 +447,10 @@ cmd_status() {
     else warn "nothing deployed at ${LLMHUB_DEPLOY_ROOT}"; fi
     [ -x "$PY" ] && ok "python $("$PY" -V 2>&1 | cut -d' ' -f2), vec-inf $("$PY" -c 'import importlib.metadata as m; print(m.version("vec-inf"))' 2>/dev/null || echo '?')" || warn "no venv"
     [ -x "${LLMHUB_NODE_DIR}/bin/node" ] && ok "node $("${LLMHUB_NODE_DIR}/bin/node" -v), pnpm $(pnpm -v 2>/dev/null || echo '?')" || warn "no node"
+    if [ -r "${VIC}/environment.yaml" ]; then
+        local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" | awk '{print $2}')"
+        [ -r "$img" ] && ok "inference image ${img}" || warn "inference image ${img} not readable"
+    fi
     step "Services"
     if [ "$LLMHUB_PG_MODE" = local ]; then pg_ready && ok "postgres up on ${LLMHUB_PG_PORT}" || warn "postgres down (${LLMHUB_PG_PORT})"; else info "external database"; fi
     local n; for n in backend frontend; do
@@ -466,7 +514,7 @@ cmd_preflight() {
     else ok "staging profile — personal stack as ${ME}"; fi
     id -nG | tr ' ' '\n' | grep -qx "$LLMHUB_GROUP" && ok "member of ${LLMHUB_GROUP}" || bad "not in ${LLMHUB_GROUP}"
     step "Toolchain (runtimes are fetched by deploy; only the bootstrap set is needed)"
-    local t; for t in git apptainer python3 curl tar xz openssl ss; do command -v "$t" >/dev/null && ok "$t" || bad "$t missing"; done
+    local t; for t in git apptainer python3 curl tar xz openssl ss jq sbatch squeue; do command -v "$t" >/dev/null && ok "$t" || bad "$t missing"; done
     step "Source"
     local sha; sha="$(git ls-remote "$LLMHUB_REPO" "refs/tags/${LLMHUB_REF}^{}" "refs/tags/${LLMHUB_REF}" "refs/heads/${LLMHUB_REF}" 2>/dev/null | awk '{print $1}' | head -1 || true)"
     if [ -n "$sha" ]; then ok "'${LLMHUB_REF}' resolves upstream to ${sha:0:9}"
@@ -509,6 +557,93 @@ cmd_preflight() {
     [ "$F" -eq 0 ]
 }
 
+# ------------------------------------------------------------ launch test ---
+test_user_id() {  # a real User row is required (ModelDeployment.userId is a FK)
+    [ -n "$LLMHUB_TEST_USER_ID" ] && { printf '%s' "$LLMHUB_TEST_USER_ID"; return 0; }
+    local f="${LLMHUB_DEPLOY_ROOT}/test-user.env" id body
+    if [ ! -r "$f" ]; then
+        (umask 077; printf 'LLMHUB_TEST_USER_EMAIL=llmhub-smoke@example.com\nLLMHUB_TEST_USER_PASSWORD=%s\n' "$(openssl rand -base64 18)" > "$f")
+        chmod 0600 "$f"
+    fi
+    # shellcheck disable=SC1090
+    . "$f"
+    # Local accounts (CILogon off): sign up through the frontend so the row is
+    # exactly what the product would create. Existing account ⇒ 4xx, fine.
+    body="$(curl -s --max-time 30 -X POST -H 'Content-Type: application/json' \
+        -d "{\"name\":\"LLMHub smoke test\",\"email\":\"${LLMHUB_TEST_USER_EMAIL}\",\"password\":\"${LLMHUB_TEST_USER_PASSWORD}\"}" \
+        "${FRONTEND_URL}/api/auth/sign-up/email" 2>/dev/null || true)"
+    id="$(pg_psql -tA -d "$LLMHUB_PG_DB" -c "select id from \"User\" where email='${LLMHUB_TEST_USER_EMAIL}'" 2>/dev/null | head -1)"
+    [ -n "$id" ] || die "no test user (sign-up said: ${body:0:160}); with an external DB set LLMHUB_TEST_USER_ID"
+    printf '%s' "$id"
+}
+
+cmd_launch_test() {
+    require_operator
+    local model="$LLMHUB_TEST_MODEL" hf="$LLMHUB_TEST_HF_MODEL" gpus="$LLMHUB_TEST_GPUS" nodes="$LLMHUB_TEST_NODES"
+    local api="${BACKEND_URL}/api/models/deployments" log="${LLMHUB_LOG_DIR}/launch-test.log"
+    printf 'LLMHub launch test — %s (%s): %s node × %s GPU on %s/%s, %s, image %s\n' \
+        "$model" "$hf" "$nodes" "$gpus" "$LLMHUB_LAUNCH_PARTITION" "$LLMHUB_LAUNCH_RESOURCE_TYPE" "$LLMHUB_LAUNCH_TIME" "$LLMHUB_VLLM_SIF"
+    note() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$log"; }
+    step "Preconditions"
+    [ "$(http "${BACKEND_URL}/api/health")" = 200 ] || die "backend is not healthy"; ok "backend healthy"
+    [ -r "$LLMHUB_VLLM_SIF" ] || die "inference image not readable: ${LLMHUB_VLLM_SIF}"; ok "image readable"
+    grep -q "vllm_image_path: ${LLMHUB_VLLM_SIF}\$" "${VIC}/environment.yaml" 2>/dev/null || die "rendered vec-inf-config does not point at ${LLMHUB_VLLM_SIF} — redeploy first"
+    local q; q="$(squeue -u "$ME" -h 2>/dev/null | wc -l)"; [ "$q" -lt 3 ] || die "${q} jobs already queued for ${ME}; not adding another"; ok "${q} job(s) queued for ${ME}"
+    local pool; pool="$(curl -s --max-time 20 "${BACKEND_URL}/api/resources/summary" 2>/dev/null | jq -r '.total.gpu // 0' 2>/dev/null)"
+    [ "${pool:-0}" -ge $(( gpus * nodes )) ] || die "backend GPU pool is ${pool:-0} < $(( gpus * nodes )) — run: ./llmhub start (seeds it)"; ok "backend GPU pool ${pool}"
+    step "Test user"
+    local uid; uid="$(test_user_id)"; [ -n "$uid" ] || exit 1; ok "user ${uid}"
+    step "Launch"
+    local vllm_args="--tensor-parallel-size=${gpus}"
+    local payload; payload="$(jq -nc --arg m "$model" --arg u "$uid" --arg hf "$hf" --arg p "$LLMHUB_LAUNCH_PARTITION" \
+        --arg r "$LLMHUB_LAUNCH_RESOURCE_TYPE" --arg t "$LLMHUB_LAUNCH_TIME" --arg va "$vllm_args" --argjson g "$gpus" --argjson n "$nodes" \
+        '{modelName:$m, modelId:$m, userId:$u, hf_model:$hf, num_gpus:$g, num_nodes:$n, partition:$p, resource_type:$r, time:$t, vllm_args:$va}')"
+    note "POST ${api} ${payload}"
+    local resp; resp="$(curl -s --max-time 120 -X POST -H 'Content-Type: application/json' -d "$payload" "$api" 2>/dev/null || true)"
+    local id job st; id="$(printf '%s' "$resp" | jq -r '.id // empty' 2>/dev/null)"; job="$(printf '%s' "$resp" | jq -r '.slurmJobId // empty' 2>/dev/null)"; st="$(printf '%s' "$resp" | jq -r '.status // empty' 2>/dev/null)"
+    [ -n "$id" ] || die "launch failed: ${resp:0:300}"
+    [ "$job" != failed ] && [ "$st" != failed ] || die "launch failed: $(printf '%s' "$resp" | jq -r '.errorMessage // .' | head -c 300)"
+    ok "deployment ${id}, SLURM job ${job}, status ${st}"
+    note "deployment=${id} job=${job}"
+    step "Waiting for the server (status is refreshed by the backend every ${LLMHUB_SYNC_INTERVAL}s)"
+    local limit i ep last="" err; IFS=: read -r h m sec <<< "$LLMHUB_LAUNCH_TIME"; limit=$(( (10#$h*3600 + 10#$m*60 + 10#$sec) / 20 ))
+    for i in $(seq 1 "$limit"); do
+        resp="$(curl -s --max-time 30 "${api}/${id}" 2>/dev/null || true)"
+        st="$(printf '%s' "$resp" | jq -r '.status // "?"')"; ep="$(printf '%s' "$resp" | jq -r '.endpointUrl // empty')"; err="$(printf '%s' "$resp" | jq -r '.errorMessage // empty')"
+        [ "$st $ep" != "$last" ] && { note "status=${st} endpoint=${ep:-none} squeue=$(squeue -h -j "$job" -o '%T %M %N' 2>/dev/null | head -1)"; last="$st $ep"; }
+        case "$st" in ready|running) [ -n "$ep" ] && break ;; failed|completed|shutdown) break ;; esac
+        sleep 20
+    done
+    if ! { [ "$st" = ready ] || [ "$st" = running ]; } || [ -z "$ep" ]; then
+        bad "server not ready: status=${st} ${err:+error=$err}"
+        info "job log: ${LLMHUB_VEC_INF_LOG_DIR}/${model%%-*}/${model}.${job}/   (GET ${api}/${id}/logs)"
+        [ "$KEEP" = 1 ] || { curl -s -o /dev/null -X DELETE "${api}/${id}" 2>/dev/null; info "shutdown requested"; }
+        exit 1
+    fi
+    ok "server up: ${ep} (job ${job} on $(squeue -h -j "$job" -o '%N' 2>/dev/null))"
+    step "Inference"
+    local ms; ms="$(curl -s --max-time 30 "${ep}/models" 2>/dev/null || true)"
+    printf '%s' "$ms" | jq -e --arg m "$model" '.data[]? | select(.id==$m)' >/dev/null 2>&1 && ok "GET ${ep}/models lists ${model}" || { bad "GET ${ep}/models: ${ms:0:200}"; }
+    local cc; cc="$(curl -s --max-time 120 -X POST -H 'Content-Type: application/json' \
+        -d "$(jq -nc --arg m "$model" '{model:$m, messages:[{role:"user",content:"Reply with the single word OK."}], max_tokens:8, temperature:0}')" \
+        "${ep}/chat/completions" 2>/dev/null || true)"
+    local text; text="$(printf '%s' "$cc" | jq -r '.choices[0].message.content // empty' 2>/dev/null)"
+    if [ -n "$text" ]; then ok "chat completion: $(printf '%s' "$text" | tr -d '\n' | head -c 60)"; note "completion: ${text}"
+    else bad "chat completion failed: ${cc:0:200}"; note "completion FAILED: ${cc:0:300}"; fi
+    [ "$(http "${api}/${id}/logs")" = 200 ] && ok "GET /deployments/${id}/logs → 200" || warn "GET /deployments/${id}/logs failed"
+    step "Shutdown"
+    if [ "$KEEP" = 1 ]; then
+        info "--keep: leaving deployment ${id} (job ${job}) running until its ${LLMHUB_LAUNCH_TIME} limit"
+        info "stop it with: curl -X DELETE ${api}/${id}"
+    else
+        curl -s -o /dev/null -w '' -X DELETE "${api}/${id}" 2>/dev/null || true
+        for i in $(seq 1 12); do [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && break; sleep 5; done
+        [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && ok "job ${job} gone from the queue" || { warn "job ${job} still queued — scancel ${job}"; scancel "$job" 2>/dev/null || true; }
+        st="$(curl -s --max-time 30 "${api}/${id}" 2>/dev/null | jq -r '.status // "?"')"; info "deployment status now: ${st}"
+    fi
+    [ -n "$text" ]
+}
+
 cmd_logs() {
     local f="${LLMHUB_LOG_DIR}/${TARGET}.log"
     [ -n "$TARGET" ] && [ -r "$f" ] || die "usage: llmhub logs <name> [-f] — available: $(ls "$LLMHUB_LOG_DIR" 2>/dev/null | sed 's/\.log$//' | tr '\n' ' ')"
@@ -517,5 +652,6 @@ cmd_logs() {
 
 case "$CMD" in
     preflight|deploy|start|stop|restart|status|smoke|logs) "cmd_${CMD}" ;;
+    launch-test) cmd_launch_test ;;
     *) echo "unknown command: ${CMD}" >&2; usage 2 ;;
 esac

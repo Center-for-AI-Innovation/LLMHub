@@ -52,7 +52,8 @@ each time, so **redeploying the latest commit of a branch is just
 | `start` / `stop [--all]` / `restart` | `stop` leaves PostgreSQL running unless `--all`. Pidfiles are written by the daemons themselves; a pidfile-less process on one of our ports is stopped or adopted only if its cwd is inside this deployment — never someone else's process. |
 | `status` | What is deployed (ref, SHA, clean?), runtimes, what is running, health, log error counts. |
 | `smoke [--with-sync]` | GETs against both services; `--with-sync` also exercises the catalogue write path. Never launches inference. |
-| `logs backend\|frontend\|postgres\|build [-f]` | Tail a log. |
+| `launch-test [--keep]` | One real inference job through the backend API: creates/uses a local test user, POSTs a deployment for `LLMHUB_TEST_MODEL` (`LLMHUB_TEST_GPUS` GPUs, tensor-parallel), waits for the server, runs a chat completion against the vLLM endpoint, then shuts it down (`--keep` leaves it running for a frontend session). Submits a SLURM job as the account running the backend. |
+| `logs <name> [-f]` | Tail a log (`backend`, `frontend`, `postgres`, `build`, `launch-test`, …). |
 
 ## Profiles and where things live
 
@@ -107,6 +108,21 @@ Each of these broke a deployment when ignored.
   users and user services do not linger; after a VM reboot someone runs
   `./llmhub start` (state on `/data` and `/projects` is intact). Set `LLMHUB_PUBLIC_URL` to the public origin when that lands —
   it is baked into the frontend build and into the CILogon redirect URI.
+
+## Inference config and `local.env`
+
+`deploy` renders `backend/config/infrastructures/delta/environment.yaml` into
+`$LLMHUB_DEPLOY_ROOT/vec-inf-config/` (image path, partition, GRES type, time,
+HF-cache bind, log dir — all from `delta.env`) and points the backend at it via
+`VEC_INF_CONFIG_DIR`. So a staging stack can run a different vLLM image or
+partition without editing the checkout or touching `/sw/llmhub`.
+
+Per-stack overrides go in `$LLMHUB_DEPLOY_ROOT/local.env`, sourced after
+`delta.env` — leaf values only (an image path, a partition), e.g.:
+
+```bash
+LLMHUB_VLLM_SIF=/projects/bfmz/dadams/llmhub-containers/vllm-v0.19.1-slingshot-v2.sif
+```
 
 ## Secrets
 
