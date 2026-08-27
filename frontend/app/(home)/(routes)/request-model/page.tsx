@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { RequestModelForm } from '@/app/(marketing)/page-content/request-model-form';
+import { RequestModelForm } from '@/app/(home)/page-content/request-model-form';
 
 export const metadata: Metadata = {
   title: 'Request a Model - UIUC LLM Service Platform',
