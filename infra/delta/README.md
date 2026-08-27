@@ -1,202 +1,144 @@
 # LLMHub on NCSA Delta
 
-Deployment tooling for running LLMHub on the Delta service VM
-`dt-svc-llmaas01.delta.ncsa.illinois.edu`.
-
-This replaces the ad-hoc scripts that previously lived outside version control
-under the service account (`/projects/bfmz/svcdeltallmhub/Delta-deployment`).
-Those targeted the pre-monorepo two-repo layout (`llm-serving-backend` +
-`llm-serving-frontend`) and cannot deploy a current release.
-
-## Layout
+Deployment kit for the Delta service VM `dt-svc-llmaas01.delta.ncsa.illinois.edu`:
+one script, one config file, one secrets template.
 
 ```
 infra/delta/
-├── config/
-│   ├── delta.env             non-secret site config — committed
-│   └── secrets.env.example   secret key names, no values — committed
-└── bin/
-    ├── common.sh             shared helpers (sourced, not run)
-    ├── preflight.sh          read-only verification; safe as any account
-    ├── deploy.sh             sync → tools → backend → render (dry-run default)
-    ├── db-migrate.sh         create the schema without node (dry-run default)
-    ├── start.sh              start postgres + backend
-    ├── stop.sh               stop them
-    ├── status.sh             what is deployed and running
-    ├── smoke-test.sh         exercise a running backend for functionality
-    └── build-vllm-sif.sbatch rebuild the vLLM image (SLURM, CPU partition)
+├── llmhub                      the CLI: preflight · deploy · start · stop · restart · status · smoke · logs
+├── config/delta.env            non-secret site config (paths, ports, versions) — committed
+├── config/secrets.env.example  secret key names, no values — committed
+└── build-vllm-sif.sbatch       rebuild the inference image on the cluster (see below)
 ```
+
+It deploys the **whole stack** — PostgreSQL (Apptainer), the FastAPI backend
+(uvicorn) and the Next.js frontend — from a git ref, with every runtime it
+needs (uv-managed CPython, Node, pnpm) fetched into the deployment tree, so
+nothing depends on what the VM happens to have installed.
 
 ## Quick start
 
 ```bash
-cd infra/delta
+ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu
+cd /path/to/LLMHub/infra/delta
 
-# 1. Verify. Read-only, safe from a login node as yourself.
-./bin/preflight.sh --profile staging --verbose
+# A personal staging stack (ports 5533/8100/3100), tracking a branch:
+./llmhub preflight --profile staging --ref port/backend-pr-32
+./llmhub deploy    --profile staging --ref port/backend-pr-32           # dry run: prints the plan
+./llmhub deploy    --profile staging --ref port/backend-pr-32 --apply   # ~10 min first time
+./llmhub smoke     --profile staging
 
-# 2. As the service user on the VM:
+# Production (ports 5433/8000/3000) runs as the service user and pins a tag:
 /sw/admin/scripts/impersonate svcdeltallmhub
-
-./bin/deploy.sh     --apply --profile staging   # source + venv + config
-./bin/start.sh             --profile staging    # postgres + backend
-./bin/db-migrate.sh --apply --profile staging   # schema
-./bin/start.sh             --profile staging    # restart so model sync runs
-
-./bin/status.sh            --profile staging
+./llmhub deploy --apply --ref v0.1.1
 ```
 
-`deploy.sh` and `db-migrate.sh` are **dry runs unless given `--apply`**.
-
-## Testing a running backend
+Then from your workstation:
 
 ```bash
-./bin/smoke-test.sh                      # production ports
-./bin/smoke-test.sh --profile staging    # a test stack on the +100 block
-./bin/smoke-test.sh --with-sync          # also exercise the DB write path
+ssh -L 3100:localhost:3100 -L 8100:localhost:8100 -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu
+# http://localhost:3100   (frontend)    http://localhost:8100/docs   (backend)
 ```
 
-Every check is a GET by default, so it is safe against a live deployment. It
-covers liveness, the OpenAPI surface, the model catalogue (which exercises the
-database read path), deployments, requests and resources, and the backend log.
+`deploy` is a dry run unless given `--apply`. It re-fetches the recorded ref
+each time, so **redeploying the latest commit of a branch is just
+`./llmhub deploy --apply`** — the ref and SHA that were deployed are kept in
+`$LLMHUB_DEPLOY_ROOT/DEPLOYED` and shown by `status`.
 
-`--with-sync` adds `POST /api/models/sync`, which rewrites the model catalogue
-in the database — idempotent, but a write.
+| Command | Does |
+|---|---|
+| `preflight` | Read-only checks (identity, tools, ref, filesystems, network, ports, image, secrets). Safe as any account, from a login node or the VM. |
+| `deploy [--apply]` | Clone/fetch and check out the ref (detached) → fetch runtimes → install backend + frontend deps → start PostgreSQL → write `backend/.env` and `frontend/.env` → Drizzle migrations + `next build` → (re)start. `--recreate` rebuilds the venv and node. |
+| `start` / `stop [--all]` / `restart` | `stop` leaves PostgreSQL running unless `--all`. Pidfiles are written by the daemons themselves; a pidfile-less process on one of our ports is stopped or adopted only if its cwd is inside this deployment — never someone else's process. |
+| `status` | What is deployed (ref, SHA, clean?), runtimes, what is running, health, log error counts. |
+| `smoke [--with-sync]` | GETs against both services; `--with-sync` also exercises the catalogue write path. Never launches inference. |
+| `logs backend\|frontend\|postgres\|build [-f]` | Tail a log. |
 
-**Inference is deliberately not covered.** `POST /api/models/deployments`
-submits a real SLURM job and depends on a current `/sw/llmhub/vllm.sif`; that
-belongs in a deliberate test, not a smoke test.
-
-## Profiles
-
-`--profile staging` shifts every port by +100 so a staging stack runs beside
-production on one VM:
+## Profiles and where things live
 
 | | production | staging |
 |---|---|---|
-| PostgreSQL | 5433 | 5533 |
-| backend | 8000 | 8100 |
-| frontend | 3000 | 3100 |
+| ports pg / backend / frontend | 5433 / 8000 / 3000 | 5533 / 8100 / 3100 |
+| runs as | `svcdeltallmhub` only | anyone in `delta_bfmz` |
+| deploy root (`/projects`, Lustre) | `/projects/bfmz/svcdeltallmhub/llmhub-production` | `/projects/bfmz/$USER/llmhub-staging` |
+| local root (`/data`, xfs) | `/data/llmhub/production` | `/data/llmhub/staging` |
+| ref | a release tag | usually a branch |
 
-## Things about Delta that the scripts encode
+Deploy root: source checkout, venv, node, logs, pidfiles, `secrets.env`,
+`DEPLOYED`. Local root: PostgreSQL data + password, the postgres image,
+Apptainer cache. Both survive a VM reboot; after one, run `./llmhub start`.
 
-These are not stylistic choices; each one is a constraint that breaks the
-deployment if ignored.
+## Things about Delta the script encodes
 
-**`/projects` is Lustre and mounted `nodev`.** PostgreSQL data directories and
-the Apptainer cache cannot live there. Both are placed under `/var/tmp`.
+Each of these broke a deployment when ignored.
 
-**The VM has no `uv`, `pnpm`, `node`, or `psql`, and system Python is 3.9** —
-below the backend's `>=3.10` floor. `deploy.sh` bootstraps `uv` with the system
-Python, then has `uv` fetch a standalone CPython so the deployment owns its
-runtime rather than depending on a conda env somebody else maintains.
+- **`apptainer pull` is run with `APPTAINER_IGNORE_PROOT=1`.** Delta's apptainer
+  1.5.1 has no suid helper and no subuid range, so it wraps the OCI→SIF
+  conversion in proot, and proot-wrapped `mksquashfs` segfaults (exit 139) —
+  on the 150 MB postgres image here as on the 22 GB vLLM image on the cluster.
+  Pulling needs no root emulation.
+- **`/projects` is Lustre, mounted `nodev`** — PostgreSQL and Apptainer will
+  not run from it. **`/var/tmp` is tmpfs** — the 2026-08-20 staging database
+  lived there and was gone after the 2026-08-25 reboot. **`/tmp` is 4 G.**
+  `/data` (150 G xfs, `svcdeltallmhub:delta_bfmz` 0770) is the only durable
+  local disk; `preflight` refuses a tmpfs local root.
+- **The VM has Python 3.9 and no `uv`, `node`, `pnpm`, `psql`.** The backend
+  needs ≥3.10 and the frontend needs Node ≥20.9. `deploy` bootstraps `uv`
+  with the system Python, lets it fetch CPython, downloads the Node tarball
+  (checksum-verified) and installs pnpm into it. Versions are pinned in
+  `delta.env`. Every cache is kept out of `$HOME` (NFS, quota).
+- **The backend's `Settings` forbids unknown keys** — a key the deployed
+  version does not define aborts startup (`Extra inputs are not permitted`).
+  `deploy` writes only keys present in that checkout's `config.py`, so one
+  config serves v0.1.1 and the impersonation branch alike.
+- **The schema belongs to the frontend.** Drizzle migrations create the tables
+  the backend reads; `pnpm build` runs them, which is why PostgreSQL is
+  started before the build and why the build is part of `deploy`.
+- **SSH host trust is central.** `/etc/ssh/ssh_config` pins `dt-svc*` to
+  `/etc/ssh/ssh_known_hosts` with no personal exceptions; the ed25519 entry
+  for this VM is stale (re-imaged 2026-06-02), the ecdsa one is current.
+  `-o HostKeyAlgorithms=ecdsa-sha2-nistp256` verifies against the site file
+  without weakening checking. Never use `StrictHostKeyChecking=no`.
+- **Access is loopback + SSH tunnel.** Nothing binds `0.0.0.0`. A public
+  hostname needs a reverse proxy in front of the VM; `/data` already holds a
+  certificate for `llmhub-dev.delta.ncsa.illinois.edu`, but no proxy is
+  configured.
+- **Nothing restarts after a reboot.** `crontab` is PAM-denied for ordinary
+  users and user services do not linger; after a VM reboot someone runs
+  `./llmhub start` (state on `/data` and `/projects` is intact). Set `LLMHUB_PUBLIC_URL` to the public origin when that lands —
+  it is baked into the frontend build and into the CILogon redirect URI.
 
-**The database schema is owned by the frontend.** The backend reads tables that
-Drizzle creates. Deploying the backend alone against an empty database starts
-cleanly but fails every model sync with:
+## Secrets
 
-```
-(psycopg2.errors.UndefinedTable) relation "AvailableModel" does not exist
-```
+`deploy` creates `$LLMHUB_SECRETS_FILE` (default `$LLMHUB_DEPLOY_ROOT/secrets.env`,
+mode 0600) from `config/secrets.env.example` on first run, generating
+`BETTER_AUTH_SECRET` and `USER_API_KEY_PEPPER`. Everything else — CILogon
+client, always-on vLLM endpoint, S3 — is filled in by hand, then `deploy
+--apply` again. Without CILogon the frontend runs with local accounts, which
+is fine for staging. Keep the pepper stable: rotating it invalidates every
+user API key.
 
-`pnpm db:migrate` is the upstream path, but it needs node. Drizzle emits plain
-`.sql` files, so `db-migrate.sh` applies them with `psql` inside the postgres
-container instead.
+## Inference jobs and the vLLM image
 
-**`VEC_INF_CONFIG_DIR` is ignored at v0.1.1.** `backend/app/main.py`
-unconditionally overwrites it with the auto-detected in-repo infrastructure
-directory. Detection resolves to `delta` correctly on this VM. Setting the
-variable in `.env` has no effect until that changes.
-
-**SSH host trust is centrally managed.** `/etc/ssh/ssh_config` sets
-`StrictHostKeyChecking yes` and `UserKnownHostsFile /dev/null` for `dt-svc*`,
-so the only trust anchor is `/etc/ssh/ssh_known_hosts` and you cannot add a
-personal exception. The `ed25519` entry for this VM is stale (the VM was
-re-imaged 2026-06-02); the `ecdsa` entry is current. Pinning ecdsa verifies
-against the site file **without weakening checking**:
-
-```bash
-ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu
-```
-
-Do not reach for `StrictHostKeyChecking=no`. The stale entry is a site
-bookkeeping issue and wants an admin fix.
-
-## The vLLM container image
-
-`config/infrastructures/delta/environment.yaml` points inference at
-`/sw/llmhub/vllm.sif`. Rebuild it with:
-
-```bash
-sbatch infra/delta/bin/build-vllm-sif.sbatch
-# or a different tag:
-IMAGE_TAG=v0.19.1 sbatch infra/delta/bin/build-vllm-sif.sbatch /path/to/out.sif
-```
-
-This is the Delta counterpart to `devops/apptainers/build_vllm_sif.sbatch`,
-which is written for Magic Castle Radiant and **does not run here**. The
-differences are not cosmetic:
-
-| Magic Castle version | Delta version | Why |
-|---|---|---|
-| `--fakeroot` | no fakeroot | Delta has no subuid/subgid mapping for ordinary users; `--fakeroot` fails outright. Apptainer 1.5 converts OCI → SIF unprivileged. |
-| sandbox → SIF round-trip | direct build | The sandbox step dodged NFS xattr limits. Node-local disk here has no such limit. |
-| `module load apptainer` | none | It is `/usr/bin/apptainer` on Delta. |
-| `-p node` | `-p cpu`, `--account=…-delta-cpu` | The build uses no GPU; a GPU partition would idle an A100. |
-| cache on `/project` | cache on node-local disk | ~10 GB of layers onto Lustre is slow, and `/projects` runs near quota. |
-
-The job builds and verifies locally, then copies the finished image to the
-output path — it never writes a partial 20 GB file to the destination.
-
-**Installing it is a separate, privileged step.** The job prints the exact
-commands; the existing image is renamed to a dated `.bak` rather than deleted,
-so a bad image can be rolled back.
-
-## Per-user impersonation
-
-The Delta deployment is moving to running inference jobs as `svcllmhub<netid>`
-rather than all as the service account, via these settings:
-
-```
-VEC_INF_EXECUTION_MODE, VEC_INF_SHARED_WORK_ROOT,
-VEC_INF_IMPERSONATE_SCRIPT, VEC_INF_IMPERSONATE_PYTHON,
-VEC_INF_ACCOUNTS_SCRIPT
-```
-
-**None of these exist in `backend/app/config/config.py` at v0.1.1.** They arrive
-with PR #40 and its follow-up #49. Setting them on v0.1.1 is inert, so
-`deploy.sh` omits them unless `LLMHUB_EXECUTION_MODE` is set explicitly. Once
-those land in a release, set it in `config/delta.env` and re-render.
-
-## Frontend
-
-Not yet automated. It needs node and pnpm, which the VM does not provide, plus
-CILogon OAuth credentials and S3 configuration. Deciding how to provision node
-(nvm under the service account, or an Apptainer image) is the open item; until
-then `db-migrate.sh` covers the schema half of what the frontend would have
-done.
+`smoke` never launches a model. `POST /api/models/deployments` submits a real
+SLURM job as the account running the backend (`VEC_INF_EXECUTION_MODE=direct`)
+or as `svcllmhub<netid>` (`impersonate`, service user only, PR #40) using
+`/sw/llmhub/vllm.sif`. That image is what
+`backend/config/infrastructures/delta/environment.yaml` names; rebuilding it
+is a cluster job, not a VM step — `build-vllm-sif.sbatch` documents why the
+one-shot `apptainer build` fails on Delta (proot + mksquashfs) and points at
+the two-step build that works.
 
 ## Troubleshooting
 
-**Backend starts but every model sync fails** — the schema is missing. Run
-`db-migrate.sh --apply`, then restart the backend.
-
-**`Permission denied` creating the deployment root** — `ls` shows the ACL
-*mask* in the group field, which is misleading. Check the real entry:
-
-```bash
-getfacl /projects/bfmz/svcdeltallmhub    # look at 'group::', not the ls output
-```
-
-**Apptainer fails with `squashfuse_ll exited`** — corrupted image cache:
-
-```bash
-rm -rf /var/tmp/llmhub-apptainer-cache-$USER && apptainer cache clean -f
-```
-
-**Port held with no pidfile** — `stop.sh` deliberately refuses to kill by port
-alone; on a shared VM that process may not be yours. Identify it first:
-
-```bash
-ss -ltnp | grep 8100
-```
+- **`deploy` fails in the build step** — `./llmhub logs build`. The usual cause
+  is the database: `./llmhub status` should show postgres up.
+- **Backend starts, every model sync fails with `relation "AvailableModel"
+  does not exist`** — migrations did not run; `./llmhub deploy --apply`.
+- **`Permission denied` creating the deploy root under the service user's
+  directory** — `ls` shows the ACL *mask* in the group column;
+  `getfacl` shows the real `group::` entry. The root has to be created by
+  `svcdeltallmhub` once.
+- **Port held, no pidfile** — someone else's process. `ss -ltnp | grep <port>`.
+- **Apptainer `squashfuse_ll exited` / image errors** — `rm -rf
+  /data/llmhub/<profile>/apptainer/cache` and rerun.
