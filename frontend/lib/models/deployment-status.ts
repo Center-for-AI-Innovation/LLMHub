@@ -2,9 +2,9 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  type LucideIcon,
   Rocket,
   XCircle,
-  type LucideIcon,
 } from 'lucide-react';
 
 export type DeploymentStatusInfo = {
@@ -25,13 +25,13 @@ export function getDeploymentStatusInfo(status: string): DeploymentStatusInfo {
     case 'pending':
       return {
         label: 'Pending',
-        colorClass: 'bg-[#FF5F05]/10 text-[#FF5F05]',
+        colorClass: 'bg-secondary/10 text-secondary-accessible',
         icon: Clock,
       };
     case 'launching':
       return {
         label: 'Launching',
-        colorClass: 'bg-[#1D58A7]/10 text-[#1D58A7]',
+        colorClass: 'bg-status-info/10 text-status-info',
         icon: Rocket,
         iconClassName: 'animate-pulse',
       };
@@ -39,31 +39,31 @@ export function getDeploymentStatusInfo(status: string): DeploymentStatusInfo {
     case 'ready':
       return {
         label: 'Running',
-        colorClass: 'bg-[#009B77]/10 text-[#009B77]',
+        colorClass: 'bg-status-success/10 text-status-success',
         icon: CheckCircle2,
       };
     case 'failed':
       return {
         label: 'Failed',
-        colorClass: 'bg-[#C8102E]/10 text-[#C8102E]',
+        colorClass: 'bg-destructive/10 text-destructive-accessible',
         icon: XCircle,
       };
     case 'shutdown':
       return {
         label: 'Shutdown',
-        colorClass: 'bg-[#5E6A71]/10 text-[#5E6A71]',
+        colorClass: 'bg-muted text-muted-foreground',
         icon: AlertTriangle,
       };
     case 'completed':
       return {
         label: 'Completed',
-        colorClass: 'bg-[#5E6A71]/10 text-[#5E6A71]',
+        colorClass: 'bg-muted text-muted-foreground',
         icon: CheckCircle2,
       };
     default:
       return {
         label: 'Pending',
-        colorClass: 'bg-[#FF5F05]/10 text-[#FF5F05]',
+        colorClass: 'bg-secondary/10 text-secondary-accessible',
         icon: Clock,
       };
   }

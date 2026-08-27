@@ -2,8 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * DESIGN SYSTEM — UIUC ILLINOIS BRAND
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Color architecture (two layers):
+ *
+ *  1. Brand layer  — `--il-*` hex vars loaded from cdn.brand.illinois.edu/illinois.css
+ *     Used as-is for solid fills: bg-illinois-blue, text-illinois-orange, etc.
+ *     ⚠  Hex vars do NOT support Tailwind opacity modifiers (/10, /50, ...).
+ *        Use the semantic layer when transparency is needed.
+ *
+ *  2. Semantic layer — HSL component vars defined here, mapped in tailwind.config.ts
+ *     Supports opacity modifiers: bg-primary/10, text-secondary/80, etc.
+ *     Covers: primary (Illini Blue), secondary/accent (Illini Orange), muted,
+ *     border, ring, destructive, sidebar-*, chart-*, and status-*.
+ *
+ * Typography:
+ *   font-display → Montserrat   (headings, brand marks)
+ *   font-sans    → Source Sans 3 (body)
+ *   font-mono    → system mono  (code, logs)
+ *
+ * Spacing:  Tailwind default 4 px base scale.
+ *
+ * Border radius:
+ *   --radius: 0.5rem → rounded-lg (cards, dialogs, inputs)
+ *                       rounded-md (badges, chips)
+ *                       rounded-sm (insets)
+ *   rounded-full is used intentionally for pills, avatars, and toggles.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 @layer base {
     :root {
+        /* ── shadcn semantic tokens (HSL components, no hsl() wrapper) ──────── */
         --background: 0 0% 100%;
         --foreground: 217 85% 15%;
         --card: 0 0% 100%;
@@ -12,34 +43,62 @@
         --popover-foreground: 217 85% 15%;
         --primary: 217 85% 15%;
         --primary-foreground: 0 0% 98%;
-        --secondary: 16 95% 50%;
+        --secondary: 16 90% 42%;
         --secondary-foreground: 0 0% 98%;
         --muted: 217 45% 95%;
         --muted-foreground: 217 45% 46.1%;
-        --accent: 16 95% 50%;
+        --accent: 16 90% 42%;
         --accent-foreground: 0 0% 98%;
-        --destructive: 0 84.2% 60.2%;
+        --destructive: 0 84.2% 46%;
         --destructive-foreground: 0 0% 98%;
         --border: 217 45% 90%;
         --input: 217 45% 90%;
         --ring: 217 85% 15%;
+
+        /* ── Status / data-vis tokens (HSL, support opacity modifiers) ───────
+         *  status-success  ≈ UIUC Patina   (#007E8E)
+         *  status-info     ≈ UIUC Industrial (#1D58A7)
+         *  status-neutral  ≈ UIUC Harvest  (#FCB316), darkened for AA text contrast on light backgrounds
+         */
+        --status-success: 186 100% 22%;
+        --status-info: 214 70% 38%;
+        --status-neutral: 38 96% 29%;
+
+        /* ── Accessible text variants ──────────────────────────────────────
+         * secondary/destructive are also used as solid CTA backgrounds
+         * (paired with white foreground text), so their DEFAULT lightness
+         * can't be freely darkened/lightened without affecting those
+         * buttons. These variants are darkened (light mode) / lightened
+         * (dark mode) specifically for standalone text and text-on-tint
+         * (e.g. bg-secondary/10 text-secondary-accessible), matching the
+         * WCAG AA 4.5:1 contrast pattern already used for status-*.
+         */
+        --secondary-accessible: 16 90% 38%;
+        --destructive-accessible: 0 84.2% 40%;
+
+        /* ── Chart tokens ─────────────────────────────────────────────────── */
         --chart-1: 16 95% 50%;
         --chart-2: 217 85% 15%;
         --chart-3: 217 70% 35%;
         --chart-4: 16 75% 65%;
         --chart-5: 217 65% 45%;
+
+        /* ── Border radius ────────────────────────────────────────────────── */
         --radius: 0.5rem;
+
+        /* ── Sidebar tokens ──────────────────────────────────────────────── */
         --sidebar-background: 217 45% 98%;
         --sidebar-foreground: 217 85% 15%;
         --sidebar-primary: 217 85% 15%;
         --sidebar-primary-foreground: 0 0% 98%;
-        --sidebar-accent: 16 95% 50%;
+        --sidebar-accent: 16 90% 42%;
         --sidebar-accent-foreground: 0 0% 98%;
         --sidebar-hover: 217 35% 94%;
         --sidebar-hover-foreground: 217 85% 15%;
         --sidebar-border: 217 45% 90%;
         --sidebar-ring: 217 85% 15%;
     }
+
     .dark {
         --background: 217 85% 8%;
         --foreground: 217 45% 98%;
@@ -49,7 +108,7 @@
         --popover-foreground: 217 45% 98%;
         --primary: 217 45% 98%;
         --primary-foreground: 217 85% 15%;
-        --secondary: 16 85% 45%;
+        --secondary: 16 85% 41%;
         --secondary-foreground: 0 0% 98%;
         --muted: 217 85% 15%;
         --muted-foreground: 217 45% 75%;
@@ -60,11 +119,22 @@
         --border: 217 85% 15%;
         --input: 217 85% 15%;
         --ring: 217 45% 90%;
+
+        /* Status tokens lightened for dark backgrounds */
+        --status-success: 186 70% 55%;
+        --status-info: 214 70% 65%;
+        --status-neutral: 40 97% 65%;
+
+        /* Accessible text variants — see :root comment above */
+        --secondary-accessible: 16 85% 52%;
+        --destructive-accessible: 0 62.8% 61%;
+
         --chart-1: 16 85% 45%;
         --chart-2: 217 85% 75%;
         --chart-3: 217 75% 65%;
         --chart-4: 16 65% 65%;
         --chart-5: 217 70% 85%;
+
         --sidebar-background: 217 85% 10%;
         --sidebar-foreground: 217 45% 98%;
         --sidebar-primary: 217 85% 75%;
@@ -127,15 +197,16 @@
     outline: none;
 }
 
+/* CodeMirror overrides — keep editor background in the semantic surface palette */
 .cm-editor,
 .cm-gutters {
-    @apply bg-background dark:bg-zinc-800 outline-none selection:bg-zinc-900 !important;
+    @apply bg-background dark:bg-muted outline-none selection:bg-muted !important;
 }
 
 .ͼo.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground,
 .ͼo.cm-selectionBackground,
 .ͼo.cm-content::selection {
-    @apply bg-zinc-200 dark:bg-zinc-900 !important;
+    @apply bg-muted dark:bg-muted/50 !important;
 }
 
 .cm-activeLine,
@@ -160,5 +231,5 @@
 }
 
 .suggestion-highlight {
-    @apply bg-blue-200 hover:bg-blue-300 dark:hover:bg-blue-400/50 dark:text-blue-50 dark:bg-blue-500/40;
+    @apply bg-primary/15 hover:bg-primary/25 dark:hover:bg-primary/30 dark:text-primary-foreground dark:bg-primary/25;
 }
