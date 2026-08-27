@@ -211,6 +211,22 @@ client, always-on vLLM endpoint, S3 — is filled in by hand, then `deploy
 is fine for staging. Keep the pepper stable: rotating it invalidates every
 user API key.
 
+## Enabling CILogon
+
+Local accounts are the default. CILogon needs four things, in this order:
+
+1. A TLS front on the VM at the public name — `httpd` is installed, `mod_ssl`
+   is not; the cert/key for `llmhub-dev.delta.ncsa.illinois.edu` are in `/data`
+   (check the expiry). Ports below 1024 need root, so this is an admin step:
+   proxy `/` → `127.0.0.1:<frontend port>`; the backend stays internal.
+2. A CILogon OIDC client registered for the redirect URI
+   `<public origin>/api/auth/oauth2/callback/cilogon`.
+3. `LLMHUB_PUBLIC_URL=https://<public name>` in `local.env` — one origin only;
+   CILogon will not redirect to `localhost`, so the tunnel and CILogon are
+   mutually exclusive.
+4. `CILOGON_CLIENT_ID`, `CILOGON_CLIENT_SECRET` (and the discovery URL / skin
+   if not the defaults) in `secrets.env`, then `./llmhub render`.
+
 ## Inference jobs and the vLLM image
 
 `smoke` never launches a model. `POST /api/models/deployments` submits a real
