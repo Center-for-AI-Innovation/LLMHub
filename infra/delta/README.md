@@ -68,9 +68,15 @@ each time, so **redeploying the latest commit of a branch is just
 | local root (`/data`, xfs) | `/data/llmhub/production` | `/data/llmhub/staging` |
 | ref | a release tag | usually a branch |
 
-Deploy root: source checkout, venv, node, logs, pidfiles, `secrets.env`,
-`DEPLOYED`. Local root: PostgreSQL data + password, the postgres image,
-Apptainer cache. Both survive a VM reboot; after one, run `./llmhub start`.
+Deploy root (`/projects`): source checkout, venv, logs, pidfiles, `secrets.env`,
+`DEPLOYED`, `local.env`. Local root (`/data`): PostgreSQL data + password, the
+postgres image, the Apptainer cache, **every rebuildable cache** (Node runtime
++ pnpm, the pnpm store, uv's cache and interpreters) **and the frontend working
+copy** — `deploy` rsyncs the checkout's `frontend/` there and installs, builds
+and serves from it, so `node_modules`, `.next` and the frontend `.env` never
+touch `/projects` (pnpm refuses a symlinked `node_modules`). Both
+survive a VM reboot; after one, run `./llmhub start`. After a VM *rebuild* the
+local root is gone and `deploy --apply` recreates it.
 
 ## Things about Delta the script encodes
 
@@ -81,6 +87,11 @@ Each of these broke a deployment when ignored.
   conversion in proot, and proot-wrapped `mksquashfs` segfaults (exit 139) —
   on the 150 MB postgres image here as on the 22 GB vLLM image on the cluster.
   Pulling needs no root emulation.
+- **`/projects/bfmz` has a project inode quota** (750k soft / 825k hard) and
+  one frontend install is ~150k files. Two stacks on `/projects` hit the hard
+  limit on 2026-08-27 — it surfaces as `Disk quota exceeded` on a shell
+  redirect and as pnpm `ENOENT … mkdir …_tmp_…` mid-import. That is why every
+  cache lives on `/data`. `preflight` reports the quota (`lfs quota -p`).
 - **`/projects` is Lustre, mounted `nodev`** — PostgreSQL and Apptainer will
   not run from it. **`/var/tmp` is tmpfs** — the 2026-08-20 staging database
   lived there and was gone after the 2026-08-25 reboot. **`/tmp` is 4 G.**

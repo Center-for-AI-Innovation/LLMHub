@@ -58,13 +58,14 @@ elif [ -n "$REF_ENV" ]; then LLMHUB_REF="$REF_ENV"
 elif [ -r "$DEPLOYED_FILE" ]; then LLMHUB_REF="$(sed -n 's/^ref=//p' "$DEPLOYED_FILE")"
 fi
 
-BE="${LLMHUB_SRC_DIR}/backend"; FE="${LLMHUB_SRC_DIR}/frontend"
+BE="${LLMHUB_SRC_DIR}/backend"; FE_SRC="${LLMHUB_SRC_DIR}/frontend"; FE="$LLMHUB_FRONTEND_DIR"
 UV="${LLMHUB_UV_DIR}/bin/uv";   PY="${LLMHUB_VENV_DIR}/bin/python"
 BACKEND_URL="http://${LLMHUB_BIND_HOST}:${LLMHUB_BACKEND_PORT}"
 FRONTEND_URL="http://${LLMHUB_BIND_HOST}:${LLMHUB_FRONTEND_PORT}"
 
-# Keep every cache out of $HOME (NFS, quota-limited) and on the deployment.
-CACHE="${LLMHUB_DEPLOY_ROOT}/.cache"
+# Every cache lives on the VM-local root: off $HOME (NFS quota) and off
+# /projects (inode quota). See LLMHUB_CACHE_DIR in delta.env.
+CACHE="$LLMHUB_CACHE_DIR"
 export UV_CACHE_DIR="${CACHE}/uv" UV_PYTHON_INSTALL_DIR="${CACHE}/uv-python"
 export npm_config_cache="${CACHE}/npm" npm_config_prefix="${LLMHUB_NODE_DIR}"
 export XDG_CACHE_HOME="${CACHE}/xdg-cache" XDG_DATA_HOME="${CACHE}/xdg-data" XDG_STATE_HOME="${CACHE}/xdg-state"
@@ -117,7 +118,7 @@ require_operator() {
 }
 
 port_pid() { ss -ltnp 2>/dev/null | awk -v p=":$1\$" '$4 ~ p' | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2 || true; }
-ours()     { [ -n "$1" ] && case "$(readlink "/proc/$1/cwd" 2>/dev/null)" in "${LLMHUB_DEPLOY_ROOT}"/*) return 0 ;; esac; return 1; }
+ours()     { [ -n "$1" ] && case "$(readlink "/proc/$1/cwd" 2>/dev/null)" in "${LLMHUB_DEPLOY_ROOT}"/*|"${LLMHUB_LOCAL_ROOT}"/*) return 0 ;; esac; return 1; }
 alive()    { local p; p="$(cat "$1" 2>/dev/null)"; [ -n "$p" ] && kill -0 "$p" 2>/dev/null && ours "$p"; }
 http()     { curl -sL -o /dev/null -w '%{http_code}' --max-time "${2:-10}" "$1" 2>/dev/null || echo 000; }
 wait_http() {  # url seconds
@@ -293,8 +294,22 @@ start_frontend() {
 # import with ENOENT. Clear them, and retry once from a clean node_modules.
 frontend_install() {
     local cmd=(pnpm --dir "$FE" install --frozen-lockfile --store-dir "${CACHE}/pnpm-store")
-    if [ "$APPLY" = 1 ] && ls -d "$FE"/node_modules/.pnpm/*/node_modules/*_tmp_* >/dev/null 2>&1; then
-        warn "node_modules has pnpm temp leftovers from an interrupted install — removing it"; rm -rf "$FE/node_modules"
+    if [ "$APPLY" = 1 ]; then
+        # Anything a previous layout left in the checkout is a cache on /projects.
+        local leftover; for leftover in node_modules .next .env; do
+            [ -e "${FE_SRC}/${leftover}" ] || [ -L "${FE_SRC}/${leftover}" ] || continue
+            warn "checkout frontend/${leftover} left by an older deploy — removing (the frontend runs from ${FE} now)"; rm -rf "${FE_SRC:?}/${leftover}"
+        done
+        [ -d "${LLMHUB_DEPLOY_ROOT}/.cache" ] && { warn "legacy ${LLMHUB_DEPLOY_ROOT}/.cache on /projects — removing (caches live on ${CACHE})"; rm -rf "${LLMHUB_DEPLOY_ROOT}/.cache"; }
+        [ -d "${LLMHUB_DEPLOY_ROOT}/node" ] && { warn "legacy ${LLMHUB_DEPLOY_ROOT}/node on /projects — removing (Node lives on ${LLMHUB_NODE_DIR})"; rm -rf "${LLMHUB_DEPLOY_ROOT}/node"; }
+        # The working copy: everything git tracks, nothing it ignores.
+        mkdir -p "$FE"
+        rsync -a --delete --exclude=node_modules --exclude=.next --exclude=.env "${FE_SRC}/" "${FE}/" \
+            || die "could not sync ${FE_SRC} → ${FE}"
+        info "frontend working copy synced → ${FE} ($(find "$FE" -path "$FE/node_modules" -prune -o -type f -print | wc -l) files)"
+        if ls -d "$FE"/node_modules/.pnpm/*/node_modules/*_tmp_* >/dev/null 2>&1; then
+            warn "node_modules has pnpm temp leftovers from an interrupted install — clearing it"; rm -rf "$FE/node_modules"
+        fi
     fi
     printf '  $ %s   (log: %s)\n' "${cmd[*]}" "${LLMHUB_LOG_DIR}/install-frontend.log"
     [ "$APPLY" = 1 ] || return 0
@@ -474,8 +489,10 @@ cmd_deploy() {
     # Both runtimes are fetched into the deployment so it owns them.
     if [ -x "$UV" ]; then info "uv present"; else
         run python3 -m venv "$LLMHUB_UV_DIR"; run "${LLMHUB_UV_DIR}/bin/pip" install -q --disable-pip-version-check uv; fi
-    if [ -x "$PY" ] && [ "$RECREATE" != 1 ]; then info "venv present: $("$PY" -V 2>&1)"; else
-        run "$UV" venv -q ${RECREATE:+--clear} --python "$LLMHUB_PYTHON_VERSION" "$LLMHUB_VENV_DIR"; fi
+    if [ -x "$PY" ] && "$PY" -c '' 2>/dev/null && [ "$RECREATE" != 1 ]; then info "venv present: $("$PY" -V 2>&1)"; else
+        # a dangling venv (its interpreter lived on a wiped local root) must go first
+        [ -d "$LLMHUB_VENV_DIR" ] && run rm -rf "$LLMHUB_VENV_DIR"
+        run "$UV" venv -q --python "$LLMHUB_PYTHON_VERSION" "$LLMHUB_VENV_DIR"; fi
     local want="v${LLMHUB_NODE_VERSION}" tb="node-v${LLMHUB_NODE_VERSION}-linux-x64.tar.xz" dl="${CACHE}/node-dl"
     if [ "$("${LLMHUB_NODE_DIR}/bin/node" -v 2>/dev/null)" = "$want" ] && [ "$RECREATE" != 1 ]; then info "node ${want} present"; else
         run mkdir -p "$dl"
@@ -540,7 +557,7 @@ cmd_deploy() {
 # ------------------------------------------------------------ operations ----
 cmd_start()   { require_operator; step "PostgreSQL"; pg_start; step "Backend"; start_backend; step "Frontend"; start_frontend; tunnel_hint; }
 cmd_render() {  # config changed, source did not: re-render and restart (no fetch, no build)
-    require_operator; [ -r "${BE}/app/config/config.py" ] || die "nothing deployed at ${LLMHUB_SRC_DIR} — run: ./llmhub deploy --apply"
+    require_operator; [ -r "${BE}/app/config/config.py" ] && [ -f "${FE}/package.json" ] || die "nothing deployed at ${LLMHUB_SRC_DIR} / ${FE} — run: ./llmhub deploy --apply"
     step "Render — secrets, vec-inf-config, backend/.env, frontend/.env"
     load_secrets; render_vec_inf_config; render_backend_env; render_frontend_env
     info "NEXT_PUBLIC_* values are baked in at build time — a change to those needs: ./llmhub deploy --apply"
@@ -633,7 +650,7 @@ cmd_preflight() {
     else ok "staging profile — personal stack as ${ME}"; fi
     id -nG | tr ' ' '\n' | grep -qx "$LLMHUB_GROUP" && ok "member of ${LLMHUB_GROUP}" || bad "not in ${LLMHUB_GROUP}"
     step "Toolchain (runtimes are fetched by deploy; only the bootstrap set is needed)"
-    local t; for t in git apptainer python3 curl tar xz openssl ss jq sbatch squeue; do command -v "$t" >/dev/null && ok "$t" || bad "$t missing"; done
+    local t; for t in git apptainer python3 curl tar xz openssl ss jq rsync sbatch squeue; do command -v "$t" >/dev/null && ok "$t" || bad "$t missing"; done
     step "Source"
     local sha; sha="$(git ls-remote "$LLMHUB_REPO" "refs/tags/${LLMHUB_REF}^{}" "refs/tags/${LLMHUB_REF}" "refs/heads/${LLMHUB_REF}" 2>/dev/null | awk '{print $1}' | head -1 || true)"
     if [ -n "$sha" ]; then ok "'${LLMHUB_REF}' resolves upstream to ${sha:0:9}"
@@ -645,6 +662,16 @@ cmd_preflight() {
     [ -w "$p" ] && ok "deploy root writable (${p})" || bad "cannot write under ${p} — check getfacl, ls shows the ACL mask"
     local free; free=$(( $(df -Pk "$p" | awk 'NR==2{print $4}') / 1048576 ))
     [ "$free" -ge 10 ] && ok "${free} G free at ${p}" || warn "only ${free} G free at ${p}"
+    if command -v lfs >/dev/null 2>&1; then
+        local pid q; pid="$(lfs project -d "$p" 2>/dev/null | awk '{print $1}')"
+        q="$(lfs quota -p "${pid:-0}" "$(df -P "$p" | awk 'NR==2{print $6}')" 2>/dev/null | tail -1 | awk '{print $6, $7, $8}')"
+        if [ -n "$q" ]; then
+            local used soft hard; read -r used soft hard <<< "$q"; used="${used//\*/}"
+            if [ "$used" -ge "$soft" ]; then bad "inode quota on $(df -P "$p" | awk 'NR==2{print $6}'): ${used} files used, soft limit ${soft} (hard ${hard}) — installs fail with ENOENT/EDQUOT; caches belong on ${LLMHUB_LOCAL_ROOT}"
+            elif [ $(( soft - used )) -lt 60000 ]; then warn "inode quota headroom only $(( soft - used )) files (${used}/${soft})"
+            else ok "inode quota: ${used}/${soft} files"; fi
+        fi
+    fi
     p="$LLMHUB_LOCAL_ROOT"; while [ ! -d "$p" ] && [ "$p" != / ]; do p="$(dirname "$p")"; done
     local fst; fst="$(stat -f -c %T "$p" 2>/dev/null)"
     if [ "$(hostname -s)" != "${LLMHUB_VM_HOST%%.*}" ]; then warn "not on ${LLMHUB_VM_HOST%%.*} — local root ${LLMHUB_LOCAL_ROOT} only exists there; run preflight on the VM before deploying"
@@ -724,9 +751,10 @@ cmd_launch_test() {
         "$model" "$hf" "$nodes" "$gpus" "$LLMHUB_LAUNCH_PARTITION" "$LLMHUB_LAUNCH_RESOURCE_TYPE" "$LLMHUB_LAUNCH_TIME" "$LLMHUB_VLLM_SIF"
     note() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$log"; }
     step "Preconditions"
-    [ "$(http "${BACKEND_URL}/api/health")" = 200 ] || die "backend is not healthy"; ok "backend healthy"
+    alive "${LLMHUB_RUN_DIR}/backend.pid" || die "the backend on ${LLMHUB_BACKEND_PORT} is not this deployment's (pid $(port_pid "$LLMHUB_BACKEND_PORT"):-none) — another stack holds the ${LLMHUB_PROFILE} ports, or this one is not started"
+    [ "$(http "${BACKEND_URL}/api/health")" = 200 ] || die "backend is not healthy"; ok "backend healthy (pid $(cat "${LLMHUB_RUN_DIR}/backend.pid"), ours)"
     [ -r "$LLMHUB_VLLM_SIF" ] || die "inference image not readable: ${LLMHUB_VLLM_SIF}"; ok "image readable"
-    local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}')"
+    local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}' || true)"
     [ "$(basename "$img")" = "$(basename "$LLMHUB_VLLM_SIF")" ] && [ -r "$img" ] || die "rendered vec-inf-config (${VIC}) does not serve ${LLMHUB_VLLM_SIF} — ./llmhub render first"
     local cu="$LLMHUB_TEST_CLUSTER_USER"
     if [ "$IMP" = 1 ]; then
@@ -807,7 +835,8 @@ cmd_check_impersonation() {
     [ -n "$u" ] || die "usage: ./llmhub check-impersonation <svcllmhub-user>   (or LLMHUB_TEST_CLUSTER_USER)"
     step "What ${u} must be able to read (groups cannot help — only the 'other' bits count)"
     getent passwd "$u" >/dev/null && ok "account ${u}: groups $(id -nG "$u" 2>/dev/null | tr ' ' ',')" || { bad "no account ${u}"; F=1; }
-    local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}')"
+    local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}' || true)"
+    [ -r "${VIC}/environment.yaml" ] || { bad "no rendered config at ${VIC} — deploy has not completed"; F=1; }
     for p in "$SHIM_PY" "${VIC}/environment.yaml" "${VIC}/models.yaml" "$img" "$LLMHUB_HF_CACHE" "${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; do
         [ -n "$p" ] || continue; world_readable "$p" && ok "$p" || { bad "$p is NOT world-readable"; F=1; }
     done
