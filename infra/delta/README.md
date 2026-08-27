@@ -54,7 +54,9 @@ each time, so **redeploying the latest commit of a branch is just
 | `status` | What is deployed (ref, SHA, clean?), runtimes, what is running, health, log error counts. |
 | `smoke [--with-sync]` | GETs against both services; `--with-sync` also exercises the catalogue write path. Never launches inference. |
 | `launch-test [--keep]` | One real inference job through the backend API: creates/uses a local test user, POSTs a deployment for `LLMHUB_TEST_MODEL` (`LLMHUB_TEST_GPUS` GPUs, tensor-parallel), waits for the server, runs a chat completion against the vLLM endpoint, then shuts it down (`--keep` leaves it running for a frontend session). Submits a SLURM job as the account running the backend. |
-| `logs <name> [-f]` | Tail a log (`backend`, `frontend`, `postgres`, `build`, `launch-test`, …). |
+| `shim` | Impersonate mode only: rebuild the shim env (the world-readable copy of the backend that `svcllmhub*` users run). `deploy` does this whenever the ref changes. |
+| `check-impersonation <svcllmhub-user>` | Impersonate mode only: checks everything that user must be able to read, then runs the backend's own `check-impersonation-setup.py` (account resolution, workspace ACLs, a real `sudo` probe). No GPU. Run this before the first impersonated `launch-test`. |
+| `logs <name> [-f]` | Tail a log (`backend`, `frontend`, `postgres`, `build`, `launch-test`, `shim-env`, …). |
 
 ## Profiles and where things live
 
@@ -144,6 +146,48 @@ Three things the rendered inference config encodes, each found by a failed job:
   so any multi-GPU job (`0,1,2,3`) died with `1 must be formatted as key=value`
   (job 21500226). Pre-seeding a CSV-quoted field stops the append and survives
   both vec-inf's split/rejoin and Apptainer's parser. Upstream fix drafted.
+
+## Impersonation (jobs as `svcllmhub<netid>`)
+
+`LLMHUB_EXECUTION_MODE=impersonate` (put it in `local.env`) makes the backend
+launch each job as the requesting user's service account: it creates
+`/projects/llmhub/<user>` with ACLs, resolves that account's SLURM allocation
+with `/sw/user/scripts/accounts`, and runs
+`sudo -u <user> -i -- <python> -m app.utils.vec_inf_launch_shim` under a PTY.
+Two consequences the kit encodes:
+
+1. **Service-user-only.** The sudo rule is `svcdeltallmhub → svcllmhub*`, and
+   only `svcdeltallmhub` can write under `/projects/llmhub`. `deploy`, `start`,
+   `render`, `launch-test` refuse impersonate mode under any other account.
+2. **The impersonated user is a different Unix user** (groups `grp_202`,
+   `delta_bgns`) that cannot read anything under `/projects/bfmz/…`. So in this
+   mode everything it needs lives under `LLMHUB_SHARED_ROOT`
+   (`/projects/llmhub/llmhub-<profile>`, world-readable):
+   - `vec-inf-config/` — `VEC_INF_CONFIG_DIR` (vec-inf silently falls back to
+     Vector's defaults when it cannot read this);
+   - `containers/<image>.sif` — a copy of `LLMHUB_VLLM_SIF` if the original is
+     not world-readable;
+   - `shim-env/` — a **non-editable** install of the deployed backend on its own
+     Python (`VEC_INF_IMPERSONATE_PYTHON`), rebuilt whenever the deployed ref
+     changes. `status` warns when it lags the deployed ref. Without this, the
+     copy the users run drifts from the API server's code.
+
+Operator sequence (staging profile as the service user; stop any personal
+staging stack first — one stack per profile per VM):
+
+```bash
+/sw/admin/scripts/impersonate svcdeltallmhub
+cd /projects/bfmz/dadams/llmhub-dev/LLMHub/infra/delta        # readable via delta_bfmz
+R=/projects/bfmz/svcdeltallmhub/llmhub-staging; mkdir -p $R
+printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhubdadams\nLLMHUB_VLLM_SIF=/projects/bfmz/dadams/llmhub-containers/vllm-v0.19.1-slingshot-v3.sif\n' > $R/local.env
+./llmhub preflight --profile staging --ref port/backend-pr-32
+./llmhub deploy --apply --profile staging --ref port/backend-pr-32   # + shim env, shared config, image copy
+./llmhub check-impersonation svcllmhubdadams                        # no GPU; must pass first
+./llmhub launch-test --profile staging                               # job runs as svcllmhubdadams on bgns-delta-gpu
+```
+
+The frontend does not yet send `clusterUsername`; `launch-test` exercises the
+API path. Impersonated job logs are under `/projects/llmhub/<user>/`.
 
 ## Secrets
 

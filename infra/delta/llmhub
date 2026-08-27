@@ -10,6 +10,8 @@
 #   ./llmhub status    [--profile P]
 #   ./llmhub smoke     [--profile P] [--with-sync]   exercise a running stack
 #   ./llmhub launch-test [--profile P] [--keep]      real inference job via the API
+#   ./llmhub shim      [--profile P]   rebuild the shim env (impersonate mode)
+#   ./llmhub check-impersonation <svcllmhub-user>    readability + the backend's own sudo probe
 #   ./llmhub logs      backend|frontend|postgres|build [-f]
 #
 # Profiles: production (5433/8000/3000, service user only) and staging
@@ -23,7 +25,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------ args ----
 CMD=""; TARGET=""; REF_ARG=""; APPLY=0; STOP_ALL=0; WITH_SYNC=0; RECREATE=0; FOLLOW=0; KEEP=0
-usage() { sed -n '2,18p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
+usage() { sed -n '2,20p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --profile)   export LLMHUB_PROFILE="$2"; shift 2 ;;
@@ -43,11 +45,14 @@ done
 
 # ---------------------------------------------------------------- config ----
 REF_ENV="${LLMHUB_REF:-}"          # an explicit export outranks the recorded ref
-. "${HERE}/config/delta.env"
-# shellcheck disable=SC1091
-[ -r "${LLMHUB_DEPLOY_ROOT}/local.env" ] && . "${LLMHUB_DEPLOY_ROOT}/local.env"
+. "${HERE}/config/delta.env"          # also sources $LLMHUB_DEPLOY_ROOT/local.env
 DEPLOYED_FILE="${LLMHUB_DEPLOY_ROOT}/DEPLOYED"
-VIC="${LLMHUB_DEPLOY_ROOT}/vec-inf-config"
+IMP=0; [ "$LLMHUB_EXECUTION_MODE" = impersonate ] && IMP=1
+if [ "$IMP" = 1 ]; then   # everything an impersonated user reads must be world-readable
+    VIC="${LLMHUB_SHARED_ROOT}/vec-inf-config"; SHIM_PY="${LLMHUB_IMPERSONATE_PYTHON:-${LLMHUB_SHIM_ENV}/bin/python}"
+else
+    VIC="${LLMHUB_DEPLOY_ROOT}/vec-inf-config"; SHIM_PY="$LLMHUB_IMPERSONATE_PYTHON"
+fi
 if   [ -n "$REF_ARG" ]; then LLMHUB_REF="$REF_ARG"
 elif [ -n "$REF_ENV" ]; then LLMHUB_REF="$REF_ENV"
 elif [ -r "$DEPLOYED_FILE" ]; then LLMHUB_REF="$(sed -n 's/^ref=//p' "$DEPLOYED_FILE")"
@@ -97,6 +102,11 @@ require_operator() {
         die "profile production runs as ${LLMHUB_SERVICE_USER} only
        (/sw/admin/scripts/impersonate ${LLMHUB_SERVICE_USER}); use --profile staging for a personal stack"
     fi
+    if [ "$IMP" = 1 ] && [ "$ME" != "$LLMHUB_SERVICE_USER" ]; then
+        die "LLMHUB_EXECUTION_MODE=impersonate is service-user-only: the backend runs sudo -u svcllmhub<netid>,
+       a rule that exists for ${LLMHUB_SERVICE_USER}, and only it can write under ${LLMHUB_SHARED_WORK_ROOT}.
+       /sw/admin/scripts/impersonate ${LLMHUB_SERVICE_USER}"
+    fi
     case "$LLMHUB_DEPLOY_ROOT" in *Delta-deployment*)
         die "LLMHUB_DEPLOY_ROOT is inside the retired Delta-deployment tree; pick a dedicated path" ;; esac
     umask "$LLMHUB_UMASK"
@@ -109,7 +119,66 @@ http()     { curl -sL -o /dev/null -w '%{http_code}' --max-time "${2:-10}" "$1" 
 wait_http() {  # url seconds
     local i; for i in $(seq 1 "$2"); do [ "$(http "$1" 5)" = 200 ] && return 0; sleep 2; done; return 1
 }
-count_errors() { grep -cE ' - ERROR - |Error:|ERROR' "$1" 2>/dev/null || true; }
+# Error lines since the service last started (the logs are append-only across
+# restarts, so a lifetime count would keep reporting a fault that is long gone).
+count_errors() {  # logfile
+    local marker
+    case "$(basename "$1")" in
+        backend.log)  marker='Started server process' ;;
+        frontend.log) marker='Ready in' ;;
+        postgres.log) marker='ready to accept connections' ;;
+        *) marker='__never__' ;;
+    esac
+    awk -v m="$marker" 'index($0,m){n=0; next} / - ERROR - |Error:|ERROR/{n++} END{print n+0}' "$1" 2>/dev/null || echo 0
+}
+
+# An impersonated user's groups cannot help; only the "other" bits on every
+# path component count. Directories need o+x, the leaf o+r (dirs) / o+r (files).
+world_readable() {
+    local p m; p="$(readlink -f "$1" 2>/dev/null)" || return 1; [ -e "$p" ] || return 1
+    m="$(stat -c %a "$p")"
+    if [ -d "$p" ]; then [ $(( 8#$m & 5 )) -eq 5 ] || return 1; else [ $(( 8#$m & 4 )) -ne 0 ] || return 1; fi
+    p="$(dirname "$p")"
+    while [ "$p" != / ]; do m="$(stat -c %a "$p")"; [ $(( 8#$m & 1 )) -ne 0 ] || return 1; p="$(dirname "$p")"; done
+}
+
+# The shim env: a NON-editable install of the deployed backend (app is copied
+# into site-packages — the checkout is unreadable to svcllmhub*) on a Python
+# that also lives under the shared root, world-readable. Rebuilt whenever the
+# deployed ref changes, so it cannot drift from the API server's code.
+shim_env_build() {  # sha
+    local sha="$1" have; have="$(cat "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA" 2>/dev/null || true)"
+    if [ "$have" = "$sha" ] && [ -x "${LLMHUB_SHIM_ENV}/bin/python" ] && [ "$RECREATE" != 1 ]; then info "shim env already at ${sha:0:9}"; return 0; fi
+    info "building ${LLMHUB_SHIM_ENV} at ${sha:0:9} (log: ${LLMHUB_LOG_DIR}/shim-env.log)"
+    (
+        set -e; umask 022
+        mkdir -p "$LLMHUB_SHARED_ROOT" "$LLMHUB_LOG_DIR"
+        export UV_PYTHON_INSTALL_DIR="${LLMHUB_SHARED_ROOT}/python"   # the venv's python symlinks into it
+        rm -rf "$LLMHUB_SHIM_ENV"
+        "$UV" venv -q --python "$LLMHUB_PYTHON_VERSION" "$LLMHUB_SHIM_ENV"
+        "$UV" pip install -q --python "${LLMHUB_SHIM_ENV}/bin/python" "$BE"
+        printf '%s\n' "$sha" > "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA"
+        chmod -R o+rX "$LLMHUB_SHIM_ENV" "${LLMHUB_SHARED_ROOT}/python"
+    ) > "${LLMHUB_LOG_DIR}/shim-env.log" 2>&1 || { tail -20 "${LLMHUB_LOG_DIR}/shim-env.log" | sed 's/^/    /'; die "shim env build failed"; }
+    # Prove it the way sudo -i will run it: from /, with an empty environment.
+    (cd / && env -i PATH=/usr/bin:/bin "${LLMHUB_SHIM_ENV}/bin/python" -c 'import app.utils.vec_inf_launch_shim, vec_inf') >> "${LLMHUB_LOG_DIR}/shim-env.log" 2>&1 \
+        || die "shim env cannot import app.utils.vec_inf_launch_shim from / — see ${LLMHUB_LOG_DIR}/shim-env.log"
+    ok "shim env at ${sha:0:9}: $("${LLMHUB_SHIM_ENV}/bin/python" -V 2>&1), imports app.utils.vec_inf_launch_shim from /"
+    world_readable "${LLMHUB_SHIM_ENV}/bin/python" && ok "shim env is world-readable" || warn "shim env is NOT world-readable — svcllmhub* cannot run it (is ${LLMHUB_SHARED_ROOT} o+rx all the way down?)"
+}
+
+# In impersonate mode the image must be readable by svcllmhub*; copy it under
+# the shared root when the configured path is not. Prints the effective path.
+shared_image() {
+    if [ "$IMP" != 1 ] || world_readable "$LLMHUB_VLLM_SIF"; then printf '%s' "$LLMHUB_VLLM_SIF"; return 0; fi
+    local dst="${LLMHUB_SHARED_ROOT}/containers/$(basename "$LLMHUB_VLLM_SIF")"
+    if [ ! -f "$dst" ] || [ "$LLMHUB_VLLM_SIF" -nt "$dst" ] || [ "$(stat -c %s "$LLMHUB_VLLM_SIF")" != "$(stat -c %s "$dst")" ]; then
+        info "copying ${LLMHUB_VLLM_SIF} → ${dst} (svcllmhub* cannot read the original)" >&2
+        (umask 022; mkdir -p "$(dirname "$dst")" && cp "$LLMHUB_VLLM_SIF" "${dst}.partial" && mv "${dst}.partial" "$dst" && chmod 0755 "$dst") \
+            || { rm -f "${dst}.partial"; die "could not copy the image under ${LLMHUB_SHARED_ROOT}"; }
+    fi
+    printf '%s' "$dst"
+}
 
 pg_exec()  { apptainer exec --bind "$LLMHUB_PG_DIR" "$LLMHUB_PG_SIF" "$@"; }
 pg_ready() { [ -x "$LLMHUB_PG_SIF" ] && [ -d "$LLMHUB_PG_DIR" ] \
@@ -149,15 +218,17 @@ pg_start() {
         pg_exec initdb -D "${LLMHUB_PG_DIR}/data" -U "$LLMHUB_PG_USER" \
             --auth-local=trust --auth-host=scram-sha-256 --pwfile="${LLMHUB_PG_DIR}/password" \
             > "${LLMHUB_LOG_DIR}/initdb.log" 2>&1 || die "initdb failed — see ${LLMHUB_LOG_DIR}/initdb.log"
-        printf "port = %s\nunix_socket_directories = '%s'\nlisten_addresses = '127.0.0.1'\n" \
-            "$LLMHUB_PG_PORT" "$LLMHUB_PG_DIR" >> "${LLMHUB_PG_DIR}/data/postgresql.conf"
         ok "cluster initialised at ${LLMHUB_PG_DIR}/data"
     fi
     # A pid file left by a crash or VM reboot blocks startup; remove it only
     # when nothing is actually serving this data directory.
     pgrep -f "postgres -D ${LLMHUB_PG_DIR}/data" >/dev/null 2>&1 || rm -f "${LLMHUB_PG_DIR}/data/postmaster.pid"
+    # Port, socket dir and bind address go on the command line every start, so
+    # a moved local root or a changed port never leaves a stale postgresql.conf.
     setsid nohup apptainer exec --bind "$LLMHUB_PG_DIR" "$LLMHUB_PG_SIF" \
-        postgres -D "${LLMHUB_PG_DIR}/data" >> "${LLMHUB_LOG_DIR}/postgres.log" 2>&1 < /dev/null &
+        postgres -D "${LLMHUB_PG_DIR}/data" -c "port=${LLMHUB_PG_PORT}" \
+        -c "unix_socket_directories=${LLMHUB_PG_DIR}" -c "listen_addresses=127.0.0.1" \
+        >> "${LLMHUB_LOG_DIR}/postgres.log" 2>&1 < /dev/null &
     local i; for i in $(seq 1 30); do pg_ready && break; sleep 1; done
     pg_ready || die "postgres did not come up — see ${LLMHUB_LOG_DIR}/postgres.log"
     ok "postgres up on ${LLMHUB_PG_PORT} (data: ${LLMHUB_PG_DIR}/data)"
@@ -266,17 +337,19 @@ resolve_ref() {  # name -> "kind sha"
 render_vec_inf_config() {
     local src="${BE}/config/infrastructures/delta/environment.yaml"
     [ -r "$src" ] || { warn "no ${src} — VEC_INF_CONFIG_DIR not rendered"; return 0; }
+    [ "$IMP" = 1 ] && umask 022    # the shared root must be world-readable; restored by the caller's subshell-free umask below
     mkdir -p "$VIC" "$LLMHUB_VEC_INF_WORK_DIR"
     mkdir -p "$LLMHUB_TORCH_CACHE" 2>/dev/null || true
     [ -w "$LLMHUB_TORCH_CACHE" ] || warn "torch-inductor cache ${LLMHUB_TORCH_CACHE} is not writable by ${ME} — vLLM's compile step will fail"
-    export LLMHUB_VLLM_SIF LLMHUB_HF_CACHE LLMHUB_TORCH_CACHE LLMHUB_MODEL_WEIGHTS_PARENT_DIR \
+    local LLMHUB_VLLM_SIF_EFFECTIVE; LLMHUB_VLLM_SIF_EFFECTIVE="$(shared_image)"
+    export LLMHUB_VLLM_SIF_EFFECTIVE LLMHUB_HF_CACHE LLMHUB_TORCH_CACHE LLMHUB_MODEL_WEIGHTS_PARENT_DIR \
            LLMHUB_LAUNCH_PARTITION LLMHUB_LAUNCH_RESOURCE_TYPE LLMHUB_LAUNCH_TIME LLMHUB_SLURM_ACCOUNT LLMHUB_VEC_INF_LOG_DIR
     "$PY" - "$src" "${VIC}/environment.yaml" <<'PY'
 import os, sys, yaml
 src, dst = sys.argv[1:3]; e = os.environ
 d = yaml.safe_load(open(src)) or {}
 p = d.setdefault("paths", {})
-p["image_path"] = e["LLMHUB_VLLM_SIF"]; p["vllm_image_path"] = e["LLMHUB_VLLM_SIF"]
+p["image_path"] = e["LLMHUB_VLLM_SIF_EFFECTIVE"]; p["vllm_image_path"] = e["LLMHUB_VLLM_SIF_EFFECTIVE"]
 a = d.setdefault("default_args", {})
 a.update(account=e["LLMHUB_SLURM_ACCOUNT"], partition=e["LLMHUB_LAUNCH_PARTITION"],
          resource_type=e["LLMHUB_LAUNCH_RESOURCE_TYPE"], time=e["LLMHUB_LAUNCH_TIME"],
@@ -285,7 +358,8 @@ a.update(account=e["LLMHUB_SLURM_ACCOUNT"], partition=e["LLMHUB_LAUNCH_PARTITION
 yaml.safe_dump(d, open(dst, "w"), sort_keys=False)
 PY
     cp "${BE}/config/models.yaml" "${VIC}/models.yaml"
-    ok "vec-inf-config: image ${LLMHUB_VLLM_SIF}; defaults ${LLMHUB_LAUNCH_PARTITION}/${LLMHUB_LAUNCH_RESOURCE_TYPE}/${LLMHUB_LAUNCH_TIME}"
+    [ "$IMP" = 1 ] && { chmod -R o+rX "$VIC"; umask "$LLMHUB_UMASK"; }
+    ok "vec-inf-config ${VIC}: image ${LLMHUB_VLLM_SIF_EFFECTIVE}; defaults ${LLMHUB_LAUNCH_PARTITION}/${LLMHUB_LAUNCH_RESOURCE_TYPE}/${LLMHUB_LAUNCH_TIME}"
 }
 
 render_backend_env() {
@@ -312,7 +386,7 @@ render_backend_env() {
         emit VEC_INF_EXECUTION_MODE "$LLMHUB_EXECUTION_MODE"
         emit VEC_INF_SHARED_WORK_ROOT "$LLMHUB_SHARED_WORK_ROOT"
         emit VEC_INF_IMPERSONATE_SCRIPT "$LLMHUB_IMPERSONATE_SCRIPT"
-        emit VEC_INF_IMPERSONATE_PYTHON "$LLMHUB_IMPERSONATE_PYTHON"
+        emit VEC_INF_IMPERSONATE_PYTHON "$SHIM_PY"
         emit VEC_INF_ACCOUNTS_SCRIPT "$LLMHUB_ACCOUNTS_SCRIPT"
         emit SYNC_INTERVAL "$LLMHUB_SYNC_INTERVAL"
         emit EXPIRY_CHECK_INTERVAL "$LLMHUB_EXPIRY_CHECK_INTERVAL"
@@ -357,7 +431,8 @@ render_frontend_env() {
 cmd_deploy() {
     require_operator
     if [ "$APPLY" = 1 ]; then printf 'LLMHub deploy [APPLY]\n'; else printf 'LLMHub deploy [DRY RUN — pass --apply to act]\n'; fi
-    printf 'profile %s   ref %s   as %s\nroot   %s\nlocal  %s\nimage  %s\n' "$LLMHUB_PROFILE" "$LLMHUB_REF" "$ME" "$LLMHUB_DEPLOY_ROOT" "$LLMHUB_LOCAL_ROOT" "$LLMHUB_VLLM_SIF"
+    printf 'profile %s   ref %s   as %s   mode %s\nroot   %s\nlocal  %s\nimage  %s\n' "$LLMHUB_PROFILE" "$LLMHUB_REF" "$ME" "$LLMHUB_EXECUTION_MODE" "$LLMHUB_DEPLOY_ROOT" "$LLMHUB_LOCAL_ROOT" "$LLMHUB_VLLM_SIF"
+    [ "$IMP" = 1 ] && printf 'shared %s   (vec-inf config, image copy, shim env — world-readable for svcllmhub*)\n' "$LLMHUB_SHARED_ROOT"
 
     step "Source — ${LLMHUB_REF}"
     run mkdir -p "$LLMHUB_DEPLOY_ROOT" "$LLMHUB_LOG_DIR" "$LLMHUB_RUN_DIR" "$LLMHUB_VEC_INF_WORK_DIR" "$CACHE"
@@ -402,6 +477,12 @@ cmd_deploy() {
         [ "$v" = "$LLMHUB_VEC_INF_VERSION" ] && ok "vec-inf ${v}" || warn "vec-inf ${v}, config expects ${LLMHUB_VEC_INF_VERSION} (backend/pyproject.toml wins)"
     fi
     run_logged install-frontend pnpm --dir "$FE" install --frozen-lockfile --store-dir "${CACHE}/pnpm-store"
+
+    if [ "$IMP" = 1 ]; then
+    step "Shim env — the copy of the backend that impersonated users run"
+    if [ "$APPLY" = 1 ]; then shim_env_build "$SHA"
+    else info "would build a non-editable install of backend/ on a world-readable Python at ${LLMHUB_SHIM_ENV}"; fi
+    fi
 
     step "PostgreSQL — ${LLMHUB_PG_MODE}"
     if [ "$APPLY" = 1 ]; then pg_start; else info "would pull ${LLMHUB_PG_IMAGE}, initdb under ${LLMHUB_PG_DIR}, start on ${LLMHUB_PG_PORT}"; fi
@@ -460,6 +541,13 @@ cmd_status() {
     if [ -r "${VIC}/environment.yaml" ]; then
         local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" | awk '{print $2}')"
         [ -r "$img" ] && ok "inference image ${img}" || warn "inference image ${img} not readable"
+    fi
+    info "execution mode: ${LLMHUB_EXECUTION_MODE}"
+    if [ "$IMP" = 1 ]; then
+        local ssha; ssha="$(cat "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA" 2>/dev/null || true)"
+        if [ -z "$ssha" ]; then warn "shim env not built (${LLMHUB_SHIM_ENV})"
+        elif [ "$ssha" = "$(sed -n 's/^sha=//p' "$DEPLOYED_FILE" 2>/dev/null)" ]; then ok "shim env at the deployed ref (${ssha:0:9})"
+        else warn "shim env at ${ssha:0:9} ≠ deployed — impersonated launches run OLD code; ./llmhub shim"; fi
     fi
     step "Services"
     if [ "$LLMHUB_PG_MODE" = local ]; then pg_ready && ok "postgres up on ${LLMHUB_PG_PORT}" || warn "postgres down (${LLMHUB_PG_PORT})"; else info "external database"; fi
@@ -553,6 +641,23 @@ cmd_preflight() {
         elif [ "$n" = postgres ] && pg_ready; then ok "postgres port ${port} held by our own cluster"
         else warn "${n} port ${port} in use by pid ${pid} — not ours"; fi
     done
+    step "Execution mode — ${LLMHUB_EXECUTION_MODE}"
+    if [ "$IMP" = 1 ]; then
+        [ "$ME" = "$LLMHUB_SERVICE_USER" ] && ok "running as ${LLMHUB_SERVICE_USER} (the sudo edge svcdeltallmhub → svcllmhub* belongs to the backend)" \
+            || bad "impersonate mode is service-user-only; you are ${ME}"
+        [ -w "$LLMHUB_SHARED_WORK_ROOT" ] && ok "${LLMHUB_SHARED_WORK_ROOT} writable (per-user workspaces)" || bad "${LLMHUB_SHARED_WORK_ROOT} not writable by ${ME}"
+        local sr="$LLMHUB_SHARED_ROOT"; while [ ! -d "$sr" ] && [ "$sr" != / ]; do sr="$(dirname "$sr")"; done
+        [ -w "$sr" ] && ok "shared root ${LLMHUB_SHARED_ROOT} (under writable ${sr})" || bad "cannot write under ${sr} for the shared root"
+        world_readable "$sr" && ok "${sr} is world-readable" || bad "${sr} is not world-readable — svcllmhub* could not reach the shared root"
+        local acc="${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; [ -x "$acc" ] && ok "accounts script ${acc}" || bad "accounts script ${acc} missing"
+        if [ -x "${LLMHUB_SHIM_ENV}/bin/python" ]; then
+            world_readable "${LLMHUB_SHIM_ENV}/bin/python" && ok "shim env present ($(cut -c1-9 "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA" 2>/dev/null))" || bad "shim env present but not world-readable"
+        else info "shim env not built yet — deploy builds it"; fi
+        world_readable "$LLMHUB_HF_CACHE" && ok "HF cache world-readable" || bad "HF cache ${LLMHUB_HF_CACHE} not world-readable by svcllmhub*"
+        if [ -n "$LLMHUB_TEST_CLUSTER_USER" ]; then
+            getent passwd "$LLMHUB_TEST_CLUSTER_USER" >/dev/null && ok "test cluster user ${LLMHUB_TEST_CLUSTER_USER} exists" || bad "no account ${LLMHUB_TEST_CLUSTER_USER}"
+        else warn "LLMHUB_TEST_CLUSTER_USER unset — launch-test and check-impersonation need a target"; fi
+    else info "direct — jobs run as ${ME}"; fi
     step "Inference image and caches"
     [ -d "$LLMHUB_HF_CACHE" ] && ok "HF cache ${LLMHUB_HF_CACHE} ($(ls "$LLMHUB_HF_CACHE" 2>/dev/null | grep -c '^models--') models)" || bad "HF cache ${LLMHUB_HF_CACHE} missing"
     if [ -d "$LLMHUB_TORCH_CACHE" ]; then [ -w "$LLMHUB_TORCH_CACHE" ] && ok "torch-inductor cache ${LLMHUB_TORCH_CACHE} writable" || bad "torch-inductor cache ${LLMHUB_TORCH_CACHE} NOT writable by ${ME} (ACL: only the service accounts) — vLLM's compile step writes there"
@@ -600,8 +705,16 @@ cmd_launch_test() {
     step "Preconditions"
     [ "$(http "${BACKEND_URL}/api/health")" = 200 ] || die "backend is not healthy"; ok "backend healthy"
     [ -r "$LLMHUB_VLLM_SIF" ] || die "inference image not readable: ${LLMHUB_VLLM_SIF}"; ok "image readable"
-    grep -q "vllm_image_path: ${LLMHUB_VLLM_SIF}\$" "${VIC}/environment.yaml" 2>/dev/null || die "rendered vec-inf-config does not point at ${LLMHUB_VLLM_SIF} — redeploy first"
-    local q; q="$(squeue -u "$ME" -h 2>/dev/null | wc -l)"; [ "$q" -lt 3 ] || die "${q} jobs already queued for ${ME}; not adding another"; ok "${q} job(s) queued for ${ME}"
+    local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}')"
+    [ "$(basename "$img")" = "$(basename "$LLMHUB_VLLM_SIF")" ] && [ -r "$img" ] || die "rendered vec-inf-config (${VIC}) does not serve ${LLMHUB_VLLM_SIF} — ./llmhub render first"
+    local cu="$LLMHUB_TEST_CLUSTER_USER"
+    if [ "$IMP" = 1 ]; then
+        [ -n "$cu" ] || die "impersonate mode: set LLMHUB_TEST_CLUSTER_USER (e.g. svcllmhubdadams) in local.env"
+        getent passwd "$cu" >/dev/null || die "no account ${cu}"; ok "launching as ${cu} (impersonated)"
+        world_readable "$img" || die "image ${img} is not world-readable — ${cu} could not open it"
+    fi
+    local q; q=$(( $(squeue -u "$ME" -h 2>/dev/null | wc -l) + $( [ -n "$cu" ] && squeue -u "$cu" -h 2>/dev/null | wc -l || echo 0) ))
+    [ "$q" -lt 3 ] || die "${q} jobs already queued for ${ME}${cu:+/$cu}; not adding another"; ok "${q} job(s) queued for ${ME}${cu:+/$cu}"
     local pool; pool="$(curl -s --max-time 20 "${BACKEND_URL}/api/resources/summary" 2>/dev/null | jq -r '.total.gpu // 0' 2>/dev/null)"
     [ "${pool:-0}" -ge $(( gpus * nodes )) ] || die "backend GPU pool is ${pool:-0} < $(( gpus * nodes )) — run: ./llmhub start (seeds it)"; ok "backend GPU pool ${pool}"
     step "Test user"
@@ -611,15 +724,16 @@ cmd_launch_test() {
     # pipeline-parallel across nodes (multi-node goes through its Ray launcher).
     local vllm_args="--tensor-parallel-size=${gpus}"
     [ "$nodes" -gt 1 ] && vllm_args="${vllm_args},--pipeline-parallel-size=${nodes}"
-    local payload; payload="$(jq -nc --arg m "$model" --arg u "$uid" --arg hf "$hf" --arg p "$LLMHUB_LAUNCH_PARTITION" \
+    local payload; payload="$(jq -nc --arg m "$model" --arg u "$uid" --arg hf "$hf" --arg p "$LLMHUB_LAUNCH_PARTITION" --arg cu "$cu" \
         --arg r "$LLMHUB_LAUNCH_RESOURCE_TYPE" --arg t "$LLMHUB_LAUNCH_TIME" --arg va "$vllm_args" --argjson g "$gpus" --argjson n "$nodes" \
-        '{modelName:$m, modelId:$m, userId:$u, hf_model:$hf, num_gpus:$g, num_nodes:$n, partition:$p, resource_type:$r, time:$t, vllm_args:$va}')"
+        '{modelName:$m, modelId:$m, userId:$u, hf_model:$hf, num_gpus:$g, num_nodes:$n, partition:$p, resource_type:$r, time:$t, vllm_args:$va}
+         + (if $cu != "" then {clusterUsername:$cu} else {} end)')"
     note "POST ${api} ${payload}"
     local resp; resp="$(curl -s --max-time 120 -X POST -H 'Content-Type: application/json' -d "$payload" "$api" 2>/dev/null || true)"
     local id job st; id="$(printf '%s' "$resp" | jq -r '.id // empty' 2>/dev/null)"; job="$(printf '%s' "$resp" | jq -r '.slurmJobId // empty' 2>/dev/null)"; st="$(printf '%s' "$resp" | jq -r '.status // empty' 2>/dev/null)"
     [ -n "$id" ] || die "launch failed: ${resp:0:300}"
     [ "$job" != failed ] && [ "$st" != failed ] || die "launch failed: $(printf '%s' "$resp" | jq -r '.errorMessage // .' | head -c 300)"
-    ok "deployment ${id}, SLURM job ${job}, status ${st}"
+    ok "deployment ${id}, SLURM job ${job} (user $(squeue -h -j "$job" -o '%u %a' 2>/dev/null || echo '?')), status ${st}"
     note "deployment=${id} job=${job}"
     step "Waiting for the server (status is refreshed by the backend every ${LLMHUB_SYNC_INTERVAL}s)"
     local limit i ep last="" err; IFS=: read -r h m sec <<< "$LLMHUB_LAUNCH_TIME"; limit=$(( (10#$h*3600 + 10#$m*60 + 10#$sec) / 20 ))
@@ -632,7 +746,7 @@ cmd_launch_test() {
     done
     if ! { [ "$st" = ready ] || [ "$st" = running ]; } || [ -z "$ep" ]; then
         bad "server not ready: status=${st} ${err:+error=$err}"
-        info "job log: ${LLMHUB_VEC_INF_LOG_DIR}/${model%%-*}/${model}.${job}/   (GET ${api}/${id}/logs)"
+        info "job log: ${cu:+${LLMHUB_SHARED_WORK_ROOT}/${cu}}${cu:-${LLMHUB_VEC_INF_LOG_DIR}}/${model%%-*}/${model}.${job}/   (GET ${api}/${id}/logs)"
         [ "$KEEP" = 1 ] || { curl -s -o /dev/null -X DELETE "${api}/${id}" 2>/dev/null; info "shutdown requested"; }
         exit 1
     fi
@@ -660,6 +774,32 @@ cmd_launch_test() {
     [ -n "$text" ]
 }
 
+cmd_shim() {
+    require_operator; [ "$IMP" = 1 ] || die "LLMHUB_EXECUTION_MODE is ${LLMHUB_EXECUTION_MODE} — the shim env is only used in impersonate mode"
+    [ -x "$UV" ] && [ -d "$BE" ] || die "nothing deployed at ${LLMHUB_DEPLOY_ROOT} — run: ./llmhub deploy --apply"
+    step "Shim env"; shim_env_build "$(g rev-parse HEAD)"
+}
+
+cmd_check_impersonation() {
+    require_operator; [ "$IMP" = 1 ] || die "LLMHUB_EXECUTION_MODE is ${LLMHUB_EXECUTION_MODE}; set impersonate in local.env and: ./llmhub deploy --apply"
+    local u="${TARGET:-$LLMHUB_TEST_CLUSTER_USER}" F=0 p
+    [ -n "$u" ] || die "usage: ./llmhub check-impersonation <svcllmhub-user>   (or LLMHUB_TEST_CLUSTER_USER)"
+    step "What ${u} must be able to read (groups cannot help — only the 'other' bits count)"
+    getent passwd "$u" >/dev/null && ok "account ${u}: groups $(id -nG "$u" 2>/dev/null | tr ' ' ',')" || { bad "no account ${u}"; F=1; }
+    local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}')"
+    for p in "$SHIM_PY" "${VIC}/environment.yaml" "${VIC}/models.yaml" "$img" "$LLMHUB_HF_CACHE" "${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; do
+        [ -n "$p" ] || continue; world_readable "$p" && ok "$p" || { bad "$p is NOT world-readable"; F=1; }
+    done
+    local ssha; ssha="$(cat "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA" 2>/dev/null || true)"
+    [ "$ssha" = "$(sed -n 's/^sha=//p' "$DEPLOYED_FILE" 2>/dev/null)" ] && ok "shim env matches the deployed ref" || { bad "shim env (${ssha:-none}) ≠ deployed ref — ./llmhub shim"; F=1; }
+    step "The backend's own check — account resolution, workspace ACLs, sudo probe (as ${ME})"
+    # check-impersonation-setup.py reads backend/.env from its cwd and runs the wrapper under a PTY.
+    (cd "$BE" && "$PY" scripts/check-impersonation-setup.py --user "$u") 2>&1 | sed 's/^/  /'
+    if [ "${PIPESTATUS[0]}" -eq 0 ]; then ok "check-impersonation-setup.py --user ${u} passed"; else bad "check-impersonation-setup.py failed"; F=1; fi
+    [ "$F" -eq 0 ] && { printf '\nImpersonation path looks usable for %s. Next: ./llmhub launch-test --profile %s\n' "$u" "$LLMHUB_PROFILE"; return 0; }
+    return 1
+}
+
 cmd_logs() {
     local f="${LLMHUB_LOG_DIR}/${TARGET}.log"
     [ -n "$TARGET" ] && [ -r "$f" ] || die "usage: llmhub logs <name> [-f] — available: $(ls "$LLMHUB_LOG_DIR" 2>/dev/null | sed 's/\.log$//' | tr '\n' ' ')"
@@ -667,7 +807,8 @@ cmd_logs() {
 }
 
 case "$CMD" in
-    preflight|deploy|render|start|stop|restart|status|smoke|logs) "cmd_${CMD}" ;;
+    preflight|deploy|render|start|stop|restart|status|smoke|logs|shim) "cmd_${CMD}" ;;
     launch-test) cmd_launch_test ;;
+    check-impersonation) cmd_check_impersonation ;;
     *) echo "unknown command: ${CMD}" >&2; usage 2 ;;
 esac
