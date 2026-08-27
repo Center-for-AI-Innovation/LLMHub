@@ -61,6 +61,18 @@ class Settings(BaseSettings):
         "SUPPORT_EMAIL"
     )  # Support contact shown in the admin-contact line of notification emails when set
 
+    # Hugging Face Hub (gated model metadata for fit estimator)
+    HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN") or os.getenv(
+        "HUGGING_FACE_HUB_TOKEN"
+    )
+
+    # Site-specific fit-estimator hardware table (see fit_estimator/discovery.py).
+    # hardware.py reads this via settings so backend/.env works, with an
+    # os.environ fallback for standalone/CLI use.
+    FIT_ESTIMATOR_HARDWARE_YAML: Optional[str] = os.getenv(
+        "FIT_ESTIMATOR_HARDWARE_YAML"
+    )
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
 

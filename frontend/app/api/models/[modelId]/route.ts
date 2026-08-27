@@ -30,6 +30,7 @@ function transformModel(modelId: string, backendResponse: BackendModelResponse):
         gpus: config.num_gpus,
         nodes: config.num_nodes,
         contextLength: config.max_model_len,
+        maxNumSeqs: config.max_num_seqs,
         parallelism: config.pipeline_parallelism,
       }
     };

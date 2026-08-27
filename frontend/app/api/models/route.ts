@@ -6,6 +6,7 @@ import {
   generateModelDescription,
   formatModelName,
 } from '@/lib/models/types';
+import { resolveHfModelId } from '@/lib/models/huggingface';
 import { getAvailableModels, searchAvailableModels } from '@/lib/db/queries';
 
 // Cache for model catalog
@@ -50,6 +51,7 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
           gpus: config.num_gpus,
           nodes: config.num_nodes,
           contextLength: config.max_model_len,
+          maxNumSeqs: config.max_num_seqs,
           parallelism: config.pipeline_parallelism,
         },
       };
@@ -180,7 +182,7 @@ export async function GET(request: Request) {
             family: model.family,
             variant: model.variant,
             specs: model.specs as any,
-            huggingfaceId: model.huggingfaceId || undefined,
+            huggingfaceId: model.huggingfaceId || resolveHfModelId(model.id, model.family),
           }));
 
           return NextResponse.json(models);
@@ -215,7 +217,7 @@ export async function GET(request: Request) {
           family: model.family,
           variant: model.variant,
           specs: model.specs as any,
-          huggingfaceId: model.huggingfaceId || undefined,
+          huggingfaceId: model.huggingfaceId || resolveHfModelId(model.id, model.family),
         }));
 
         // Update cache
@@ -300,7 +302,7 @@ export async function POST() {
           family: model.family,
           variant: model.variant,
           specs: model.specs as any,
-          huggingfaceId: model.huggingfaceId || undefined,
+          huggingfaceId: model.huggingfaceId || resolveHfModelId(model.id, model.family),
         }));
 
         // Update cache

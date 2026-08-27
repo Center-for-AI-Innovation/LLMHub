@@ -17,6 +17,11 @@ NCSA supercomputing infrastructure.
 - **Chat interface**: interact with deployed models directly from the browser.
 - **OpenAI-compatible APIs**: call running deployments through REST endpoints
   designed for straightforward migration from OpenAI-style clients.
+- **GPU fit estimation**: a vLLM-calibrated memory model surveys every Slurm
+  partition (fit, bootability, sustainable concurrency, SU cost) and a
+  pre-launch gate blocks configs that provably cannot boot; portable to other
+  Slurm clusters via `FIT_ESTIMATOR_HARDWARE_YAML` (see `backend/README.md`
+  and `docs/memory-estimator-writeup.pdf`).
 - **Deployment management**: launch models, view active deployments, inspect
   logs, stop jobs, and share deployments with other users.
 - **Secure access**: authenticate users and protect data while running workloads

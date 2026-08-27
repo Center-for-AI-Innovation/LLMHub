@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { ModelInfo } from '@/hooks/use-models';
+import type { LaunchConfig } from '@/lib/models/launch-config';
 
 // Create a Model context to share data without prop drilling
 const ModelContext = React.createContext<{
@@ -9,7 +10,7 @@ const ModelContext = React.createContext<{
     modelId: string,
     huggingfaceId?: string,
     family?: string,
-    time?: string,
+    config?: LaunchConfig,
   ) => Promise<void>;
   launchingModelId: string | null;
   openLogsPanel?: (deploymentId: string, modelName: string) => void;

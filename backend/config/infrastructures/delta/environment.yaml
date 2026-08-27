@@ -16,7 +16,9 @@ limits:
 allowed_values:
   qos: ["normal", "high", "low"]
   partition: ["gpuA40x4", "gpuA100x4", "gpuA100x8", "gpuH200x8", "gpuA40x4-interactive", "gpuA100x4-interactive", "gpuA100x8-interactive", "gpuH200x8-interactive", "gpuA40x4-preempt", "gpuA100x4-preempt"]
-  resource_type: ["A100", "H100", "V100", "A40", "l40s", "nvidia_a40"]
+  # Real Delta GRES names (sinfo -o "%P %G"): nvidia_a40 / nvidia_a100 / h200.
+  # The launch UI sends these; legacy display names kept for compatibility.
+  resource_type: ["A100", "H100", "V100", "A40", "l40s", "nvidia_a40", "nvidia_a100", "h200"]
 
 required_args:
   account: "VEC_INF_ACCOUNT"
