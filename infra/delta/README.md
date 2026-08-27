@@ -176,13 +176,14 @@ Operator sequence (staging profile as the service user; stop any personal
 staging stack first — one stack per profile per VM):
 
 ```bash
+ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu   # ON THE VM — deploy refuses elsewhere
 /sw/admin/scripts/impersonate svcdeltallmhub
 cd /projects/bfmz/dadams/llmhub-dev/LLMHub/infra/delta        # readable via delta_bfmz
 R=/projects/bfmz/svcdeltallmhub/llmhub-staging; mkdir -p $R
 printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhubdadams\nLLMHUB_VLLM_SIF=/projects/bfmz/dadams/llmhub-containers/vllm-v0.19.1-slingshot-v3.sif\n' > $R/local.env
 ./llmhub preflight --profile staging --ref port/backend-pr-32
 ./llmhub deploy --apply --profile staging --ref port/backend-pr-32   # + shim env, shared config, image copy
-./llmhub check-impersonation svcllmhubdadams                        # no GPU; must pass first
+./llmhub check-impersonation svcllmhubdadams --profile staging      # no GPU; must pass first
 ./llmhub launch-test --profile staging                               # job runs as svcllmhubdadams on bgns-delta-gpu
 ```
 

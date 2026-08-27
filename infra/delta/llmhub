@@ -98,6 +98,10 @@ ME="$(id -un)"
 g() { git -c safe.directory='*' -C "$LLMHUB_SRC_DIR" "$@"; }
 
 require_operator() {
+    # Services, pidfiles and /data exist only on the VM; a deploy anywhere else
+    # builds into the shared tree and then cannot start anything.
+    [ "$(hostname -s)" = "${LLMHUB_VM_HOST%%.*}" ] \
+        || die "run this on ${LLMHUB_VM_HOST} (you are on $(hostname -s)); preflight/status/smoke are the only commands that work elsewhere"
     if [ "$LLMHUB_PROFILE" = production ] && [ "$ME" != "$LLMHUB_SERVICE_USER" ]; then
         die "profile production runs as ${LLMHUB_SERVICE_USER} only
        (/sw/admin/scripts/impersonate ${LLMHUB_SERVICE_USER}); use --profile staging for a personal stack"
@@ -282,6 +286,23 @@ start_frontend() {
     info "frontend pid $(cat "$pidf") — waiting for /"
     if wait_http "${FRONTEND_URL}/" 30; then ok "frontend up — ${FRONTEND_URL}/"
     else bad "frontend did not come up"; tail -15 "${LLMHUB_LOG_DIR}/frontend.log" | sed 's/^/    /'; exit 1; fi
+}
+
+# pnpm imports packages through temp dirs inside node_modules/.pnpm; an
+# interrupted or off-VM run leaves *_tmp_* leftovers that break the next
+# import with ENOENT. Clear them, and retry once from a clean node_modules.
+frontend_install() {
+    local cmd=(pnpm --dir "$FE" install --frozen-lockfile --store-dir "${CACHE}/pnpm-store")
+    if [ "$APPLY" = 1 ] && ls -d "$FE"/node_modules/.pnpm/*/node_modules/*_tmp_* >/dev/null 2>&1; then
+        warn "node_modules has pnpm temp leftovers from an interrupted install — removing it"; rm -rf "$FE/node_modules"
+    fi
+    printf '  $ %s   (log: %s)\n' "${cmd[*]}" "${LLMHUB_LOG_DIR}/install-frontend.log"
+    [ "$APPLY" = 1 ] || return 0
+    if ! "${cmd[@]}" > "${LLMHUB_LOG_DIR}/install-frontend.log" 2>&1; then
+        warn "pnpm install failed — retrying once from a clean node_modules"; rm -rf "$FE/node_modules"
+        "${cmd[@]}" > "${LLMHUB_LOG_DIR}/install-frontend.log" 2>&1 \
+            || { bad "pnpm install failed twice — last lines of ${LLMHUB_LOG_DIR}/install-frontend.log:"; tail -15 "${LLMHUB_LOG_DIR}/install-frontend.log" | sed 's/^/    /'; exit 1; }
+    fi
 }
 
 # The daemon writes its OWN pid then execs, so nothing sits between the
@@ -476,7 +497,7 @@ cmd_deploy() {
         local v; v="$("$PY" -c 'import importlib.metadata as m; print(m.version("vec-inf"))' 2>/dev/null || echo none)"
         [ "$v" = "$LLMHUB_VEC_INF_VERSION" ] && ok "vec-inf ${v}" || warn "vec-inf ${v}, config expects ${LLMHUB_VEC_INF_VERSION} (backend/pyproject.toml wins)"
     fi
-    run_logged install-frontend pnpm --dir "$FE" install --frozen-lockfile --store-dir "${CACHE}/pnpm-store"
+    frontend_install
 
     if [ "$IMP" = 1 ]; then
     step "Shim env — the copy of the backend that impersonated users run"
@@ -775,13 +796,13 @@ cmd_launch_test() {
 }
 
 cmd_shim() {
-    require_operator; [ "$IMP" = 1 ] || die "LLMHUB_EXECUTION_MODE is ${LLMHUB_EXECUTION_MODE} — the shim env is only used in impersonate mode"
+    require_operator; [ "$IMP" = 1 ] || die "LLMHUB_EXECUTION_MODE is ${LLMHUB_EXECUTION_MODE} for profile ${LLMHUB_PROFILE} (did you mean --profile staging?) — the shim env is only used in impersonate mode"
     [ -x "$UV" ] && [ -d "$BE" ] || die "nothing deployed at ${LLMHUB_DEPLOY_ROOT} — run: ./llmhub deploy --apply"
     step "Shim env"; shim_env_build "$(g rev-parse HEAD)"
 }
 
 cmd_check_impersonation() {
-    require_operator; [ "$IMP" = 1 ] || die "LLMHUB_EXECUTION_MODE is ${LLMHUB_EXECUTION_MODE}; set impersonate in local.env and: ./llmhub deploy --apply"
+    require_operator; [ "$IMP" = 1 ] || die "LLMHUB_EXECUTION_MODE is ${LLMHUB_EXECUTION_MODE} for profile ${LLMHUB_PROFILE} (did you mean --profile staging?); set impersonate in ${LLMHUB_DEPLOY_ROOT}/local.env and: ./llmhub deploy --apply"
     local u="${TARGET:-$LLMHUB_TEST_CLUSTER_USER}" F=0 p
     [ -n "$u" ] || die "usage: ./llmhub check-impersonation <svcllmhub-user>   (or LLMHUB_TEST_CLUSTER_USER)"
     step "What ${u} must be able to read (groups cannot help — only the 'other' bits count)"
