@@ -96,6 +96,7 @@ run_logged() {  # logname cmd… — output captured to logs/<logname>.log, show
 
 # --------------------------------------------------------------- helpers ----
 ME="$(id -un)"
+need_venv() { "$PY" -c '' 2>/dev/null || die "the backend venv at ${LLMHUB_VENV_DIR} is unusable (interpreter missing — its Python lived on a removed cache?) — run: ./llmhub deploy --apply"; }
 g() { git -c safe.directory='*' -C "$LLMHUB_SRC_DIR" "$@"; }
 
 require_operator() {
@@ -268,6 +269,7 @@ start_backend() {
     elif claim_port backend "$pidf" "$LLMHUB_BACKEND_PORT"; then :
     else
         [ -x "${LLMHUB_VENV_DIR}/bin/uvicorn" ] && [ -r "${BE}/.env" ] || die "backend not deployed — run: ./llmhub deploy --apply"
+        need_venv
         start_daemon "$pidf" "${LLMHUB_LOG_DIR}/backend.log" "$BE" \
             "${LLMHUB_VENV_DIR}/bin/uvicorn" app.main:app --host "$LLMHUB_BIND_HOST" --port "$LLMHUB_BACKEND_PORT"
         info "backend pid $(cat "$pidf") — waiting for /api/health (startup runs a model sync)"
@@ -300,8 +302,6 @@ frontend_install() {
             [ -e "${FE_SRC}/${leftover}" ] || [ -L "${FE_SRC}/${leftover}" ] || continue
             warn "checkout frontend/${leftover} left by an older deploy — removing (the frontend runs from ${FE} now)"; rm -rf "${FE_SRC:?}/${leftover}"
         done
-        [ -d "${LLMHUB_DEPLOY_ROOT}/.cache" ] && { warn "legacy ${LLMHUB_DEPLOY_ROOT}/.cache on /projects — removing (caches live on ${CACHE})"; rm -rf "${LLMHUB_DEPLOY_ROOT}/.cache"; }
-        [ -d "${LLMHUB_DEPLOY_ROOT}/node" ] && { warn "legacy ${LLMHUB_DEPLOY_ROOT}/node on /projects — removing (Node lives on ${LLMHUB_NODE_DIR})"; rm -rf "${LLMHUB_DEPLOY_ROOT}/node"; }
         # The working copy: everything git tracks, nothing it ignores.
         mkdir -p "$FE"
         rsync -a --delete --exclude=node_modules --exclude=.next --exclude=.env "${FE_SRC}/" "${FE}/" \
@@ -485,6 +485,12 @@ cmd_deploy() {
     fi
 
     step "Runtimes — Python ${LLMHUB_PYTHON_VERSION} via uv, Node ${LLMHUB_NODE_VERSION}, pnpm ${LLMHUB_PNPM_VERSION}"
+    # Older layouts kept caches on /projects; the venv's interpreter may live
+    # inside them, so remove them BEFORE deciding whether the venv is usable.
+    if [ "$APPLY" = 1 ]; then
+        [ -d "${LLMHUB_DEPLOY_ROOT}/.cache" ] && { warn "legacy ${LLMHUB_DEPLOY_ROOT}/.cache on /projects — removing (caches live on ${CACHE})"; rm -rf "${LLMHUB_DEPLOY_ROOT}/.cache"; }
+        [ -d "${LLMHUB_DEPLOY_ROOT}/node" ] && { warn "legacy ${LLMHUB_DEPLOY_ROOT}/node on /projects — removing (Node lives on ${LLMHUB_NODE_DIR})"; rm -rf "${LLMHUB_DEPLOY_ROOT}/node"; }
+    fi
     # The VM ships Python 3.9 (below the backend floor) and no node/pnpm/uv.
     # Both runtimes are fetched into the deployment so it owns them.
     if [ -x "$UV" ]; then info "uv present"; else
@@ -558,6 +564,7 @@ cmd_deploy() {
 cmd_start()   { require_operator; step "PostgreSQL"; pg_start; step "Backend"; start_backend; step "Frontend"; start_frontend; tunnel_hint; }
 cmd_render() {  # config changed, source did not: re-render and restart (no fetch, no build)
     require_operator; [ -r "${BE}/app/config/config.py" ] && [ -f "${FE}/package.json" ] || die "nothing deployed at ${LLMHUB_SRC_DIR} / ${FE} — run: ./llmhub deploy --apply"
+    need_venv
     step "Render — secrets, vec-inf-config, backend/.env, frontend/.env"
     load_secrets; render_vec_inf_config; render_backend_env; render_frontend_env
     info "NEXT_PUBLIC_* values are baked in at build time — a change to those needs: ./llmhub deploy --apply"
@@ -751,7 +758,8 @@ cmd_launch_test() {
         "$model" "$hf" "$nodes" "$gpus" "$LLMHUB_LAUNCH_PARTITION" "$LLMHUB_LAUNCH_RESOURCE_TYPE" "$LLMHUB_LAUNCH_TIME" "$LLMHUB_VLLM_SIF"
     note() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" | tee -a "$log"; }
     step "Preconditions"
-    alive "${LLMHUB_RUN_DIR}/backend.pid" || die "the backend on ${LLMHUB_BACKEND_PORT} is not this deployment's (pid $(port_pid "$LLMHUB_BACKEND_PORT"):-none) — another stack holds the ${LLMHUB_PROFILE} ports, or this one is not started"
+    local held; held="$(port_pid "$LLMHUB_BACKEND_PORT")"
+    alive "${LLMHUB_RUN_DIR}/backend.pid" || die "no running backend of this deployment on ${LLMHUB_BACKEND_PORT} (port holder: ${held:-none}) — ./llmhub start, or another stack holds the ${LLMHUB_PROFILE} ports"
     [ "$(http "${BACKEND_URL}/api/health")" = 200 ] || die "backend is not healthy"; ok "backend healthy (pid $(cat "${LLMHUB_RUN_DIR}/backend.pid"), ours)"
     [ -r "$LLMHUB_VLLM_SIF" ] || die "inference image not readable: ${LLMHUB_VLLM_SIF}"; ok "image readable"
     local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}' || true)"
@@ -838,10 +846,13 @@ cmd_check_impersonation() {
     local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}' || true)"
     [ -r "${VIC}/environment.yaml" ] || { bad "no rendered config at ${VIC} — deploy has not completed"; F=1; }
     for p in "$SHIM_PY" "${VIC}/environment.yaml" "${VIC}/models.yaml" "$img" "$LLMHUB_HF_CACHE" "${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; do
-        [ -n "$p" ] || continue; world_readable "$p" && ok "$p" || { bad "$p is NOT world-readable"; F=1; }
+        [ -n "$p" ] || continue
+        if [ ! -e "$p" ]; then bad "$p is missing"; F=1
+        elif world_readable "$p"; then ok "$p"; else bad "$p is NOT world-readable"; F=1; fi
     done
     local ssha; ssha="$(cat "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA" 2>/dev/null || true)"
     [ "$ssha" = "$(sed -n 's/^sha=//p' "$DEPLOYED_FILE" 2>/dev/null)" ] && ok "shim env matches the deployed ref" || { bad "shim env (${ssha:-none}) ≠ deployed ref — ./llmhub shim"; F=1; }
+    need_venv
     step "The backend's own check — account resolution, workspace ACLs, sudo probe (as ${ME})"
     # check-impersonation-setup.py reads backend/.env from its cwd and runs the wrapper under a PTY.
     (cd "$BE" && "$PY" scripts/check-impersonation-setup.py --user "$u") 2>&1 | sed 's/^/  /'
