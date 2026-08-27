@@ -156,7 +156,7 @@ Three things the rendered inference config encodes, each found by a failed job:
   backend appends the bare variable to Apptainer's comma-split `--env` list,
   so any multi-GPU job (`0,1,2,3`) died with `1 must be formatted as key=value`
   (job 21500226). Pre-seeding a CSV-quoted field stops the append and survives
-  both vec-inf's split/rejoin and Apptainer's parser. Upstream fix drafted.
+  both vec-inf's split/rejoin and Apptainer's parser. Upstream: LLMHub#56.
 
 ## Impersonation (jobs as `svcllmhub<netid>`)
 
