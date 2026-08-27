@@ -49,6 +49,7 @@ each time, so **redeploying the latest commit of a branch is just
 |---|---|
 | `preflight` | Read-only checks (identity, tools, ref, filesystems, network, ports, image, secrets). Safe as any account, from a login node or the VM. |
 | `deploy [--apply]` | Clone/fetch and check out the ref (detached) → fetch runtimes → install backend + frontend deps → start PostgreSQL → write `backend/.env` and `frontend/.env` → Drizzle migrations + `next build` → (re)start. `--recreate` rebuilds the venv and node. |
+| `render` | Config changed, source did not: re-render `vec-inf-config/`, `backend/.env`, `frontend/.env` from `delta.env` + `secrets.env` + `local.env`, then restart both services. Seconds, not minutes. `NEXT_PUBLIC_*` values are baked in at build time and still need `deploy --apply`. |
 | `start` / `stop [--all]` / `restart` | `stop` leaves PostgreSQL running unless `--all`. Pidfiles are written by the daemons themselves; a pidfile-less process on one of our ports is stopped or adopted only if its cwd is inside this deployment — never someone else's process. |
 | `status` | What is deployed (ref, SHA, clean?), runtimes, what is running, health, log error counts. |
 | `smoke [--with-sync]` | GETs against both services; `--with-sync` also exercises the catalogue write path. Never launches inference. |
@@ -121,8 +122,28 @@ Per-stack overrides go in `$LLMHUB_DEPLOY_ROOT/local.env`, sourced after
 `delta.env` — leaf values only (an image path, a partition), e.g.:
 
 ```bash
-LLMHUB_VLLM_SIF=/projects/bfmz/dadams/llmhub-containers/vllm-v0.19.1-slingshot-v2.sif
+LLMHUB_VLLM_SIF=/projects/bfmz/dadams/llmhub-containers/vllm-v0.19.1-slingshot-v3.sif
 ```
+
+Three things the rendered inference config encodes, each found by a failed job:
+
+- **The torch-inductor cache must be writable by whoever runs the job.**
+  vLLM 0.19 compiles at startup and writes under `TORCHINDUCTOR_CACHE_DIR`. The
+  shared `/projects/modelcache/public/torch_inductor` is `rwx` only for
+  `svcdeltallmhub` and the `svcllmhub<netid>` accounts (ACL), so a direct-mode
+  stack run as anyone else gets `$LLMHUB_DEPLOY_ROOT/torch-inductor` (job
+  21500755: `PermissionError … /root/.cache/torch_inductor/vc`).
+- **`FI_LOG_PROV=none` in `VEC_INF_ENV`.** The Slingshot image sets
+  `FI_LOG_LEVEL=warn`; libfabric's CXI provider then writes endpoint-close
+  warnings to stderr, and vec-inf marks the job FAILED on the first stderr line
+  matching `unable to` before the server is up — on a healthy job. libfabric
+  accepts only `warn|trace|info|debug` (anything else means warn), so the
+  provider filter is the switch. (jobs 21500607, 21500755)
+- **`\"CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES\"` in `VEC_INF_ENV`.** The
+  backend appends the bare variable to Apptainer's comma-split `--env` list,
+  so any multi-GPU job (`0,1,2,3`) died with `1 must be formatted as key=value`
+  (job 21500226). Pre-seeding a CSV-quoted field stops the append and survives
+  both vec-inf's split/rejoin and Apptainer's parser. Upstream fix drafted.
 
 ## Secrets
 

@@ -5,6 +5,7 @@
 #   ./llmhub deploy    [--apply] [--profile P] [--ref R] [--recreate]
 #         sync source → Python/Node runtimes → install → PostgreSQL → render
 #         .env files → migrate + build → (re)start.   DRY RUN unless --apply.
+#   ./llmhub render    [--profile P]   re-render configs from delta.env/secrets/local.env, restart
 #   ./llmhub start | stop [--all] | restart [--profile P]
 #   ./llmhub status    [--profile P]
 #   ./llmhub smoke     [--profile P] [--with-sync]   exercise a running stack
@@ -22,7 +23,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------ args ----
 CMD=""; TARGET=""; REF_ARG=""; APPLY=0; STOP_ALL=0; WITH_SYNC=0; RECREATE=0; FOLLOW=0; KEEP=0
-usage() { sed -n '2,17p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
+usage() { sed -n '2,18p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --profile)   export LLMHUB_PROFILE="$2"; shift 2 ;;
@@ -265,7 +266,9 @@ resolve_ref() {  # name -> "kind sha"
 render_vec_inf_config() {
     local src="${BE}/config/infrastructures/delta/environment.yaml"
     [ -r "$src" ] || { warn "no ${src} — VEC_INF_CONFIG_DIR not rendered"; return 0; }
-    mkdir -p "$VIC"
+    mkdir -p "$VIC" "$LLMHUB_VEC_INF_WORK_DIR"
+    mkdir -p "$LLMHUB_TORCH_CACHE" 2>/dev/null || true
+    [ -w "$LLMHUB_TORCH_CACHE" ] || warn "torch-inductor cache ${LLMHUB_TORCH_CACHE} is not writable by ${ME} — vLLM's compile step will fail"
     export LLMHUB_VLLM_SIF LLMHUB_HF_CACHE LLMHUB_TORCH_CACHE LLMHUB_MODEL_WEIGHTS_PARENT_DIR \
            LLMHUB_LAUNCH_PARTITION LLMHUB_LAUNCH_RESOURCE_TYPE LLMHUB_LAUNCH_TIME LLMHUB_SLURM_ACCOUNT LLMHUB_VEC_INF_LOG_DIR
     "$PY" - "$src" "${VIC}/environment.yaml" <<'PY'
@@ -434,6 +437,13 @@ cmd_deploy() {
 
 # ------------------------------------------------------------ operations ----
 cmd_start()   { require_operator; step "PostgreSQL"; pg_start; step "Backend"; start_backend; step "Frontend"; start_frontend; tunnel_hint; }
+cmd_render() {  # config changed, source did not: re-render and restart (no fetch, no build)
+    require_operator; [ -r "${BE}/app/config/config.py" ] || die "nothing deployed at ${LLMHUB_SRC_DIR} — run: ./llmhub deploy --apply"
+    step "Render — secrets, vec-inf-config, backend/.env, frontend/.env"
+    load_secrets; render_vec_inf_config; render_backend_env; render_frontend_env
+    info "NEXT_PUBLIC_* values are baked in at build time — a change to those needs: ./llmhub deploy --apply"
+    step "Restart"; stop_frontend; stop_backend; start_backend; start_frontend
+}
 cmd_stop()    { require_operator; step "Services"; stop_frontend; stop_backend; [ "$STOP_ALL" = 1 ] && { step "PostgreSQL"; pg_stop; } || info "postgres left running (--all stops it too)"; }
 cmd_restart() { STOP_ALL=0; cmd_stop; cmd_start; }
 
@@ -543,7 +553,10 @@ cmd_preflight() {
         elif [ "$n" = postgres ] && pg_ready; then ok "postgres port ${port} held by our own cluster"
         else warn "${n} port ${port} in use by pid ${pid} — not ours"; fi
     done
-    step "Inference image"
+    step "Inference image and caches"
+    [ -d "$LLMHUB_HF_CACHE" ] && ok "HF cache ${LLMHUB_HF_CACHE} ($(ls "$LLMHUB_HF_CACHE" 2>/dev/null | grep -c '^models--') models)" || bad "HF cache ${LLMHUB_HF_CACHE} missing"
+    if [ -d "$LLMHUB_TORCH_CACHE" ]; then [ -w "$LLMHUB_TORCH_CACHE" ] && ok "torch-inductor cache ${LLMHUB_TORCH_CACHE} writable" || bad "torch-inductor cache ${LLMHUB_TORCH_CACHE} NOT writable by ${ME} (ACL: only the service accounts) — vLLM's compile step writes there"
+    else info "torch-inductor cache ${LLMHUB_TORCH_CACHE} will be created by deploy"; fi
     if [ -r "$LLMHUB_VLLM_SIF" ]; then
         local age=$(( ( $(date +%s) - $(stat -c %Y "$LLMHUB_VLLM_SIF") ) / 86400 ))
         [ "$age" -le 180 ] && ok "${LLMHUB_VLLM_SIF} (${age} d old)" || warn "${LLMHUB_VLLM_SIF} is ${age} d old — see README, vLLM image"
@@ -651,7 +664,7 @@ cmd_logs() {
 }
 
 case "$CMD" in
-    preflight|deploy|start|stop|restart|status|smoke|logs) "cmd_${CMD}" ;;
+    preflight|deploy|render|start|stop|restart|status|smoke|logs) "cmd_${CMD}" ;;
     launch-test) cmd_launch_test ;;
     *) echo "unknown command: ${CMD}" >&2; usage 2 ;;
 esac
