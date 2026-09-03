@@ -394,7 +394,16 @@ a.update(account=e["LLMHUB_SLURM_ACCOUNT"], partition=e["LLMHUB_LAUNCH_PARTITION
 yaml.safe_dump(d, open(dst, "w"), sort_keys=False)
 PY
     cp "${BE}/config/models.yaml" "${VIC}/models.yaml"
-    [ "$IMP" = 1 ] && { chmod -R o+rX "$VIC"; umask "$LLMHUB_UMASK"; }
+    if [ "$IMP" = 1 ]; then
+        chmod -R o+rX "$VIC"; umask "$LLMHUB_UMASK"
+        # Verify, do not assume: /sw/llmhub carries no default ACLs and
+        # LLMHUB_UMASK is 007, so a missing umask/chmod here would render the
+        # config unreadable to svcllmhub*. vec-inf falls back to its packaged
+        # (Vector) defaults on a config dir it cannot read — so the failure
+        # surfaces as wrong partitions and image paths at launch time, not here.
+        world_readable "${VIC}/environment.yaml" \
+            || die "rendered vec-inf config ${VIC}/environment.yaml is NOT world-readable — svcllmhub* would silently fall back to vec-inf's packaged defaults"
+    fi
     ok "vec-inf-config ${VIC}: image ${LLMHUB_VLLM_SIF_EFFECTIVE}; defaults ${LLMHUB_LAUNCH_PARTITION}/${LLMHUB_LAUNCH_RESOURCE_TYPE}/${LLMHUB_LAUNCH_TIME}"
 }
 
@@ -708,6 +717,9 @@ cmd_preflight() {
         if [ -x "${LLMHUB_SHIM_ENV}/bin/python" ]; then
             world_readable "${LLMHUB_SHIM_ENV}/bin/python" && ok "shim env present ($(cut -c1-9 "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA" 2>/dev/null))" || bad "shim env present but not world-readable"
         else info "shim env not built yet — deploy builds it"; fi
+        if [ -r "${VIC}/environment.yaml" ]; then
+            world_readable "${VIC}/environment.yaml" && ok "vec-inf config world-readable" || bad "${VIC}/environment.yaml not world-readable — svcllmhub* would silently get vec-inf's packaged defaults"
+        else info "vec-inf config not rendered yet — deploy renders it"; fi
         world_readable "$LLMHUB_HF_CACHE" && ok "HF cache world-readable" || bad "HF cache ${LLMHUB_HF_CACHE} not world-readable by svcllmhub*"
         if [ -n "$LLMHUB_TEST_CLUSTER_USER" ]; then
             getent passwd "$LLMHUB_TEST_CLUSTER_USER" >/dev/null && ok "test cluster user ${LLMHUB_TEST_CLUSTER_USER} exists" || bad "no account ${LLMHUB_TEST_CLUSTER_USER}"

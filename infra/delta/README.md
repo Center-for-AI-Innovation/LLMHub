@@ -173,15 +173,26 @@ Two consequences the kit encodes:
 2. **The impersonated user is a different Unix user** (groups `grp_202`,
    `delta_bgns`) that cannot read anything under `/projects/bfmz/…`. So in this
    mode everything it needs lives under `LLMHUB_SHARED_ROOT`
-   (`/projects/llmhub/llmhub-<profile>`, world-readable):
+   (`/sw/llmhub/llmhub-<profile>`, world-readable):
    - `vec-inf-config/` — `VEC_INF_CONFIG_DIR` (vec-inf silently falls back to
      Vector's defaults when it cannot read this);
-   - `containers/<image>.sif` — a copy of `LLMHUB_VLLM_SIF` if the original is
-     not world-readable;
-   - `shim-env/` — a **non-editable** install of the deployed backend on its own
-     Python (`VEC_INF_IMPERSONATE_PYTHON`), rebuilt whenever the deployed ref
-     changes. `status` warns when it lags the deployed ref. Without this, the
-     copy the users run drifts from the API server's code.
+   - `shim-env/` + `python/` — a **non-editable** install of the deployed backend
+     on its own Python (`VEC_INF_IMPERSONATE_PYTHON`), rebuilt whenever the
+     deployed ref changes. `status` warns when it lags the deployed ref. Without
+     this, the copy the users run drifts from the API server's code;
+   - `containers/<image>.sif` — **only** if `LLMHUB_VLLM_SIF` is not
+     world-readable. It normally is (`/sw/llmhub/vllm.sif`), so no copy is made.
+
+   **The two site roots have different jobs.** `/sw/llmhub` holds the backend
+   vec-inf config and `.yaml` and everything an impersonated user must *read*;
+   `/projects/llmhub` holds *logs* — the per-user job workspaces and
+   `LLMHUB_VEC_INF_LOG_DIR`. Do not put deployment material in the latter.
+
+   **`/sw/llmhub` has no default ACLs**, so `LLMHUB_UMASK=007` would render
+   everything unreadable to `svcllmhub*` and break launches silently. The
+   explicit `umask 022` + `chmod -R o+rX` in `shim_env_build()` and
+   `render_vec_inf_config()` are what prevent that, and `preflight` now verifies
+   the result rather than assuming it.
 
 Operator sequence (staging profile as the service user; stop any personal
 staging stack first — one stack per profile per VM):
@@ -191,9 +202,11 @@ ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois
 /sw/admin/scripts/impersonate svcdeltallmhub
 cd /projects/bfmz/dadams/llmhub-dev/LLMHub/infra/delta        # readable via delta_bfmz
 R=/projects/bfmz/svcdeltallmhub/llmhub-staging; mkdir -p $R
-printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhubdadams\nLLMHUB_VLLM_SIF=/projects/bfmz/dadams/llmhub-containers/vllm-v0.19.1-slingshot-v3.sif\n' > $R/local.env
+printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhubdadams\n' > $R/local.env
+# no LLMHUB_VLLM_SIF override: the default /sw/llmhub/vllm.sif is world-readable,
+# so the image is used in place and no copy is made under the shared root.
 ./llmhub preflight --profile staging --ref port/backend-pr-32
-./llmhub deploy --apply --profile staging --ref port/backend-pr-32   # + shim env, shared config, image copy
+./llmhub deploy --apply --profile staging --ref port/backend-pr-32   # + shim env and shared config under /sw/llmhub
 ./llmhub check-impersonation svcllmhubdadams --profile staging      # no GPU; must pass first
 ./llmhub launch-test --profile staging                               # job runs as svcllmhubdadams on bgns-delta-gpu
 ```
