@@ -10,7 +10,6 @@ import { redirect } from 'next/navigation';
 import {
   DEFAULT_CILOGON_DISCOVERY_URL,
   DEFAULT_CILOGON_SKIN,
-  getAllowedAuthHosts,
   getBaseURL,
   isCilogonEnabled,
 } from '@/lib/auth/config';
@@ -37,6 +36,7 @@ const authPlugins = authConfig.isCilogonEnabled
             clientSecret: process.env.CILOGON_CLIENT_SECRET || '',
             discoveryUrl:
               process.env.CILOGON_DISCOVERY_URL || DEFAULT_CILOGON_DISCOVERY_URL,
+              redirectURI: `${getBaseURL()}/api/auth/oauth2/callback/cilogon`,
             scopes: ['openid', 'email', 'profile'],
             authorizationUrlParams: {
               skin: process.env.CILOGON_SKIN || DEFAULT_CILOGON_SKIN,
@@ -62,10 +62,7 @@ const authPlugins = authConfig.isCilogonEnabled
 
 export const betterAuthInstance = betterAuth({
   appName: 'LLM Hub',
-  baseURL: {
-    baseURL: getBaseURL(),
-    allowedHosts: getAllowedAuthHosts(),
-  },
+  baseURL: getBaseURL(),
   basePath: '/api/auth',
   secret: process.env.BETTER_AUTH_SECRET,
   database: drizzleAdapter(db, {

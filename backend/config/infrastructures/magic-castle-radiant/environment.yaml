@@ -1,0 +1,47 @@
+paths:
+  image_path: "/project/def-sponsor00/centos/LLMHub/devops/apptainers/vllm.sif"
+  vllm_image_path: "/project/def-sponsor00/centos/LLMHub/devops/apptainers/vllm.sif"
+  # These filepaths are placeholders, but are kept here as it is a requirement for the vec-inf library
+  sglang_image_path: "/project/def-sponsor00/centos/LLMHub/devops/apptainers/sglang.sif"
+  cached_model_config_path: "/project/def-sponsor00/centos/cached_model_config.yaml"
+
+containerization:
+  module_load_cmd: "source /cvmfs/soft.computecanada.ca/custom/software/lmod/lmod/init/bash && export MODULEPATH=/cvmfs/soft.computecanada.ca/easybuild/modules/2023/x86-64-v3/Core && module load apptainer/1.4.5"
+  module_name: "apptainer"
+
+limits:
+  max_gpus_per_node: 8
+  max_num_nodes: 178
+  max_cpus_per_task: 64
+
+allowed_values:
+  qos: []
+  partition: ["node"]
+  # partition: ["node","gpuA40x4", "gpuA100x4", "gpuA100x8", "gpuH200x8", "gpuA40x4-interactive", "gpuA100x4-interactive", "gpuA100x8-interactive", "gpuH200x8-interactive", "gpuA40x4-preempt", "gpuA100x4-preempt"]
+  # resource_type: ["A100", "H100", "H200", "TeslaT4", "A40"]
+  resource_type: [""]
+
+required_args:
+  account: "VEC_INF_ACCOUNT"
+  work_dir: "VEC_INF_WORK_DIR"
+
+default_args:
+  account: "def-sponsor00"
+  gpus_per_node: "1"
+  num_nodes: "1"
+  cpus_per_task: "16"
+  mem_per_node: "64G"
+  time: "00:10:00"
+  qos: ""
+  # partition: "secondary"
+  partition: "node"
+  resource_type: ""
+  exclude: ""
+  nodelist: ""
+  # bind: "/projects/illinois/ovcri/ncsa/rohan13/huggingface:/root/.cache/huggingface,/projects/illinois/ovcri/ncsa/rohan13/torch_cache:/root/.cache/torch_inductor"
+  bind: "/project/def-sponsor00/centos/.cache/huggingface:/centos/.cache/huggingface,/project/def-sponsor00/centos/.cache/torch_inductor:/centos/.cache/torch_inductor"
+  venv: "apptainer"
+  data_type: "auto"
+  log_dir: "/project/def-sponsor00/centos/.vec-inf-logs"
+  # model_weights_parent_dir: "/projects/illinois/ovcri/ncsa/rohan13/models"
+  model_weights_parent_dir: "/project/def-sponsor00/centos/models"

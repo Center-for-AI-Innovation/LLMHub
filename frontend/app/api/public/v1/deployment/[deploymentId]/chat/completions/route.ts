@@ -1,7 +1,7 @@
 /**
  * Public Chat Completions Route (OpenAI-compatible)
  *
- * POST /api/public/v1/job/{jobId}/chat/completions
+ * POST /api/public/v1/deployment/{deploymentId}/chat/completions
  *
  * Security:
  * 1. Requires Authorization: Bearer <llmhub_api_key>
@@ -12,7 +12,7 @@
  */
 
 import { canUserAccessDeployment } from '@/lib/auth/validate-request';
-import { getModelDeploymentByJobId } from '@/lib/db/queries';
+import { getModelDeploymentById } from '@/lib/db/queries';
 import {
   extractBearerApiKey,
   getUserFromApiKey,
@@ -29,7 +29,7 @@ function getTargetUrl(endpointUrl: string) {
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ jobId: string }> },
+  { params }: { params: Promise<{ deploymentId: string }> },
 ) {
   try {
     const apiKey = extractBearerApiKey(request.headers.get('authorization'));
@@ -42,13 +42,14 @@ export async function POST(
       return createErrorResponse('Unauthorized - Invalid API key', 401);
     }
 
-    const { jobId } = await params;
+    const parsedParams = await params;
+    const { deploymentId } = parsedParams;
 
-    const deployment = (await getModelDeploymentByJobId(
-      jobId,
+    const deployment = (await getModelDeploymentById(
+      deploymentId,
     )) as ModelDeployment | null;
     if (!deployment) {
-      return createErrorResponse(`Deployment not found for job ID: ${jobId}`, 404);
+      return createErrorResponse(`Deployment not found for deployment ID: ${deploymentId}`, 404);
     }
 
     if (!(await canUserAccessDeployment(deployment, apiUser.id))) {

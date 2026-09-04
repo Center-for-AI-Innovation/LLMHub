@@ -25,10 +25,10 @@ class User(Base):
     emailVerified = Column(Boolean, nullable=False, default=False)
     image = Column(String, nullable=True)
     createdAt = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updatedAt = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updatedAt = Column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
     apiKeyHash = Column(String, nullable=True)
     apiKeyExpiresAt = Column(DateTime, nullable=True)
 
-    __table_args__ = (
-        UniqueConstraint("email", name="User_email_key"),
-    )
+    __table_args__ = (UniqueConstraint("email", name="User_email_key"),)

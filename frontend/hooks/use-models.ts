@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { type LaunchDefaults } from '@/app/api/launch-defaults/route';
 
 import { type ShareDeploymentResponse } from '@/lib/models/deployment-sharing';
+import { useDebounce } from '@/hooks/use-debounce';
 
 
 const USE_LOCAL_TEST_DEPLOYMENTS =
@@ -273,6 +275,26 @@ export function useChatModels() {
   });
 }
 
+export function useLaunchDefaults() {
+  return useQuery<LaunchDefaults>({
+    queryKey: ['launch-defaults'],
+    queryFn: async () => {
+      const res = await fetch('/api/launch-defaults');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(
+          (errorData as { error?: string }).error ||
+            `Failed to fetch launch defaults (${res.status})`,
+        );
+      }
+      return res.json();
+    },
+    staleTime: 55 * 60 * 1000, // 55 minutes
+    gcTime: 24 * 60 * 60 * 1000, // 24 hours
+    retry: false,
+  });
+}
+
 // Launch a model
 export function useLaunchModel() {
   const queryClient = useQueryClient();
@@ -282,7 +304,9 @@ export function useLaunchModel() {
       modelId: string;
       huggingfaceId?: string;
       family?: string;
-      time?: string;
+      time: string;
+      partition: string;
+      resource_type: string;
     }): Promise<ModelDeployment> => {
       // Construct HuggingFace model ID if not provided
       // Most HF model paths follow pattern: Organization/ModelName
@@ -321,8 +345,10 @@ export function useLaunchModel() {
         },
         body: JSON.stringify({
           modelId: params.modelId,
-          hf_model: hfModel || params.modelId, // Use constructed HF model ID
+          hf_model: hfModel || params.modelId,
           time: params.time,
+          partition: params.partition,
+          resource_type: params.resource_type,
         }),
       });
 
@@ -334,7 +360,7 @@ export function useLaunchModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
-      queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
+      queryClient.invalidateQueries({ queryKey: ['vllm-deployment'] });
       queryClient.invalidateQueries({ queryKey: ['chat-models'] });
     },
   });
@@ -356,7 +382,7 @@ export function useStopModel() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
-      queryClient.invalidateQueries({ queryKey: ['vllm-job'] });
+      queryClient.invalidateQueries({ queryKey: ['vllm-deployment'] });
       queryClient.invalidateQueries({ queryKey: ['chat-models'] });
     },
   });
@@ -457,5 +483,79 @@ export function useDeployment(deploymentId: string | null) {
     enabled: !!deploymentId,
     refetchInterval: 3000, // Poll every 3 seconds for status updates
     staleTime: 2000,
+  });
+}
+
+export type UserSearchResult = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+// Search registered users by name or email for share autosuggest
+export function useUserSearch(query: string) {
+  const debouncedQuery = useDebounce(query.trim(), 300);
+
+  return useQuery({
+    queryKey: ['userSearch', debouncedQuery],
+    queryFn: async (): Promise<UserSearchResult[]> => {
+      const res = await fetch(
+        `/api/users/search?q=${encodeURIComponent(debouncedQuery)}`,
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to search users');
+      }
+
+      const data = await res.json();
+      return data.users;
+    },
+    enabled: debouncedQuery.length > 0,
+    staleTime: 30000,
+    gcTime: 300000,
+  });
+}
+
+export type DeploymentAuthorizedUser = {
+  userId: string;
+  permission: 'owner' | 'user';
+  name: string;
+  email: string;
+};
+
+export type DeploymentSharingInfo = {
+  authorizedUsers: DeploymentAuthorizedUser[];
+  pendingInvites: Array<{
+    id: string;
+    email: string;
+    permission: 'owner' | 'user';
+  }>;
+};
+
+// Current access (authorized users + pending invites) for a deployment
+export function useDeploymentSharing(
+  deploymentId: string | null | undefined,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['deploymentSharing', deploymentId],
+    queryFn: async (): Promise<DeploymentSharingInfo> => {
+      if (!deploymentId) {
+        throw new Error('Deployment ID is required');
+      }
+      const res = await fetch(
+        `/api/models/deployments/${encodeURIComponent(deploymentId)}/share`,
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to load sharing info');
+      }
+
+      return res.json();
+    },
+    enabled: !!deploymentId && enabled,
+    staleTime: 10000,
   });
 }

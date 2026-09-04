@@ -135,7 +135,7 @@ export async function POST(request: Request) {
           // vLLM/OpenAI-compatible servers typically implement /v1/chat/completions, not /v1/responses.
           model: alwaysOnProvider.chat(ALWAYS_ON_MODEL),
           system: systemPrompt({
-            selectedChatModel: selectedChatModel ?? 'vllm-model',
+            selectedChatModel: selectedChatModel ?? 'always-on-model',
           }),
           messages: modelMessages,
           stopWhen: stepCountIs(5),

@@ -11,4 +11,3 @@ class ORMBaseModel(BaseModel):
     """Base model for schemas built from ORM objects."""
 
     model_config = ConfigDict(from_attributes=True)
-

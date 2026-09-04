@@ -11,8 +11,10 @@
 - `pnpm dev`: run local dev server.
 - `pnpm build`: run DB migration script + production build.
 - `pnpm start`: run production server.
-- `pnpm lint`: Next lint + Biome lint.
+- `pnpm lint`: ESLint (flat config, `eslint.config.mjs`).
+- `pnpm lint:fix`: ESLint with `--fix` (used by the pre-commit hook).
 - `pnpm format`: format with Biome.
+- `pnpm test`: run the Vitest unit suite (`tests/unit/`).
 - `pnpm db:migrate`: apply Drizzle DB migrations.
 
 ## Coding Style & Naming Conventions
@@ -33,9 +35,8 @@
 - Use existing brand colors and typography.
 
 ## Testing Guidelines
-- No dedicated test runner is currently wired; use quality gates:
-  - `pnpm lint`
-  - `pnpm build`
+- `pnpm test`: run the Vitest unit suite (`tests/unit/`, `*.test.ts`).
+- Additional quality gates: `pnpm lint` and `pnpm build`.
 - For risky logic (deployment routing/status), add focused assertions/tests when introducing new helpers.
 
 ## Commit & Pull Request Guidelines

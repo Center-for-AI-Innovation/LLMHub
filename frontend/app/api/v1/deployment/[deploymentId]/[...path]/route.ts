@@ -4,10 +4,10 @@
  * This catch-all route handler proxies authenticated requests to vLLM instances
  * running on Slurm worker nodes. It supports all OpenAI-compatible endpoints:
  * 
- * - /api/v1/job/{jobId}/chat/completions -> {endpointUrl}/v1/chat/completions
- * - /api/v1/job/{jobId}/completions -> {endpointUrl}/v1/completions
- * - /api/v1/job/{jobId}/embeddings -> {endpointUrl}/v1/embeddings
- * - /api/v1/job/{jobId}/models -> {endpointUrl}/v1/models
+ * - /api/v1/deployment/{deploymentId}/chat/completions -> {endpointUrl}/v1/chat/completions
+ * - /api/v1/deployment/{deploymentId}/completions -> {endpointUrl}/v1/completions
+ * - /api/v1/deployment/{deploymentId}/embeddings -> {endpointUrl}/v1/embeddings
+ * - /api/v1/deployment/{deploymentId}/models -> {endpointUrl}/v1/models
  * 
  * Security:
  * 1. Verifies user is authenticated via NextAuth session
@@ -21,7 +21,7 @@
  */
 
 import { auth } from '@/app/(auth)/auth';
-import { getUserById, getModelDeploymentByJobId } from '@/lib/db/queries';
+import { getUserById, getModelDeploymentById } from '@/lib/db/queries';
 import {
   isChatCompletionsEndpoint,
   handleChatCompletions,
@@ -37,10 +37,11 @@ export const maxDuration = 60;
  */
 async function handleRequest(
   request: Request,
-  { params }: { params: Promise<{ jobId: string; path: string[] }> }
+  { params }: { params: Promise<{ deploymentId: string; path: string[] }> }
 ): Promise<Response> {
   try {
-    const { jobId, path } = await params;
+    const parsedParams = await params;
+    const { deploymentId, path } = parsedParams;
 
     // Step 1: Verify user is authenticated
     const session = await auth();
@@ -58,11 +59,11 @@ async function handleRequest(
       return createErrorResponse('User not found in database', 403);
     }
 
-    // Step 3: Look up the deployment by Slurm job ID
-    const deployment = await getModelDeploymentByJobId(jobId) as ModelDeployment | null;
+    // Step 3: Look up the deployment by deployment ID
+    const deployment = await getModelDeploymentById(deploymentId) as ModelDeployment | null;
 
     if (!deployment) {
-      return createErrorResponse(`Deployment not found for job ID: ${jobId}`, 404);
+      return createErrorResponse(`Deployment not found for deployment ID: ${deploymentId}`, 404);
     }
 
     // Step 4: Verify user access to the deployment
@@ -78,7 +79,7 @@ async function handleRequest(
 
     // Step 6: Handle chat completions 
     if (isChatCompletionsEndpoint(path) && request.method === 'POST') {
-      console.log(`[vLLM Job Proxy] Using AI SDK for chat completions - job: ${jobId}`);
+      console.log(`[vLLM Deployment Proxy] Using AI SDK for chat completions - deployment: ${deploymentId}`);
       return await handleChatCompletions(request, deployment, userId);
     }
 
@@ -86,7 +87,7 @@ async function handleRequest(
     const vllmPath = `/v1/${path.join('/')}`;
     const targetUrl = `${deployment.endpointUrl}${vllmPath}`;
     
-    console.log(`[vLLM Job Proxy] Proxying ${request.method} to: ${targetUrl}`);
+    console.log(`[vLLM Deployment Proxy] Proxying ${request.method} to: ${targetUrl}`);
     
     const proxyResponse = await fetch(targetUrl, {
       method: request.method,
@@ -105,7 +106,7 @@ async function handleRequest(
       },
     });
   } catch (error) {
-    console.error('vLLM Proxy error:', error);
+    console.error('vLLM Deployment Proxy error:', error);
     return createErrorResponse(
       error instanceof Error ? error.message : 'Internal server error',
       500
@@ -116,42 +117,42 @@ async function handleRequest(
 // Export handlers for all HTTP methods
 export async function GET(
   request: Request,
-  context: { params: Promise<{ jobId: string; path: string[] }> }
+  context: { params: Promise<{ deploymentId: string; path: string[] }> }
 ) {
   return handleRequest(request, context);
 }
 
 export async function POST(
   request: Request,
-  context: { params: Promise<{ jobId: string; path: string[] }> }
+  context: { params: Promise<{ deploymentId: string; path: string[] }> }
 ) {
   return handleRequest(request, context);
 }
 
 export async function PUT(
   request: Request,
-  context: { params: Promise<{ jobId: string; path: string[] }> }
+  context: { params: Promise<{ deploymentId: string; path: string[] }> }
 ) {
   return handleRequest(request, context);
 }
 
 export async function DELETE(
   request: Request,
-  context: { params: Promise<{ jobId: string; path: string[] }> }
+  context: { params: Promise<{ deploymentId: string; path: string[] }> }
 ) {
   return handleRequest(request, context);
 }
 
 export async function PATCH(
   request: Request,
-  context: { params: Promise<{ jobId: string; path: string[] }> }
+  context: { params: Promise<{ deploymentId: string; path: string[] }> }
 ) {
   return handleRequest(request, context);
 }
 
 export async function OPTIONS(
   request: Request,
-  context: { params: Promise<{ jobId: string; path: string[] }> }
+  context: { params: Promise<{ deploymentId: string; path: string[] }> }
 ) {
   // Handle CORS preflight requests
   return new Response(null, {
