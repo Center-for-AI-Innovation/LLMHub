@@ -8,14 +8,14 @@ from uuid import UUID
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.config.config import settings
 from app.config.logging import get_logger
 from app.models.available_model import AvailableModel
 from app.models.model_deployment import ModelDeployment
 from app.models.model_request import ModelRequest
+from app.schemas.available_model import AvailableModelCreate
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
-from app.schemas.available_model import AvailableModelCreate
-from app.config.config import settings
 from app.services.resource_service import ResourceService
 from app.utils.hf_auth import (
     append_hf_token_to_env,
@@ -26,7 +26,10 @@ from app.utils.infrastructure import (
     get_vec_inf_log_base_dir,
     get_vec_inf_user_workspace_dir,
 )
-from app.utils.llm_inference import LLMInferenceClient
+from app.utils.llm_inference import (
+    LLMInferenceClient,
+    ensure_gated_model_weights_for_user,
+)
 
 logger = get_logger("model_service")
 
@@ -167,7 +170,9 @@ class ModelService:
     ) -> ModelDeployment:
         """Launch a model and create a deployment record."""
         # Extract parameters for the launch command (never persist hf_token on the deployment row)
-        params = deployment.model_dump(exclude={"modelName", "modelId", "userId", "hf_token"})
+        params = deployment.model_dump(
+            exclude={"modelName", "modelId", "userId", "hf_token"}
+        )
         hf_token = deployment.hf_token or settings.HF_TOKEN
         model_id = deployment.modelId or deployment.modelName
 
@@ -186,7 +191,9 @@ class ModelService:
         num_nodes = params.get("num_nodes", 1)
 
         # Early Hugging Face access check (requested "fast exit")
-        db_model = db.query(AvailableModel).filter(AvailableModel.id == model_id).first()
+        db_model = (
+            db.query(AvailableModel).filter(AvailableModel.id == model_id).first()
+        )
         hf_repo_id = db_model.huggingfaceId if db_model else None
         cached_gated = db_model.gated if db_model else None
 
@@ -209,6 +216,30 @@ class ModelService:
             db.commit()
             db.refresh(db_deployment)
             return db_deployment
+
+        # For a gated model launched as a specific cluster user, scope the weights
+        # to that user's workspace (hard-linked from the shared store) instead of
+        # the infrastructure-wide default, so only authorized users can reach them.
+        if cached_gated and deployment.cluster_username:
+            try:
+                weights_parent_dir = ensure_gated_model_weights_for_user(
+                    deployment.cluster_username, deployment.modelName
+                )
+            except RuntimeError as exc:
+                db_deployment = ModelDeployment(
+                    modelId=model_id,
+                    modelName=deployment.modelName,
+                    userId=deployment.userId,
+                    slurmJobId="failed",
+                    status="failed",
+                    errorMessage=f"Failed to prepare gated model weights: {exc}",
+                    resourceAllocation=resource_allocation,
+                )
+                db.add(db_deployment)
+                db.commit()
+                db.refresh(db_deployment)
+                return db_deployment
+            params["model_weights_parent_dir"] = str(weights_parent_dir)
 
         # If GPU resources are requested, check availability and allocate
         if num_gpus:

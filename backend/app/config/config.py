@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     VEC_INF_ACCOUNTS_SCRIPT: str = (
         "/sw/user/scripts/accounts"  # Helper to resolve a user's Slurm accounts
     )
+    MODEL_STORE_ROOT: Optional[str] = os.getenv(
+        "MODEL_STORE_ROOT"
+    )  # Shared store of all model weights, keyed by model name; gated models are
+    # hard-linked from here into the launching user's workspace (VEC_INF_SHARED_WORK_ROOT)
 
     # Background service settings
     SYNC_INTERVAL: int = int(
@@ -67,7 +71,9 @@ class Settings(BaseSettings):
     MODEL_SYNC_INTERVAL: int = int(
         os.getenv("MODEL_SYNC_INTERVAL", "3600")
     )  # seconds (default: 1 hour)
-    HF_TOKEN: Optional[str] = os.getenv("HF_TOKEN")  # Default HF token for model downloads
+    HF_TOKEN: Optional[str] = os.getenv(
+        "HF_TOKEN"
+    )  # Default HF token for model downloads
 
     # Email settings (unauthenticated campus SMTP relay, IP-restricted)
     SMTP_HOST: str = os.getenv("SMTP_HOST", "outbound-relays.techservices.illinois.edu")
