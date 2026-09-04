@@ -153,3 +153,109 @@ def test_parse_impersonated_response_handles_pty_noise():
     result = llm_inference.LLMInferenceClient._parse_impersonated_response(stdout, "")
 
     assert result == {"success": False, "error": "sbatch failed"}
+
+
+def test_hardlink_tree_links_files_and_preserves_structure(tmp_path):
+    src = tmp_path / "src"
+    (src / "nested").mkdir(parents=True)
+    (src / "config.json").write_text("{}")
+    (src / "nested" / "weights.bin").write_text("weights")
+
+    dst = tmp_path / "dst"
+    llm_inference._hardlink_tree(src, dst)
+
+    assert dst.joinpath("config.json").read_text() == "{}"
+    assert dst.joinpath("nested", "weights.bin").read_text() == "weights"
+    # Hard links share the same inode as the source file.
+    assert (
+        dst.joinpath("config.json").stat().st_ino
+        == src.joinpath("config.json").stat().st_ino
+    )
+
+
+def test_hardlink_tree_leaves_existing_destination_files_untouched(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "config.json").write_text("new")
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "config.json").write_text("already-there")
+
+    llm_inference._hardlink_tree(src, dst)
+
+    assert dst.joinpath("config.json").read_text() == "already-there"
+
+
+def test_resolve_model_store_dir_none_when_unconfigured(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", None)
+
+    assert llm_inference._resolve_model_store_dir("Qwen/Qwen3-8B") is None
+
+
+def test_resolve_model_store_dir_joins_model_name(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path))
+
+    assert llm_inference._resolve_model_store_dir("Qwen/Qwen3-8B") == (
+        tmp_path / "Qwen/Qwen3-8B"
+    )
+
+
+def test_ensure_gated_model_weights_for_user_raises_when_model_missing(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+
+    try:
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Qwen/Qwen3-8B")
+    except RuntimeError as exc:
+        assert "not found in the shared model store" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for a missing store model")
+
+
+def test_ensure_gated_model_weights_for_user_raises_without_workspace_root(
+    monkeypatch, tmp_path
+):
+    store_model_dir = tmp_path / "store" / "Qwen/Qwen3-8B"
+    store_model_dir.mkdir(parents=True)
+    (store_model_dir / "config.json").write_text("{}")
+
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", lambda _: None
+    )
+
+    try:
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Qwen/Qwen3-8B")
+    except RuntimeError as exc:
+        assert "no impersonated workspace root configured" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when no workspace root is set")
+
+
+def test_ensure_gated_model_weights_for_user_links_into_workspace(
+    monkeypatch, tmp_path
+):
+    store_model_dir = tmp_path / "store" / "Qwen/Qwen3-8B"
+    store_model_dir.mkdir(parents=True)
+    (store_model_dir / "config.json").write_text("{}")
+
+    workspace_dir = tmp_path / "alice"
+    workspace_dir.mkdir()
+
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", lambda _: workspace_dir
+    )
+
+    weights_parent_dir = llm_inference.ensure_gated_model_weights_for_user(
+        "alice", "Qwen/Qwen3-8B"
+    )
+
+    assert weights_parent_dir == workspace_dir / "model-weights"
+    linked_config = weights_parent_dir / "Qwen/Qwen3-8B" / "config.json"
+    assert (
+        linked_config.stat().st_ino
+        == store_model_dir.joinpath("config.json").stat().st_ino
+    )

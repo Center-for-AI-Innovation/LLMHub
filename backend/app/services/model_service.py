@@ -26,7 +26,10 @@ from app.utils.infrastructure import (
     get_vec_inf_log_base_dir,
     get_vec_inf_user_workspace_dir,
 )
-from app.utils.llm_inference import LLMInferenceClient
+from app.utils.llm_inference import (
+    LLMInferenceClient,
+    ensure_gated_model_weights_for_user,
+)
 
 logger = get_logger("model_service")
 
@@ -213,6 +216,30 @@ class ModelService:
             db.commit()
             db.refresh(db_deployment)
             return db_deployment
+
+        # For a gated model launched as a specific cluster user, scope the weights
+        # to that user's workspace (hard-linked from the shared store) instead of
+        # the infrastructure-wide default, so only authorized users can reach them.
+        if cached_gated and deployment.cluster_username:
+            try:
+                weights_parent_dir = ensure_gated_model_weights_for_user(
+                    deployment.cluster_username, deployment.modelName
+                )
+            except RuntimeError as exc:
+                db_deployment = ModelDeployment(
+                    modelId=model_id,
+                    modelName=deployment.modelName,
+                    userId=deployment.userId,
+                    slurmJobId="failed",
+                    status="failed",
+                    errorMessage=f"Failed to prepare gated model weights: {exc}",
+                    resourceAllocation=resource_allocation,
+                )
+                db.add(db_deployment)
+                db.commit()
+                db.refresh(db_deployment)
+                return db_deployment
+            params["model_weights_parent_dir"] = str(weights_parent_dir)
 
         # If GPU resources are requested, check availability and allocate
         if num_gpus:

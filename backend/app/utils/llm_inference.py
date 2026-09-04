@@ -155,6 +155,64 @@ def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
         )
 
 
+def _resolve_model_store_dir(model_name: str) -> Optional[Path]:
+    """Return the shared store's directory for ``model_name``, if configured."""
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    if not isinstance(store_root, str) or not store_root.strip():
+        return None
+    return Path(store_root).expanduser() / model_name
+
+
+def _hardlink_tree(src: Path, dst: Path) -> None:
+    """Recreate ``src`` under ``dst``, hard-linking each file.
+
+    Hard links are per-file (POSIX has no directory hard link), so this walks
+    the source tree and links files individually, creating directories as
+    needed. Existing destination files are left as-is, so this is safe to
+    call repeatedly (e.g. once per launch) without redoing finished work.
+    """
+    for root, _dirnames, filenames in os.walk(src):
+        rel_dir = Path(root).relative_to(src)
+        dest_dir = dst / rel_dir
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for filename in filenames:
+            dest_file = dest_dir / filename
+            if dest_file.exists():
+                continue
+            try:
+                os.link(Path(root) / filename, dest_file)
+            except FileExistsError:
+                pass
+
+
+def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) -> Path:
+    """Hard-link ``model_name`` from the shared store into ``cluster_username``'s
+    workspace and return the per-user ``model_weights_parent_dir`` to launch with.
+
+    Hard links share the underlying inode with the store copy, so this costs no
+    extra storage quota. Only meaningful for impersonated (per-user) launches;
+    callers should skip this and use the infrastructure default for shared/direct
+    execution. Expects an already-validated username.
+    """
+    source_dir = _resolve_model_store_dir(model_name)
+    if source_dir is None or not source_dir.is_dir():
+        raise RuntimeError(
+            f"Model {model_name!r} not found in the shared model store "
+            f"(MODEL_STORE_ROOT={getattr(settings, 'MODEL_STORE_ROOT', None)!r})"
+        )
+
+    workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
+    if workspace_dir is None:
+        raise RuntimeError(
+            "Cannot prepare user-scoped model weights: no impersonated workspace "
+            "root configured (VEC_INF_SHARED_WORK_ROOT / vec-inf log dir)"
+        )
+
+    weights_parent_dir = workspace_dir / "model-weights"
+    _hardlink_tree(source_dir, weights_parent_dir / model_name)
+    return weights_parent_dir
+
+
 def _select_user_slurm_account(cluster_username: str, prefer_gpu: bool = True) -> str:
     """Resolve the user's Slurm account. Expects a validated username."""
     script_path = Path(
