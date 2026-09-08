@@ -12,7 +12,9 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from app.config.config import settings
 from app.config.logging import get_logger
+from app.utils.cluster_users import normalize_cluster_username
 
 logger = get_logger("infrastructure")
 
@@ -22,6 +24,12 @@ INFRASTRUCTURE_ENV_VAR = "INFRASTRUCTURE"
 
 def get_vec_inf_log_base_dir(infrastructure: Optional[str] = None) -> Optional[str]:
     """Return vec-inf's configured base log directory from environment.yaml."""
+    env_override = getattr(settings, "VEC_INF_LOG_DIR", None) or os.environ.get(
+        "VEC_INF_LOG_DIR"
+    )
+    if isinstance(env_override, str) and env_override.strip():
+        return str(Path(env_override).expanduser())
+
     try:
         mgr = InfrastructureManager()
         default_args = (mgr.get_environment_config(infrastructure) or {}).get(
@@ -33,6 +41,33 @@ def get_vec_inf_log_base_dir(infrastructure: Optional[str] = None) -> Optional[s
     except Exception as exc:
         logger.debug("Could not resolve log_dir from environment.yaml: %s", exc)
     return None
+
+
+def get_vec_inf_user_workspace_dir(
+    cluster_username: Optional[str],
+    infrastructure: Optional[str] = None,
+) -> Optional[str]:
+    """Return the per-user workspace dir when vec-inf logs/scripts are segregated by user."""
+    if not isinstance(cluster_username, str) or not cluster_username.strip():
+        return None
+    try:
+        username = normalize_cluster_username(cluster_username)
+    except ValueError:
+        logger.warning(
+            "Ignoring invalid cluster username for workspace lookup: %r",
+            cluster_username,
+        )
+        return None
+
+    raw_root = (
+        getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
+        or os.environ.get("VEC_INF_SHARED_WORK_ROOT")
+        or get_vec_inf_log_base_dir(infrastructure)
+    )
+    if not isinstance(raw_root, str) or not raw_root.strip():
+        return None
+
+    return str(Path(raw_root).expanduser() / username)
 
 
 class InfrastructureManager:
@@ -164,12 +199,22 @@ class InfrastructureManager:
     def get_config_path(self, infrastructure: Optional[str] = None) -> Path:
         """Get path to infrastructure-specific config directory.
 
+        If VEC_INF_CONFIG_DIR is explicitly configured (env var or .env), it is
+        treated as an absolute override of the config directory and returned
+        as-is, bypassing infrastructure auto-detection entirely.
+
         Args:
             infrastructure: Infrastructure identifier. If None, auto-detects.
 
         Returns:
             Path to infrastructure config directory.
         """
+        override = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.environ.get(
+            "VEC_INF_CONFIG_DIR"
+        )
+        if isinstance(override, str) and override.strip():
+            return Path(override.strip()).expanduser().resolve()
+
         infra_id = self.get_infrastructure(infrastructure)
         infra_path = self.infrastructures_dir / infra_id
 
