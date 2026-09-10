@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - UIUC design-system semantic tokens (status-*, secondary-accessible, destructive-accessible) and design-system docs; components now use theme tokens instead of hardcoded hex/zinc colors.
 - Playwright + axe contrast checks: CI job, manual pre-commit hook (frontend-contrast-check), and a dev-only contrast harness page.
 - CI job that fails a PR to `main` if `CHANGELOG.md` is not updated.
+- Delta deployment kit (`infra/delta/`): one CLI (`llmhub`) that deploys and operates the full stack on the NCSA Delta service VM from a tag, branch or commit — fetches its own runtimes, supports `direct` and `impersonate` execution modes, and includes preflight, smoke and launch tests. ([#57](https://github.com/Center-for-AI-Innovation/LLMHub/pull/57))
 
 ### Changed
 
