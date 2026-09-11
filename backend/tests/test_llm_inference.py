@@ -37,30 +37,6 @@ class FakeDirectClient:
         return None
 
 
-def test_select_user_slurm_account_prefers_gpu(monkeypatch, tmp_path):
-    accounts_script = tmp_path / "accounts"
-    accounts_script.write_text("#!/bin/sh\n")
-
-    def fake_run(command, **kwargs):
-        assert command == [str(accounts_script), "-u", "alice"]
-        return SimpleNamespace(
-            returncode=0,
-            stdout=(
-                "Project Summary for User 'alice':\n\n"
-                "Account                        Balance(Hours)   Deposited(Hours)  Project\n"
-                "----------------------------  ----------------  ----------------  ----------------------\n"
-                "proj-delta-cpu                           10000             10000  test\n"
-                "proj-delta-gpu                            1000              1000  test\n"
-            ),
-            stderr="",
-        )
-
-    monkeypatch.setattr(llm_inference.subprocess, "run", fake_run)
-    monkeypatch.setattr(settings, "VEC_INF_ACCOUNTS_SCRIPT", str(accounts_script))
-
-    assert llm_inference._select_user_slurm_account("alice") == "proj-delta-gpu"
-
-
 def test_launch_model_uses_direct_mode(monkeypatch):
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
     monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "direct")
@@ -133,7 +109,7 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         str(wrapper_path),
         "alice",
         "--",
-        llm_inference.sys.executable,
+        llm_inference._get_impersonation_python(),
     ]
     assert captured["command"][4:6] == ["-m", "app.utils.vec_inf_launch_shim"]
     assert captured["kwargs"]["cwd"] == str(llm_inference.PROJECT_ROOT)
@@ -142,6 +118,91 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     assert captured["kwargs"]["env"]["VEC_INF_LOG_DIR"].endswith("/alice")
     assert payload["params"]["work_dir"].endswith("/alice")
     assert payload["params"]["log_dir"].endswith("/alice")
+
+
+def test_launch_model_uses_provided_slurm_account(monkeypatch, tmp_path):
+    captured = {}
+    wrapper_path = tmp_path / "impersonate-wrapper"
+    wrapper_path.write_text("#!/bin/sh\nexit 0\n")
+    wrapper_path.chmod(0o755)
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            returncode=0,
+            stdout='{"success": true, "job_id": "12345", "slurm_job_id": "12345"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
+    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
+    monkeypatch.setattr(
+        llm_inference,
+        "_ensure_impersonated_workspace_dir",
+        lambda _: tmp_path / "alice",
+    )
+    monkeypatch.setattr(
+        llm_inference,
+        "list_user_slurm_accounts",
+        lambda _username: ["proj-delta-cpu", "bgns-delta-gpu"],
+    )
+
+    def fail_if_auto_selected(*_args, **_kwargs):
+        raise AssertionError("auto-select should not run when an account is provided")
+
+    monkeypatch.setattr(
+        llm_inference,
+        "_select_user_slurm_account",
+        fail_if_auto_selected,
+    )
+    monkeypatch.setattr(llm_inference.subprocess, "run", fake_run)
+
+    client = llm_inference.LLMInferenceClient()
+    result = client.launch_model(
+        "Qwen/Qwen3-8B",
+        cluster_username="alice",
+        account="proj-delta-cpu",
+        num_gpus=2,
+    )
+
+    payload = json.loads(captured["command"][-1])
+
+    assert result["success"] is True
+    assert payload["params"]["account"] == "proj-delta-cpu"
+    assert captured["kwargs"]["env"]["VEC_INF_ACCOUNT"] == "proj-delta-cpu"
+    assert captured["kwargs"]["env"]["SLURM_ACCOUNT"] == "proj-delta-cpu"
+
+
+def test_launch_model_rejects_unassociated_slurm_account(monkeypatch, tmp_path):
+    wrapper_path = tmp_path / "impersonate-wrapper"
+    wrapper_path.write_text("#!/bin/sh\nexit 0\n")
+    wrapper_path.chmod(0o755)
+
+    monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
+    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
+    monkeypatch.setattr(
+        llm_inference,
+        "_ensure_impersonated_workspace_dir",
+        lambda _: tmp_path / "alice",
+    )
+    monkeypatch.setattr(
+        llm_inference,
+        "list_user_slurm_accounts",
+        lambda _username: ["bgns-delta-gpu"],
+    )
+
+    client = llm_inference.LLMInferenceClient()
+    result = client.launch_model(
+        "Qwen/Qwen3-8B",
+        cluster_username="alice",
+        account="someone-elses-account",
+    )
+
+    assert result["success"] is False
+    assert "not associated with alice" in result["error"]
 
 
 def test_parse_impersonated_response_handles_pty_noise():

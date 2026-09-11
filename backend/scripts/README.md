@@ -29,7 +29,7 @@ Detects SLURM partitions, hardware configurations, and updates `config/models.ya
 Validates the Delta impersonation path for user-submitted launches.
 
 **What it checks:**
-- Resolves the target user's Slurm account via `/sw/user/scripts/accounts`
+- Resolves the target user's Slurm account via `sacctmgr`
 - Creates or repairs `/projects/llmhub/<user>` ACLs using the backend's current settings
 - Optionally runs the impersonation wrapper and verifies the target user plus preserved env vars
 - Uses `VEC_INF_IMPERSONATE_PYTHON` when set, otherwise falls back to the backend's current interpreter

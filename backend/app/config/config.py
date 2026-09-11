@@ -50,9 +50,8 @@ class Settings(BaseSettings):
     VEC_INF_IMPERSONATE_LOGIN_SHELL: bool = (
         True  # Run impersonated launches in a login shell by default
     )
-    VEC_INF_ACCOUNTS_SCRIPT: str = (
-        "/sw/user/scripts/accounts"  # Helper to resolve a user's Slurm accounts
-    )
+    # Deprecated: accounts are resolved via sacctmgr. Kept so existing .env files still load.
+    VEC_INF_ACCOUNTS_SCRIPT: Optional[str] = None
 
     # Background service settings
     SYNC_INTERVAL: int = int(
