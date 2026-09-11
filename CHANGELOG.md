@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Launch-time Slurm account picker: users choose which allocation to charge before a model starts. ([#51](https://github.com/Center-for-AI-Innovation/LLMHub/issues/51))
+- Backend `GET /api/models/slurm-accounts` and frontend `/api/slurm-accounts` routes that list the signed-in user's Slurm accounts.
 - GitHub Actions CI workflow and pre-commit hooks (black, isort, ESLint) for linting and formatting, which surfaced and applied linting/formatting changes across the backend and frontend. ([#22](https://github.com/Center-for-AI-Innovation/LLMHub/issues/22))
 - UIUC design-system semantic tokens (status-*, secondary-accessible, destructive-accessible) and design-system docs; components now use theme tokens instead of hardcoded hex/zinc colors.
 - Playwright + axe contrast checks: CI job, manual pre-commit hook (frontend-contrast-check), and a dev-only contrast harness page.
@@ -15,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Resolve a user's Slurm accounts with `sacctmgr` instead of the Delta-local `/sw/user/scripts/accounts` helper, and omit the placeholder `noalloc` account.
+- Derive the cluster username from the signed-in email local-part, using the suffix after `+` for impersonation addresses such as `rohan13+svcllmhubrohan13@ncsa.illinois.edu`.
 - Restricted the backend Python requirement to 3.11 only (requires-python, READMEs, AGENTS.md, CI), and pinned pre-commit’s default Python to 3.11 so Black’s env meets its runtime requirement.
 - Renamed the `frontend/app/(marketing)` route group to `frontend/app/(home)` for clarity — it's the root `/` landing page.
 

@@ -1,4 +1,5 @@
 import { auth } from '@/app/(auth)/auth';
+import { clusterUsernameFromEmail } from '@/lib/cluster-username';
 import { addUserToDeployment } from '@/lib/db/queries';
 import { type NextRequest, NextResponse } from 'next/server';
 
@@ -106,6 +107,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const clusterUsername = clusterUsernameFromEmail(userEmail);
+    const account =
+      typeof body.account === 'string' && body.account.trim()
+        ? body.account.trim()
+        : undefined;
+
     const response = await fetch(`${BACKEND_API_URL}/api/models/deployments`, {  
       method: 'POST',
       headers: {
@@ -122,6 +129,8 @@ export async function POST(request: NextRequest) {
         time: body.time,
         partition: body.partition,
         resource_type: body.resource_type,
+        clusterUsername: clusterUsername ?? undefined,
+        account,
       }),
     });
 
