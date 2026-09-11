@@ -1,12 +1,14 @@
 import { isCilogonEnabled } from '@/lib/auth/config';
 
+export const DEFAULT_POST_LOGIN_PATH = '/model-library';
+
 export function sanitizeRedirectPath(redirectTo?: string | null) {
-  if (!redirectTo) {
-    return '/chat';
+  if (!redirectTo || redirectTo === '/') {
+    return DEFAULT_POST_LOGIN_PATH;
   }
 
   if (!redirectTo.startsWith('/') || redirectTo.startsWith('//')) {
-    return '/chat';
+    return DEFAULT_POST_LOGIN_PATH;
   }
 
   return redirectTo;
