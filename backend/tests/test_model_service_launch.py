@@ -69,6 +69,29 @@ def test_deployment_create_trims_cluster_username():
     assert deployment.cluster_username == "alice_13"
 
 
+def test_deployment_create_accepts_slurm_account():
+    deployment = ModelDeploymentCreate(
+        modelName="Qwen/Qwen3-8B",
+        userId="11111111-1111-1111-1111-111111111111",
+        account=" bgns-delta-gpu ",
+    )
+
+    assert deployment.account == "bgns-delta-gpu"
+
+
+def test_deployment_create_rejects_invalid_slurm_account():
+    try:
+        ModelDeploymentCreate(
+            modelName="Qwen/Qwen3-8B",
+            userId="11111111-1111-1111-1111-111111111111",
+            account="bad account",
+        )
+    except ValueError as exc:
+        assert "account must be a valid Slurm account name" in str(exc)
+    else:
+        raise AssertionError("Expected invalid account to be rejected")
+
+
 def test_deployment_create_rejects_invalid_cluster_username():
     try:
         ModelDeploymentCreate(
