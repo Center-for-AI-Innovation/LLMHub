@@ -29,7 +29,7 @@ export function Providers({ children, isCilogonEnabled }: ProvidersProps) {
           authClient={authClient}
           Link={Link}
           basePath="/"
-          redirectTo="/chat"
+          redirectTo="/model-library"
           credentials={
             isCilogonEnabled ? false : { forgotPassword: false }
           }
