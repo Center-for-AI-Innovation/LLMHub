@@ -7,9 +7,10 @@ one script, one config file, one secrets template.
 infra/delta/
 ├── llmhub                      the CLI: preflight · deploy · start · stop · restart · status · smoke · logs
 ├── config/delta.env            non-secret site config (paths, ports, versions) — committed
-├── config/secrets.env.example  secret key names, no values — committed
-└── build-vllm-sif.sbatch       rebuild the inference image on the cluster (see below)
+└── config/secrets.env.example  secret key names, no values — committed
 ```
+
+The inference image is built separately: `devops/apptainers/delta/`.
 
 It deploys the **whole stack** — PostgreSQL (Apptainer), the FastAPI backend
 (uvicorn) and the Next.js frontend — from a git ref, with every runtime it
@@ -135,7 +136,7 @@ Per-stack overrides go in `$LLMHUB_DEPLOY_ROOT/local.env`, sourced after
 `delta.env` — leaf values only (an image path, a partition), e.g.:
 
 ```bash
-LLMHUB_VLLM_SIF=/projects/bfmz/dadams/llmhub-containers/vllm-v0.19.1-slingshot-v3.sif
+LLMHUB_VLLM_SIF=/work/nvme/<allocation>/$USER/vllm-v0.19.1-slingshot.sif   # a candidate built from devops/apptainers/delta
 ```
 
 Three things the rendered inference config encodes, each found by a failed job:
@@ -200,7 +201,7 @@ staging stack first — one stack per profile per VM):
 ```bash
 ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu   # ON THE VM — deploy refuses elsewhere
 /sw/admin/scripts/impersonate svcdeltallmhub
-cd /projects/bfmz/dadams/llmhub-dev/LLMHub/infra/delta        # readable via delta_bfmz
+cd <checkout of this branch>/infra/delta      # svcdeltallmhub must be able to read it (it is in delta_bfmz)
 R=/projects/bfmz/svcdeltallmhub/llmhub-staging; mkdir -p $R
 printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhubdadams\n' > $R/local.env
 # no LLMHUB_VLLM_SIF override: the default /sw/llmhub/vllm.sif is world-readable,
@@ -247,9 +248,10 @@ SLURM job as the account running the backend (`VEC_INF_EXECUTION_MODE=direct`)
 or as `svcllmhub<netid>` (`impersonate`, service user only, PR #40) using
 `/sw/llmhub/vllm.sif`. That image is what
 `backend/config/infrastructures/delta/environment.yaml` names; rebuilding it
-is a cluster job, not a VM step — `build-vllm-sif.sbatch` documents why the
-one-shot `apptainer build` fails on Delta (proot + mksquashfs) and points at
-the two-step build that works.
+is a cluster job, not a VM step. The recipe, its build script and the reasons
+it differs from the stock image — Slingshot NCCL, and the proot/`mksquashfs`
+failure that rules out a one-shot `apptainer build` on Delta — are in
+`devops/apptainers/delta/`.
 
 ## Troubleshooting
 
