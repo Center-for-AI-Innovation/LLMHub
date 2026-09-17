@@ -1,0 +1,137 @@
+name: llmhub-local
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-llm_service}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-llm_service}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  vllm:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai-cpu:latest-arm64}
+    command:
+      - ${VLLM_MODEL:-Qwen/Qwen3.5-2B}
+      - --served-model-name
+      - ${VLLM_MODEL:-Qwen/Qwen3.5-2B}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-4096}
+      - --dtype
+      - ${VLLM_DTYPE:-auto}
+      - --gpu-memory-utilization
+      - ${VLLM_MEMORY_UTILIZATION:-0.65}
+      - --language-model-only
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    ports:
+      - "${VLLM_PORT:-8001}:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"
+      interval: 15s
+      timeout: 10s
+      retries: 120
+      start_period: 30s
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: infra/local/frontend.Dockerfile
+    command: ["pnpm", "db:migrate"]
+    environment:
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-llm_service}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: infra/local/backend.Dockerfile
+    environment:
+      API_V1_STR: /api
+      PROJECT_NAME: AI Inference Backend
+      BACKEND_CORS_ORIGINS: '["http://localhost:${FRONTEND_PORT:-3000}"]'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-llm_service}
+      INFRASTRUCTURE: campus-cluster
+      SYNC_INTERVAL: 60
+      EXPIRY_CHECK_INTERVAL: 300
+      MODEL_SYNC_INTERVAL: 3600
+      MAX_DEPLOYMENTS_PER_CYCLE: 10
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: infra/local/frontend.Dockerfile
+    environment:
+      NODE_ENV: development
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-development-secret-change-before-sharing}
+      BETTER_AUTH_URL: http://localhost:${FRONTEND_PORT:-3000}
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-llm_service}
+      BACKEND_API_URL: http://backend:8000
+      ALWAYS_ON_VLLM_BASE_URL: http://vllm:8000/v1
+      ALWAYS_ON_VLLM_API_KEY: ${VLLM_API_KEY:-local-vllm}
+      ALWAYS_ON_VLLM_MODEL: ${VLLM_MODEL:-Qwen/Qwen3.5-2B}
+      USER_API_KEY_PEPPER: ${USER_API_KEY_PEPPER:-local-development-pepper-change-before-sharing}
+      NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS: "true"
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+      vllm:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:3000').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  huggingface-cache:
