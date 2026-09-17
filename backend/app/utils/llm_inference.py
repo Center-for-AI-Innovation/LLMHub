@@ -43,6 +43,7 @@ def _apply_vec_inf_environment() -> None:
 _apply_vec_inf_environment()
 
 # Python SDK for vec-inf (imported AFTER env vars are set)
+from vec_inf.client._slurm_script_generator import SlurmScriptGenerator  # noqa: E402
 from vec_inf.client.api import VecInfClient  # noqa: E402
 from vec_inf.client.models import LaunchOptions  # noqa: E402
 
@@ -213,6 +214,31 @@ def _should_inject_project_pythonpath() -> bool:
     return not (isinstance(configured, str) and configured.strip())
 
 
+def _generate_env_str_repeated_flags(self: SlurmScriptGenerator) -> str:
+    """Replacement for ``SlurmScriptGenerator._generate_env_str``.
+
+
+    Upstream (vec-inf 0.9.0) emits a single ``--env K1=V1,K2=V2`` argument.
+    Apptainer registers ``--env`` as a pflag StringToString, which parses any
+    argument holding more than one ``=`` with encoding/csv -- so a comma inside
+    a value (``CUDA_VISIBLE_DEVICES=0,1`` on a multi-GPU job) is split into a
+    bare ``1`` and the launch dies with "1 must be formatted as key=value".
+    pflag only skips csv when an argument holds exactly one ``=``, so emit one
+    ``--env`` flag per variable. Non-container mode is unchanged.
+    """
+    env_dict: Dict[str, str] = self.params.get("env", {})
+
+    if not env_dict:
+        return ""
+
+    if self.use_container:
+        return " ".join(f"--env {key}={val}" for key, val in env_dict.items())
+    return "\n".join(f"export {key}={val}" for key, val in env_dict.items())
+
+
+SlurmScriptGenerator._generate_env_str = _generate_env_str_repeated_flags
+
+
 class LLMInferenceDirectClient:
     """Direct vec-inf client used both locally and inside the launch shim."""
 
@@ -240,15 +266,25 @@ class LLMInferenceDirectClient:
 
     @staticmethod
     def _ensure_cuda_visible_devices_env(env_value: Optional[str]) -> str:
-        """Ensure we pass Slurm-assigned GPUs into the container."""
+        """Ensure we pass Slurm-assigned GPUs into the container.
+
+        Any pre-existing ``CUDA_VISIBLE_DEVICES`` field in ``env_value``
+        (bare or shell-quoted, e.g. a stale multi-GPU workaround) is dropped
+        so exactly one canonical field is appended. The field is deliberately
+        unquoted: container launches emit one ``--env`` flag per variable,
+        and pflag's single-``=`` fast path does not strip quotes.
+        """
         cuda_kv = "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
         if not env_value:
             return cuda_kv
 
-        if "CUDA_VISIBLE_DEVICES=" in env_value:
-            return env_value
-
-        return f"{env_value},{cuda_kv}"
+        fields = [
+            field
+            for field in env_value.split(",")
+            if "CUDA_VISIBLE_DEVICES" not in field
+        ]
+        fields.append(cuda_kv)
+        return ",".join(fields)
 
     def _build_launch_options(self, **params: Optional[Union[str, int, bool]]):
         """Map API payload params to LaunchOptions."""

@@ -1,6 +1,11 @@
 import json
 from types import SimpleNamespace
 
+from vec_inf.client._helper import ModelLauncher
+from vec_inf.client._slurm_script_generator import SlurmScriptGenerator
+from vec_inf.client._slurm_templates import SLURM_SCRIPT_TEMPLATE
+from vec_inf.client._slurm_vars import CONTAINER_MODULE_NAME, IMAGE_PATH
+
 from app.config.config import settings
 from app.utils import llm_inference
 
@@ -153,3 +158,79 @@ def test_parse_impersonated_response_handles_pty_noise():
     result = llm_inference.LLMInferenceClient._parse_impersonated_response(stdout, "")
 
     assert result == {"success": False, "error": "sbatch failed"}
+
+
+def test_ensure_cuda_visible_devices_env_appends_canonical_field():
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        "HF_HOME=/root/.cache/huggingface"
+    )
+
+    assert env == (
+        "HF_HOME=/root/.cache/huggingface," "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    )
+
+
+def test_ensure_cuda_visible_devices_env_without_existing_value():
+    for env_value in (None, ""):
+        env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+            env_value
+        )
+
+        assert env == "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+
+
+def test_ensure_cuda_visible_devices_env_drops_duplicate_field():
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        "HF_HOME=/root/.cache/huggingface,CUDA_VISIBLE_DEVICES=0,1"
+    )
+
+    assert env.count("CUDA_VISIBLE_DEVICES=") == 1
+    assert env.endswith("CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES")
+
+
+def test_ensure_cuda_visible_devices_env_strips_stale_quoted_workaround():
+    stale = (
+        "HF_HOME=/root/.cache/huggingface,"
+        '\\"CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES\\"'
+    )
+
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(stale)
+
+    assert "\\" not in env
+    assert env.count("CUDA_VISIBLE_DEVICES=") == 1
+    assert env.endswith("CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES")
+
+
+def test_multi_gpu_container_launch_renders_one_env_flag_per_variable(monkeypatch):
+    """Issue #56: the CUDA field must survive Apptainer's --env CSV parsing."""
+    stale_workaround = (
+        "HF_HOME=/root/.cache/huggingface,"
+        '\\"CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES\\"'
+    )
+    monkeypatch.setattr(settings, "VEC_INF_ENV", stale_workaround)
+
+    client = llm_inference.LLMInferenceDirectClient.__new__(
+        llm_inference.LLMInferenceDirectClient
+    )
+    client.slurm_account = None
+    options = client._build_launch_options(num_gpus=4, venv=CONTAINER_MODULE_NAME)
+
+    env_dict = ModelLauncher.__new__(ModelLauncher)._process_env_vars(options.env)
+    generator = SlurmScriptGenerator(
+        {
+            "num_nodes": 1,
+            "venv": CONTAINER_MODULE_NAME,
+            "model_name": "Qwen2.5-7B-Instruct",
+            "model_weights_parent_dir": "/projects/modelcache/public",
+            "env": env_dict,
+        }
+    )
+    command = SLURM_SCRIPT_TEMPLATE["container_command"].format(
+        env_str=generator.env_str, image_path=IMAGE_PATH["vllm"]
+    )
+
+    assert "--env HF_HOME=/root/.cache/huggingface" in command
+    assert "--env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" in command
+    assert command.count("--env") == 2
+    assert '"' not in generator.env_str
+    assert "\\" not in generator.env_str
