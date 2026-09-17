@@ -164,13 +164,33 @@ shim_env_build() {  # sha
         "$UV" venv -q --python "$LLMHUB_PYTHON_VERSION" "$LLMHUB_SHIM_ENV"
         "$UV" pip install -q --python "${LLMHUB_SHIM_ENV}/bin/python" "$BE"
         printf '%s\n' "$sha" > "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA"
-        chmod -R o+rX "$LLMHUB_SHIM_ENV" "${LLMHUB_SHARED_ROOT}/python"
     ) > "${LLMHUB_LOG_DIR}/shim-env.log" 2>&1 || { tail -20 "${LLMHUB_LOG_DIR}/shim-env.log" | sed 's/^/    /'; die "shim env build failed"; }
     # Prove it the way sudo -i will run it: from /, with an empty environment.
-    (cd / && env -i PATH=/usr/bin:/bin "${LLMHUB_SHIM_ENV}/bin/python" -c 'import app.utils.vec_inf_launch_shim, vec_inf') >> "${LLMHUB_LOG_DIR}/shim-env.log" 2>&1 \
+    #
+    # umask 022 here as well: this import WRITES __pycache__ into the shim env
+    # and the interpreter dir. The caller's umask is LLMHUB_UMASK (007), so
+    # without it the bytecode lands 0640 — unreadable to svcllmhub*. That fails
+    # silently: the .py sources stay readable, so every impersonated launch just
+    # recompiles instead of erroring, and the only symptom is a slower start.
+    ( umask 022; cd / && env -i PATH=/usr/bin:/bin "${LLMHUB_SHIM_ENV}/bin/python" -c 'import app.utils.vec_inf_launch_shim, vec_inf' ) >> "${LLMHUB_LOG_DIR}/shim-env.log" 2>&1 \
         || die "shim env cannot import app.utils.vec_inf_launch_shim from / — see ${LLMHUB_LOG_DIR}/shim-env.log"
+    # chmod AFTER the import proof, so whatever it wrote is covered too.
+    chmod -R o+rX "$LLMHUB_SHIM_ENV" "${LLMHUB_SHARED_ROOT}/python"
     ok "shim env at ${sha:0:9}: $("${LLMHUB_SHIM_ENV}/bin/python" -V 2>&1), imports app.utils.vec_inf_launch_shim from /"
-    world_readable "${LLMHUB_SHIM_ENV}/bin/python" && ok "shim env is world-readable" || warn "shim env is NOT world-readable — svcllmhub* cannot run it (is ${LLMHUB_SHARED_ROOT} o+rx all the way down?)"
+    # Check the whole tree, not just bin/python. The old check tested the
+    # interpreter alone, which the build always leaves readable, so it passed
+    # while 175 __pycache__ entries underneath were not — a check that could not
+    # fail for the defect it was meant to catch.
+    local _unreadable
+    _unreadable=$(find "$LLMHUB_SHIM_ENV" "${LLMHUB_SHARED_ROOT}/python" \
+        \( -type d ! -perm -o+rx \) -o \( -type f ! -perm -o+r \) 2>/dev/null | wc -l)
+    if [ "$_unreadable" -eq 0 ]; then
+        ok "shim env is world-readable throughout ($(find "$LLMHUB_SHIM_ENV" "${LLMHUB_SHARED_ROOT}/python" | wc -l) paths checked)"
+    else
+        find "$LLMHUB_SHIM_ENV" "${LLMHUB_SHARED_ROOT}/python" \
+            \( -type d ! -perm -o+rx \) -o \( -type f ! -perm -o+r \) 2>/dev/null | head -3 | sed 's/^/      /'
+        die "${_unreadable} path(s) under the shim env are not world-readable — svcllmhub* cannot use it"
+    fi
 }
 
 # In impersonate mode the image must be readable by svcllmhub*; copy it under
