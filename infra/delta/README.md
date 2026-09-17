@@ -24,7 +24,7 @@ ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois
 cd /path/to/LLMHub/infra/delta
 
 # A personal staging stack (ports 5533/8100/3100), tracking a branch:
-./llmhub preflight --profile staging --ref port/backend-pr-32
+./llmhub preflight --profile dev --ref main
 ./llmhub deploy    --profile staging --ref port/backend-pr-32           # dry run: prints the plan
 ./llmhub deploy    --profile staging --ref port/backend-pr-32 --apply   # ~10 min first time
 ./llmhub smoke     --profile staging
@@ -37,8 +37,8 @@ cd /path/to/LLMHub/infra/delta
 Then from your workstation:
 
 ```bash
-ssh -L 3100:localhost:3100 -L 8100:localhost:8100 -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu
-# http://localhost:3100   (frontend)    http://localhost:8100/docs   (backend)
+ssh -L 3000:localhost:3000 -L 8000:localhost:8000 -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu   # dev profile
+# http://localhost:3000   (frontend)    http://localhost:8000/docs   (backend)
 ```
 
 `deploy` is a dry run unless given `--apply`. It re-fetches the recorded ref
@@ -61,13 +61,30 @@ each time, so **redeploying the latest commit of a branch is just
 
 ## Profiles and where things live
 
-| | production | staging |
-|---|---|---|
-| ports pg / backend / frontend | 5433 / 8000 / 3000 | 5533 / 8100 / 3100 |
-| runs as | `svcdeltallmhub` only | anyone in `delta_bfmz` |
-| deploy root (`/projects`, Lustre) | `/projects/bfmz/svcdeltallmhub/llmhub-production` | `/projects/bfmz/$USER/llmhub-staging` |
-| local root (`/data`, xfs) | `/data/llmhub/production` | `/data/llmhub/staging` |
-| ref | a release tag | usually a branch |
+**`dev` and `production` are deliberately the same shape.** They run on
+different VMs, with the same ports, the same log and cache roots, and the same
+service-user-only rule, so the production VM is not the first place production's
+configuration is ever exercised. They differ only where they must: both VMs see
+the same `/projects` and `/sw`, so the roots are keyed by profile name. `staging`
+is the odd one out — a personal stack on shifted ports that anyone may run.
+
+| | production | dev | staging |
+|---|---|---|---|
+| VM | the production VM | `dt-svc-llmaas01` (ssh tunnel) | either |
+| ports pg / backend / frontend | 5433 / 8000 / 3000 | 5433 / 8000 / 3000 | 5533 / 8100 / 3100 |
+| runs as | `svcdeltallmhub` only | `svcdeltallmhub` only | anyone in `delta_bfmz` |
+| deploy root (`/projects`) | `…/svcdeltallmhub/llmhub-production` | `…/svcdeltallmhub/llmhub-dev` | `…/svcdeltallmhub/llmhub-staging` |
+| shared root (`/sw`) | `/sw/llmhub/llmhub-production` | `/sw/llmhub/llmhub-dev` | `/sw/llmhub/llmhub-staging` |
+| local root (`/data`, xfs) | `/data/llmhub/production` | `/data/llmhub/dev` | `/data/llmhub/staging` |
+| job workspaces | `/projects/llmhub/production` | `/projects/llmhub/dev` | `/projects/llmhub/staging` |
+| vec-inf log dir | `/projects/llmhub` | `/projects/llmhub` | deploy root |
+| inference image | `/sw/llmhub/vllm.sif` (the symlink) | a **pinned version** | the symlink |
+| ref | a release tag | usually a branch | usually a branch |
+
+`dev` pins an image version rather than following `vllm.sif` so that promoting a
+new image changes dev and prod at separate moments, and dev can exercise a
+candidate first. Update the pin in `config/delta.env` after the image passes the
+two-node NCCL gate in `devops/apptainers/delta/`.
 
 Deploy root (`/projects`): source checkout, venv, logs, pidfiles, `secrets.env`,
 `DEPLOYED`, `local.env`. Local root (`/data`): PostgreSQL data + password, the
@@ -195,21 +212,21 @@ Two consequences the kit encodes:
    `render_vec_inf_config()` are what prevent that, and `preflight` now verifies
    the result rather than assuming it.
 
-Operator sequence (staging profile as the service user; stop any personal
-staging stack first — one stack per profile per VM):
+Operator sequence (the `dev` profile on `dt-svc-llmaas01`, as the service user;
+one stack per profile per VM):
 
 ```bash
 ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu   # ON THE VM — deploy refuses elsewhere
 /sw/admin/scripts/impersonate svcdeltallmhub
 cd <checkout of this branch>/infra/delta      # svcdeltallmhub must be able to read it (it is in delta_bfmz)
-R=/projects/bfmz/svcdeltallmhub/llmhub-staging; mkdir -p $R
+R=/projects/bfmz/svcdeltallmhub/llmhub-dev; mkdir -p $R
 printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhubdadams\n' > $R/local.env
 # no LLMHUB_VLLM_SIF override: the default /sw/llmhub/vllm.sif is world-readable,
 # so the image is used in place and no copy is made under the shared root.
 ./llmhub preflight --profile staging --ref port/backend-pr-32
-./llmhub deploy --apply --profile staging --ref port/backend-pr-32   # + shim env and shared config under /sw/llmhub
-./llmhub check-impersonation svcllmhubdadams --profile staging      # no GPU; must pass first
-./llmhub launch-test --profile staging                               # job runs as svcllmhubdadams on bgns-delta-gpu
+./llmhub deploy --apply --profile dev --ref main    # + shim env and shared config under /sw/llmhub
+./llmhub check-impersonation svcllmhubdadams --profile dev          # no GPU; must pass first
+./llmhub launch-test --profile dev                                   # job runs as svcllmhubdadams
 ```
 
 The frontend does not yet send `clusterUsername`; `launch-test` exercises the

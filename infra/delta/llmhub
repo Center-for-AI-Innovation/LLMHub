@@ -14,8 +14,9 @@
 #   ./llmhub check-impersonation <svcllmhub-user>    readability + the backend's own sudo probe
 #   ./llmhub logs      backend|frontend|postgres|build [-f]
 #
-# Profiles: production (5433/8000/3000, service user only) and staging
-# (5533/8100/3100, any account). --ref accepts a tag, branch or commit; what
+# Profiles: production and dev are the same shape (5433/8000/3000, service user
+# only) on different VMs; staging (5533/8100/3100, any account) is a personal
+# stack. --ref accepts a tag, branch or commit; what
 # was deployed is recorded in $LLMHUB_DEPLOY_ROOT/DEPLOYED and reused later.
 # Config: config/delta.env. Secrets: $LLMHUB_SECRETS_FILE (0600, outside git).
 
@@ -104,10 +105,10 @@ require_operator() {
     # builds into the shared tree and then cannot start anything.
     [ "$(hostname -s)" = "${LLMHUB_VM_HOST%%.*}" ] \
         || die "run this on ${LLMHUB_VM_HOST} (you are on $(hostname -s)); preflight/status/smoke are the only commands that work elsewhere"
-    if [ "$LLMHUB_PROFILE" = production ] && [ "$ME" != "$LLMHUB_SERVICE_USER" ]; then
-        die "profile production runs as ${LLMHUB_SERVICE_USER} only
-       (/sw/admin/scripts/impersonate ${LLMHUB_SERVICE_USER}); use --profile staging for a personal stack"
-    fi
+    case "$LLMHUB_PROFILE" in production|dev)
+        [ "$ME" = "$LLMHUB_SERVICE_USER" ] || die "profile ${LLMHUB_PROFILE} runs as ${LLMHUB_SERVICE_USER} only
+       (/sw/admin/scripts/impersonate ${LLMHUB_SERVICE_USER}); use --profile staging for a personal stack" ;;
+    esac
     if [ "$IMP" = 1 ] && [ "$ME" != "$LLMHUB_SERVICE_USER" ]; then
         die "LLMHUB_EXECUTION_MODE=impersonate is service-user-only: the backend runs sudo -u svcllmhub<netid>,
        a rule that exists for ${LLMHUB_SERVICE_USER}, and only it can write under ${LLMHUB_SHARED_WORK_ROOT}.
@@ -395,6 +396,12 @@ render_vec_inf_config() {
     [ -r "$src" ] || { warn "no ${src} — VEC_INF_CONFIG_DIR not rendered"; return 0; }
     [ "$IMP" = 1 ] && umask 022    # the shared root must be world-readable; restored by the caller's subshell-free umask below
     mkdir -p "$VIC" "$LLMHUB_VEC_INF_WORK_DIR"
+    # Per-profile now, so it may not exist yet. svcllmhub* must be able to
+    # traverse it to reach their own workspace underneath.
+    if [ "$IMP" = 1 ]; then
+        mkdir -p "$LLMHUB_SHARED_WORK_ROOT" && chmod 0755 "$LLMHUB_SHARED_WORK_ROOT" \
+            || warn "could not prepare ${LLMHUB_SHARED_WORK_ROOT}"
+    fi
     mkdir -p "$LLMHUB_TORCH_CACHE" 2>/dev/null || true
     [ -w "$LLMHUB_TORCH_CACHE" ] || warn "torch-inductor cache ${LLMHUB_TORCH_CACHE} is not writable by ${ME} — vLLM's compile step will fail"
     local LLMHUB_VLLM_SIF_EFFECTIVE; LLMHUB_VLLM_SIF_EFFECTIVE="$(shared_image)"
@@ -681,9 +688,11 @@ cmd_preflight() {
     bad()  { _c 31; printf '  FAIL'; _c 0; printf '  %s\n' "$*"; F=$((F+1)); }
     printf 'LLMHub preflight — profile %s, ref %s, %s@%s\n' "$LLMHUB_PROFILE" "$LLMHUB_REF" "$ME" "$(hostname -s)"
     step "Identity"
-    if [ "$LLMHUB_PROFILE" = production ]; then
-        [ "$ME" = "$LLMHUB_SERVICE_USER" ] && ok "running as ${LLMHUB_SERVICE_USER}" || bad "production must run as ${LLMHUB_SERVICE_USER} (you are ${ME})"
-    else ok "staging profile — personal stack as ${ME}"; fi
+    case "$LLMHUB_PROFILE" in
+        production|dev) [ "$ME" = "$LLMHUB_SERVICE_USER" ] && ok "running as ${LLMHUB_SERVICE_USER}" \
+                            || bad "profile ${LLMHUB_PROFILE} must run as ${LLMHUB_SERVICE_USER} (you are ${ME})" ;;
+        *)              ok "staging profile — personal stack as ${ME}" ;;
+    esac
     id -nG | tr ' ' '\n' | grep -qx "$LLMHUB_GROUP" && ok "member of ${LLMHUB_GROUP}" || bad "not in ${LLMHUB_GROUP}"
     step "Toolchain (runtimes are fetched by deploy; only the bootstrap set is needed)"
     local t; for t in git apptainer python3 curl tar xz openssl ss jq rsync sbatch squeue; do command -v "$t" >/dev/null && ok "$t" || bad "$t missing"; done
