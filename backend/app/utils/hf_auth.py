@@ -3,7 +3,11 @@
 from typing import Optional, Tuple
 
 from huggingface_hub import HfApi
-from huggingface_hub.errors import GatedRepoError, HfHubHTTPError, RepositoryNotFoundError
+from huggingface_hub.errors import (
+    GatedRepoError,
+    HfHubHTTPError,
+    RepositoryNotFoundError,
+)
 
 from app.config.logging import get_logger
 
@@ -19,7 +23,9 @@ def fetch_model_gating_status(huggingface_id: str) -> Optional[str]:
     """
     try:
         api = HfApi()
-        info = api.repo_info(repo_id=huggingface_id, repo_type="model", expand=["gated"])
+        info = api.repo_info(
+            repo_id=huggingface_id, repo_type="model", expand=["gated"]
+        )
         gated = getattr(info, "gated", None)
         return str(gated) if gated else None
     except Exception as e:
@@ -27,7 +33,9 @@ def fetch_model_gating_status(huggingface_id: str) -> Optional[str]:
         return None
 
 
-def verify_hf_model_repo_access(repo_id: str, token: Optional[str]) -> Tuple[bool, Optional[str]]:
+def verify_hf_model_repo_access(
+    repo_id: str, token: Optional[str]
+) -> Tuple[bool, Optional[str]]:
     """Return (True, None) if the Hub allows access; otherwise (False, error message).
 
     Uses :meth:`huggingface_hub.HfApi.auth_check` against ``repo_type="model"`` (same
@@ -50,7 +58,9 @@ def verify_hf_model_repo_access(repo_id: str, token: Optional[str]) -> Tuple[boo
             "Accept the model conditions on the Hub and pass hf_token with access."
         )
     except RepositoryNotFoundError as e:
-        logger.warning("HF auth_check repo missing or inaccessible repo_id=%s: %s", repo_id, e)
+        logger.warning(
+            "HF auth_check repo missing or inaccessible repo_id=%s: %s", repo_id, e
+        )
         return False, (
             "The repository was not found, or you do not have access "
             "(private repo, wrong id, or missing token)."
