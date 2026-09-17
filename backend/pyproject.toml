@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ai-inf-backend"
+name = "llm-hub-backend"
 version = "0.1.0"
 description = "FastAPI backend for the LLM-as-a-Service project"
 readme = "README.md"
