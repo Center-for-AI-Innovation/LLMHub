@@ -3,6 +3,14 @@ from app.schemas.model_deployment import ModelDeploymentCreate
 from app.services.model_service import ModelService
 
 
+class FakeQuery:
+    def filter(self, *args, **kwargs):
+        return self
+
+    def first(self):
+        return None
+
+
 class FakeDbSession:
     def __init__(self):
         self.added = []
@@ -15,6 +23,9 @@ class FakeDbSession:
 
     def refresh(self, obj):
         return None
+
+    def query(self, *args, **kwargs):
+        return FakeQuery()
 
 
 class FakeLLMClient:
