@@ -172,7 +172,10 @@ class ModelService:
         params = deployment.model_dump(
             exclude={"modelName", "modelId", "userId", "hf_token"}
         )
-        hf_token = deployment.hf_token or settings.HF_TOKEN
+        # Only the requesting user's own token authorizes a gated launch --
+        # never fall back to a shared/service credential (that would let any
+        # user inherit whatever gated repos the service account can see).
+        hf_token = deployment.hf_token
         model_id = deployment.modelId or deployment.modelName
 
         # Get the enable_cloudflare_tunnel parameter
@@ -1142,12 +1145,19 @@ class ModelService:
         vocab_size = model_data.get("vocab_size")
         huggingface_id = model_data.get("huggingface_id")
 
-        # Refresh gating status from HF Hub. On failure keep the cached DB value
-        # so a transient API error doesn't clear a known-gated model's status.
+        # Refresh gating status from HF Hub. On failure, keep the cached DB
+        # value for a model we've seen before; for a brand-new model with no
+        # cache to fall back to, fail closed ("unknown" is truthy, so launches
+        # require a token and get a real per-user Hub check) rather than
+        # silently treating an unverified model as public.
         if huggingface_id:
-            gated = fetch_model_gating_status(huggingface_id)
-            if gated is None and existing_model and existing_model.gated:
-                gated = existing_model.gated
+            try:
+                gated = fetch_model_gating_status(huggingface_id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to fetch gating status for %s: %s", huggingface_id, exc
+                )
+                gated = existing_model.gated if existing_model else "unknown"
         else:
             gated = existing_model.gated if existing_model else None
 

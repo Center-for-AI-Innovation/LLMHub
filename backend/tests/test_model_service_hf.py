@@ -136,3 +136,54 @@ def test_launch_model_gated_valid_token_proceeds():
         mock_check.assert_called_once()
         # Verify it PROCEEDED to resource allocation
         mock_resource_service.return_value.allocate_resources.assert_called_once()
+
+
+def test_process_model_keeps_cached_gated_on_fetch_failure():
+    """A transient HF API failure on a known model keeps its cached status."""
+    service = ModelService()
+    existing_model = AvailableModel(
+        id="org/model", huggingfaceId="org/model", gated="manual"
+    )
+
+    with patch("app.services.model_service.fetch_model_gating_status") as mock_fetch:
+        mock_fetch.side_effect = Exception("network error")
+        result = service._process_model(
+            {"model_name": "org/model", "huggingface_id": "org/model"},
+            existing_model=existing_model,
+        )
+
+    assert result["attrs"]["gated"] == "manual"
+
+
+def test_process_model_fails_closed_on_fetch_failure_for_new_model():
+    """A transient HF API failure on a brand-new model must not default to
+    public -- that would silently skip authorization for a model that could
+    actually be gated."""
+    service = ModelService()
+
+    with patch("app.services.model_service.fetch_model_gating_status") as mock_fetch:
+        mock_fetch.side_effect = Exception("network error")
+        result = service._process_model(
+            {"model_name": "org/new-model", "huggingface_id": "org/new-model"},
+            existing_model=None,
+        )
+
+    assert result["attrs"]["gated"] == "unknown"
+
+
+def test_process_model_clears_stale_gated_status_when_now_public():
+    """A real gated-to-public transition must actually clear the cache,
+    not be masked by treating every None as "keep the cached value"."""
+    service = ModelService()
+    existing_model = AvailableModel(
+        id="org/model", huggingfaceId="org/model", gated="manual"
+    )
+
+    with patch("app.services.model_service.fetch_model_gating_status") as mock_fetch:
+        mock_fetch.return_value = None  # confirmed public, not a lookup failure
+        result = service._process_model(
+            {"model_name": "org/model", "huggingface_id": "org/model"},
+            existing_model=existing_model,
+        )
+
+    assert result["attrs"]["gated"] is None
