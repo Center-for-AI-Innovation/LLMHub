@@ -4,7 +4,27 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.1]
+## [1.1.0] (unreleased)
+
+### Added
+
+- Support for launching vec-inf jobs as an impersonated cluster user (`VEC_INF_EXECUTION_MODE=impersonate`), so Slurm jobs run and are billed under the requesting user's own account instead of the shared service account.
+- Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources, and a supplied token is appended to the launch environment. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
+
+### Changed
+
+- After login, users land on the model catalog (`/model-library`) instead of chat. Clicking the logo still returns to the landing page.
+
+### Fixed
+
+- HF gating: `launch_model` no longer falls back to a shared `settings.HF_TOKEN` when the requesting user supplies none — that let any user's launch inherit whatever gated repos the service account can see, defeating per-user gating. Only the requesting user's own token now authorizes access.
+- HF gating: for impersonated launches, the launch payload (which can carry the user's `hf_token`) is now written to a workspace-scoped file instead of passed inline on the command line, which was visible to any user on the host via `ps`/`/proc/<pid>/cmdline`.
+- HF gating: `model_name` is now resolved and containment-checked before being joined into shared-store and per-user workspace paths, closing a path-traversal gap (a crafted model name could otherwise read outside `MODEL_STORE_ROOT` or write outside the per-user workspace).
+- HF gating: a failed Hub gating-status lookup no longer silently marks a model as public — a brand-new model fails closed (requires a token and a real per-user Hub check) instead, and a lookup failure on a known model still keeps its cached status. Previously an API error and a confirmed-public repo were indistinguishable, so a genuine gated-to-public transition could also never clear the cache.
+- Bumped `huggingface_hub` minimum to `0.25.0`, the version that actually introduced `auth_check()` and the `huggingface_hub.errors` module this feature depends on.
+- Added the missing `0003_snapshot.json` and corrected the `0003_add_model_gated` migration's out-of-order timestamp (older than `0002`'s, which Drizzle uses as a migration watermark) and its absence from `frontend/lib/db/schema.ts`.
+
+## [1.0.0]
 
 ### Added
 
@@ -12,11 +32,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - UIUC design-system semantic tokens (status-*, secondary-accessible, destructive-accessible) and design-system docs; components now use theme tokens instead of hardcoded hex/zinc colors.
 - Playwright + axe contrast checks: CI job, manual pre-commit hook (frontend-contrast-check), and a dev-only contrast harness page.
 - CI job that fails a PR to `main` if `CHANGELOG.md` is not updated.
-- Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources, and a supplied token is appended to the launch environment. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
 
 ### Changed
 
-- After login, users land on the model catalog (`/model-library`) instead of chat. Clicking the logo still returns to the landing page.
 - Restricted the backend Python requirement to 3.11 only (requires-python, READMEs, AGENTS.md, CI), and pinned pre-commit’s default Python to 3.11 so Black’s env meets its runtime requirement.
 - Renamed the `frontend/app/(marketing)` route group to `frontend/app/(home)` for clarity — it's the root `/` landing page.
 
@@ -27,9 +45,3 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Improved contrast and accessibility for status/chip colors, sidebar headings, and the model library search input (visible label via sr-only)
 - Fixed several WCAG AA contrast failures  in swvweal components by switching bare `text-destructive`/`text-secondary` usages to their `-accessible` variants and tightening a few tokens’ lightness.
 - Expanded contrast-harness/CI coverage (buttons, dialogs, diff view, home/login pages) so regressions like these are caught automatically going forward.
-- HF gating: `launch_model` no longer falls back to a shared `settings.HF_TOKEN` when the requesting user supplies none — that let any user's launch inherit whatever gated repos the service account can see, defeating per-user gating. Only the requesting user's own token now authorizes access.
-- HF gating: for impersonated launches, the launch payload (which can carry the user's `hf_token`) is now written to a workspace-scoped file instead of passed inline on the command line, which was visible to any user on the host via `ps`/`/proc/<pid>/cmdline`.
-- HF gating: `model_name` is now resolved and containment-checked before being joined into shared-store and per-user workspace paths, closing a path-traversal gap (a crafted model name could otherwise read outside `MODEL_STORE_ROOT` or write outside the per-user workspace).
-- HF gating: a failed Hub gating-status lookup no longer silently marks a model as public — a brand-new model fails closed (requires a token and a real per-user Hub check) instead, and a lookup failure on a known model still keeps its cached status. Previously an API error and a confirmed-public repo were indistinguishable, so a genuine gated-to-public transition could also never clear the cache.
-- Bumped `huggingface_hub` minimum to `0.25.0`, the version that actually introduced `auth_check()` and the `huggingface_hub.errors` module this feature depends on.
-- Added the missing `0003_snapshot.json` and corrected the `0003_add_model_gated` migration's out-of-order timestamp (older than `0002`'s, which Drizzle uses as a migration watermark) and its absence from `frontend/lib/db/schema.ts`.
