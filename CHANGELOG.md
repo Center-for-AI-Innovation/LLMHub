@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0]
+
+### Added
+
+- User-impersonated job launches: backend deployments can submit vec-inf Slurm jobs as the requesting cluster user when impersonation mode is configured, instead of always running as the service account. Direct execution remains supported. ([#40](https://github.com/Center-for-AI-Innovation/LLMHub/pull/40))
+- Local Docker stack for running the full app (frontend + backend) locally via Compose. ([#54](https://github.com/Center-for-AI-Innovation/LLMHub/pull/54))
+- Magic Castle Terraform configuration and documentation for deploying LLMHub on an HPC cluster (Slurm controller, login node, GPU compute nodes, NFS storage, optional Caddy reverse proxy for public access). ([#48](https://github.com/Center-for-AI-Innovation/LLMHub/pull/48))
+
 ## [0.1.1]
 
 ### Added
