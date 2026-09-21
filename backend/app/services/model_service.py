@@ -989,7 +989,7 @@ class ModelService:
                             "num_gpus",
                             "num_nodes",
                             "vocab_size",
-                            "huggingface_id",
+                            "hf_model",
                             "vllm_args",
                             "max_model_len",
                             "pipeline_parallelism",
@@ -1032,7 +1032,7 @@ class ModelService:
                         "max_model_len": max_model_len,
                         "pipeline_parallelism": pipeline_parallelism,
                         "vocab_size": get_value("vocab_size"),
-                        "huggingface_id": get_value("huggingface_id"),
+                        "huggingface_id": get_value("hf_model"),
                     }
                     detailed_models.append(model_data)
                 else:

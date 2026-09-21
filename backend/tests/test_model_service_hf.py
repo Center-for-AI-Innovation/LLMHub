@@ -138,6 +138,47 @@ def test_launch_model_gated_valid_token_proceeds():
         mock_resource_service.return_value.allocate_resources.assert_called_once()
 
 
+def test_get_detailed_models_reads_hf_model_field():
+    """
+    Regression test: vec-inf's ModelConfig exposes the HF repo id as
+    `hf_model`, not `huggingface_id`. Prior to this fix, get_detailed_models
+    read the wrong key and always produced huggingface_id=None, silently
+    disabling gating for every synced model regardless of models.yaml
+    content.
+    """
+    service = ModelService()
+
+    class FakeModelConfig:
+        """Shaped like vec-inf's real ModelConfig: attribute is hf_model."""
+
+        def __init__(self):
+            self.model_family = "org"
+            self.model_variant = "model"
+            self.model_type = "LLM"
+            self.gpus_per_node = 1
+            self.num_nodes = 1
+            self.vocab_size = 32000
+            self.hf_model = "org/gated-model"
+            self.vllm_args = None
+            self.max_model_len = None
+            self.pipeline_parallelism = None
+
+    service.llm_client = MagicMock()
+    service.llm_client.list_available_models.return_value = {
+        "success": True,
+        "models": ["org/gated-model"],
+    }
+    service.llm_client.get_model_details.return_value = {
+        "success": True,
+        "details": FakeModelConfig(),
+    }
+
+    detailed_models = service.get_detailed_models()
+
+    assert len(detailed_models) == 1
+    assert detailed_models[0]["huggingface_id"] == "org/gated-model"
+
+
 def test_process_model_keeps_cached_gated_on_fetch_failure():
     """A transient HF API failure on a known model keeps its cached status."""
     service = ModelService()
