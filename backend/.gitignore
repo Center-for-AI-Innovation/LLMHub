@@ -49,6 +49,7 @@ logs/
 # Temporary files
 tmp/
 temp/
+.runtime/
 
 # Changelog
 changelog/*

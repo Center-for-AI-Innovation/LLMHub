@@ -2,13 +2,16 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas._base import ORMBaseModel
+from app.utils.cluster_users import normalize_cluster_username
 
 
 class ModelDeploymentCreate(BaseModel):
     """Schema for creating a model deployment."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     # Required fields
     modelName: str
@@ -30,6 +33,7 @@ class ModelDeploymentCreate(BaseModel):
     resource_type: Optional[str] = (
         None  # GPU type (e.g., "l40s", "h100", "A100", "H200")
     )
+    cluster_username: Optional[str] = Field(default=None, alias="clusterUsername")
     work_dir: Optional[str] = None  # Optional working directory for vec-inf jobs
     hf_model: Optional[str] = (
         None  # HuggingFace model ID (e.g., "Qwen/Qwen2.5-3B-Instruct")
@@ -47,6 +51,18 @@ class ModelDeploymentCreate(BaseModel):
         if self.modelId is None:
             self.modelId = self.modelName
         return self
+
+    @field_validator("cluster_username")
+    @classmethod
+    def _validate_cluster_username(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        try:
+            return normalize_cluster_username(value)
+        except ValueError as exc:
+            raise ValueError(
+                "clusterUsername must be a valid cluster login name"
+            ) from exc
 
 
 class ModelDeploymentUpdate(BaseModel):

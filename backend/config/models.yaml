@@ -643,7 +643,7 @@ models:
     num_nodes: 1
     vocab_size: 152064
     time: 08:00:00
-    resource_type: l40s
+    resource_type: nvidia_a40
     vllm_args:
       --max-model-len: 32768
   Qwen2.5-1.5B-Instruct:
@@ -1029,7 +1029,7 @@ models:
     num_nodes: 1
     vocab_size: 151936
     time: 08:00:00
-    resource_type: l40s
+    resource_type: nvidia_a40
     vllm_args:
       --max-model-len: 40960
   Qwen3-14B:

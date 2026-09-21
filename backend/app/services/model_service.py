@@ -15,7 +15,10 @@ from app.models.model_request import ModelRequest
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.services.resource_service import ResourceService
-from app.utils.infrastructure import get_vec_inf_log_base_dir
+from app.utils.infrastructure import (
+    get_vec_inf_log_base_dir,
+    get_vec_inf_user_workspace_dir,
+)
 from app.utils.llm_inference import LLMInferenceClient
 
 logger = get_logger("model_service")
@@ -520,8 +523,11 @@ class ModelService:
             and db_deployment.resourceAllocation.get("enable_cloudflare_tunnel")
         ):
             job_name = db_deployment.modelName.replace("/", "-")
+            cluster_username = db_deployment.resourceAllocation.get("cluster_username")
             tunnel_url = self.llm_client.get_tunnel_url(
-                job_name, db_deployment.slurmJobId
+                job_name,
+                db_deployment.slurmJobId,
+                cluster_username=cluster_username,
             )
             if tunnel_url:
                 db_deployment.proxyUrl = tunnel_url
@@ -594,11 +600,34 @@ class ModelService:
         if db_deployment.status in ["failed", "shutdown", "completed"]:
             return db_deployment
 
-        # Shutdown the model
-        self.llm_client.shutdown_model(db_deployment.slurmJobId)
+        cluster_username = None
+        if isinstance(db_deployment.resourceAllocation, dict):
+            cluster_username = db_deployment.resourceAllocation.get("cluster_username")
+
+        # Shutdown the model, impersonating the original cluster user if needed so
+        shutdown_result = self.llm_client.shutdown_model(
+            db_deployment.slurmJobId,
+            cluster_username=cluster_username,
+        )
+
+        if not shutdown_result.get("success", False):
+            logger.error(
+                "Failed to shut down deployment %s (job %s): %s",
+                deployment_id,
+                db_deployment.slurmJobId,
+                shutdown_result.get("error"),
+            )
+            db_deployment.errorMessage = (
+                shutdown_result.get("error") or "Failed to cancel Slurm job"
+            )
+            db_deployment.updatedAt = datetime.utcnow()
+            db.commit()
+            db.refresh(db_deployment)
+            return db_deployment
 
         # Update the deployment status
         db_deployment.status = "shutdown"
+        db_deployment.errorMessage = None
         db_deployment.updatedAt = datetime.utcnow()
         db.commit()
         db.refresh(db_deployment)
@@ -683,8 +712,14 @@ class ModelService:
         if refreshed:
             db_deployment = refreshed
 
-        # Get the log directory from the llm_client
-        log_base = get_vec_inf_log_base_dir()
+        cluster_username = None
+        if isinstance(db_deployment.resourceAllocation, dict):
+            cluster_username = db_deployment.resourceAllocation.get("cluster_username")
+
+        log_base = (
+            get_vec_inf_user_workspace_dir(cluster_username)
+            or get_vec_inf_log_base_dir()
+        )
         if not log_base:
             return {
                 "success": False,

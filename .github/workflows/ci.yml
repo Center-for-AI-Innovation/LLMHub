@@ -48,7 +48,12 @@ jobs:
         run: isort --check-only --profile black --line-length 88 .
       - name: flake8
         run: flake8 --config=.flake8 .
-      # NOTE: Add pytest check once backend/tests/ exists.
+      - name: Install backend dependencies
+        run: pip install -e .
+      - name: Install test runner
+        run: pip install pytest pytest-asyncio
+      - name: pytest
+        run: pytest
 
   frontend:
     needs: changes
