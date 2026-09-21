@@ -87,11 +87,15 @@ def test_fetch_gating_status_public():
     assert result is None
 
 
-def test_fetch_gating_status_api_error_returns_none():
+def test_fetch_gating_status_api_error_raises():
     with patch("app.utils.hf_auth.HfApi") as MockApi:
         MockApi.return_value.repo_info.side_effect = Exception("network error")
-        result = fetch_model_gating_status("org/model")
-    assert result is None
+        try:
+            fetch_model_gating_status("org/model")
+        except Exception as exc:
+            assert "network error" in str(exc)
+        else:
+            raise AssertionError("Expected the lookup failure to propagate")
 
 
 # ---------------------------------------------------------------------------

@@ -18,19 +18,19 @@ def fetch_model_gating_status(huggingface_id: str) -> Optional[str]:
     """Return the gating status of a HF repo: 'auto', 'manual', or None (public).
 
     Uses repo_info with expand=["gated"] which is the only reliable way to
-    populate the gated field per the HF Hub docs.  Returns None on any error
-    so callers can fall back to a cached value rather than blocking launches.
+    populate the gated field per the HF Hub docs.
+
+    Raises on lookup failure rather than returning None, which would be
+    indistinguishable from a confirmed-public repo -- that conflation let a
+    transient failure on a brand-new gated model's first sync silently mark
+    it public (skipping authorization), and meant a real gated-to-public
+    transition could never clear a cached "gated" value. Callers decide how
+    to handle a failure (e.g. keep a cached value, or fail closed).
     """
-    try:
-        api = HfApi()
-        info = api.repo_info(
-            repo_id=huggingface_id, repo_type="model", expand=["gated"]
-        )
-        gated = getattr(info, "gated", None)
-        return str(gated) if gated else None
-    except Exception as e:
-        logger.warning("Failed to fetch gating status for %s: %s", huggingface_id, e)
-        return None
+    api = HfApi()
+    info = api.repo_info(repo_id=huggingface_id, repo_type="model", expand=["gated"])
+    gated = getattr(info, "gated", None)
+    return str(gated) if gated else None
 
 
 def verify_hf_model_repo_access(
