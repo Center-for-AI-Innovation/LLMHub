@@ -986,6 +986,7 @@ class ModelService:
                             "num_gpus",
                             "num_nodes",
                             "vocab_size",
+                            "hf_model",
                             "huggingface_id",
                             "vllm_args",
                             "max_model_len",
@@ -1029,7 +1030,10 @@ class ModelService:
                         "max_model_len": max_model_len,
                         "pipeline_parallelism": pipeline_parallelism,
                         "vocab_size": get_value("vocab_size"),
-                        "huggingface_id": get_value("huggingface_id"),
+                        # vec-inf's models.yaml field is hf_model; huggingface_id is
+                        # only used by configs predating it.
+                        "huggingface_id": get_value("hf_model")
+                        or get_value("huggingface_id"),
                     }
                     detailed_models.append(model_data)
                 else:

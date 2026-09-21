@@ -43,6 +43,53 @@ Validates the Delta impersonation path for user-submitted launches.
 .venv/bin/python scripts/check-impersonation-setup.py --user svcllmhubrohan13 --skip-wrapper
 ```
 
+### `sync_model_cache.py`
+Deploys and updates the global model cache so weights are staged before a launch
+needs them, and removes weights that `models.yaml` no longer lists.
+
+**Where weights go:** public models only, into `model_weights_parent_dir` from
+`environment.yaml` (`/projects/modelcache/public`), read directly by the job.
+
+**Gated models are skipped** (`### RE ADD AFTER GATED PR FIX` in
+`app/utils/model_cache.py`). Staging them needs the restricted store
+(`MODEL_STORE_ROOT`, `/projects/modelcache/restricted`) and the per-user
+hard-linking from the HF-gating PR, which is still being fixed; downloading them
+into the public directory in the meantime would hand every user weights they
+have not accepted the licence for. Gating is still checked on every run, purely
+so those models are left alone.
+
+A model is only cached if its `models.yaml` entry declares `hf_model` (the
+Hugging Face repo id); entries without it are logged and skipped. Downloads are
+resumable and skip files already present, so the same command both populates and
+updates the cache.
+
+**Usage:**
+```bash
+# Report what would be downloaded and removed, without touching disk
+.venv/bin/python scripts/sync_model_cache.py --dry-run
+
+# Sync for real
+.venv/bin/python scripts/sync_model_cache.py
+```
+
+**Cron (as the service account that owns the cache, e.g. `svcdeltallmhub`):**
+```
+0 3 * * * cd /path/to/backend && .venv/bin/python scripts/sync_model_cache.py >> /projects/llmhub/logs/model-cache-sync.log 2>&1
+```
+
+Set `HF_TOKEN` in the backend `.env` to a token with access to the gated repos
+listed in `models.yaml`; without it those downloads fail and are reported in the
+exit status (non-zero if any model failed).
+
+**Cleanup:** a weights directory whose name is no longer in `models.yaml` is
+deleted. Anything still listed is kept, including models this run skipped. Only
+directories containing a `config.json` are removed, so the `huggingface` and
+`torch_inductor` caches that sit beside the weights are never touched.
+
+Once gated support is re-enabled, cleanup must also delete the per-user hard
+links under `<VEC_INF_SHARED_WORK_ROOT>/<user>/model-weights/` — removing the
+store copy alone frees nothing, because the links keep the inodes alive.
+
 ## Infrastructure Detection Process
 
 The infrastructure detection script performs the following steps:

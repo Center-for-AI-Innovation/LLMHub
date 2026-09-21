@@ -14,8 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - CI job that fails a PR to `main` if `CHANGELOG.md` is not updated.
 - Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources, and a supplied token is appended to the launch environment. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
 
+- Global model cache sync (`backend/scripts/sync_model_cache.py`, run from cron): downloads every public model in `models.yaml` that declares `hf_model` into vec-inf's `model_weights_parent_dir`, and deletes weights for models the config no longer lists. Gated models are skipped until the HF-gating work lands (`### RE ADD AFTER GATED PR FIX`), since staging them publicly would bypass their licence gate.
+
 ### Changed
 
+- DeltaAI (`delta-ai-ncsa`) now points at the shared `/projects/modelcache` cache instead of the `/model-weights` placeholder, matching Delta.
+- Model sync reads the Hugging Face repo id from vec-inf's `hf_model` field (`huggingface_id` is still honored for older configs); `models.yaml` never populated `huggingface_id`, so gating status was always empty and the launch-time access check never applied.
 - After login, users land on the model catalog (`/model-library`) instead of chat. Clicking the logo still returns to the landing page.
 - Restricted the backend Python requirement to 3.11 only (requires-python, READMEs, AGENTS.md, CI), and pinned pre-commit’s default Python to 3.11 so Black’s env meets its runtime requirement.
 - Renamed the `frontend/app/(marketing)` route group to `frontend/app/(home)` for clarity — it's the root `/` landing page.
