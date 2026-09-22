@@ -11,8 +11,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Support for launching vec-inf jobs as an impersonated cluster user (`VEC_INF_EXECUTION_MODE=impersonate`), so Slurm jobs run and are billed under the requesting user's own account instead of the shared service account.
 - Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources, and a supplied token is appended to the launch environment. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
 
+- Model cache cleanup (`backend/scripts/clean_model_cache.py`, run weekly from cron): evicts models from the shared Hugging Face cache whose most recent launch — per the `ModelDeployment` log — is older than 90 days, so the cache tracks what people actually use instead of growing until the disk fills. The directory comes from `MODEL_CACHE_DIR` (or `--cache-dir`) and is never inferred, since it differs per cluster. Cache entries are matched to launches by exact HF repo id, so a hand-staged fork can't inherit the official repo's history; anything unmatched is left alone and listed at the end of the run. Deletion goes through `huggingface_hub`'s `scan_cache_dir()`/`delete_revisions()` so the cache's shared blobs and symlinked snapshots stay consistent.
+
 ### Changed
 
+- DeltaAI (`delta-ai-ncsa`) now points at the shared `/projects/modelcache` cache instead of the `/model-weights` placeholder, matching Delta.
 - After login, users land on the model catalog (`/model-library`) instead of chat. Clicking the logo still returns to the landing page.
 
 ### Fixed
@@ -21,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - HF gating: for impersonated launches, the launch payload (which can carry the user's `hf_token`) is now written to a workspace-scoped file instead of passed inline on the command line, which was visible to any user on the host via `ps`/`/proc/<pid>/cmdline`.
 - HF gating: `model_name` is now resolved and containment-checked before being joined into shared-store and per-user workspace paths, closing a path-traversal gap (a crafted model name could otherwise read outside `MODEL_STORE_ROOT` or write outside the per-user workspace).
 - HF gating: a failed Hub gating-status lookup no longer silently marks a model as public — a brand-new model fails closed (requires a token and a real per-user Hub check) instead, and a lookup failure on a known model still keeps its cached status. Previously an API error and a confirmed-public repo were indistinguishable, so a genuine gated-to-public transition could also never clear the cache.
+- HF gating: the Hub repo id is now read from vec-inf's `hf_model` field (`huggingface_id` is kept as a fallback for older configs). `models.yaml` never populated `huggingface_id`, and vec-inf's `ModelConfig` silently ignores unknown keys, so gating status was always empty and the launch-time access check never actually applied. Note that no entry in `models.yaml` sets either field yet, so gating stays inert until those repo ids are filled in.
 - Bumped `huggingface_hub` minimum to `0.25.0`, the version that actually introduced `auth_check()` and the `huggingface_hub.errors` module this feature depends on.
 - Added the missing `0003_snapshot.json` and corrected the `0003_add_model_gated` migration's out-of-order timestamp (older than `0002`'s, which Drizzle uses as a migration watermark) and its absence from `frontend/lib/db/schema.ts`.
 

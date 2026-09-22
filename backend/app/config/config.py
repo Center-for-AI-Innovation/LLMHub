@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     VEC_INF_ACCOUNTS_SCRIPT: str = (
         "/sw/user/scripts/accounts"  # Helper to resolve a user's Slurm accounts
     )
+    MODEL_CACHE_DIR: Optional[str] = os.getenv(
+        "MODEL_CACHE_DIR"
+    )  # Shared HF cache this cluster's jobs download into; scripts/clean_model_cache.py
+    # evicts unused models from it. Differs per cluster, so it is never inferred.
     MODEL_STORE_ROOT: Optional[str] = os.getenv(
         "MODEL_STORE_ROOT"
     )  # Shared store of all model weights, keyed by model name; gated models are
