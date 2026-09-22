@@ -21,6 +21,7 @@ from app.utils.hf_auth import (
     check_model_hf_access,
     fetch_model_gating_status,
 )
+from app.utils.hf_family_orgs import resolve_hf_model
 from app.utils.infrastructure import (
     get_vec_inf_log_base_dir,
     get_vec_inf_user_workspace_dir,
@@ -990,7 +991,6 @@ class ModelService:
                             "num_nodes",
                             "vocab_size",
                             "hf_model",
-                            "huggingface_id",
                             "vllm_args",
                             "max_model_len",
                             "pipeline_parallelism",
@@ -1022,9 +1022,10 @@ class ModelService:
                             model_dict, model_config
                         )
 
+                    model_family_value = get_value("model_family", "")
                     model_data = {
                         "model_name": model_name,
-                        "model_family": get_value("model_family", ""),
+                        "model_family": model_family_value,
                         "model_variant": get_value("model_variant", ""),
                         "model_type": get_value("model_type", "LLM"),
                         "num_gpus": get_value("gpus_per_node")
@@ -1033,10 +1034,9 @@ class ModelService:
                         "max_model_len": max_model_len,
                         "pipeline_parallelism": pipeline_parallelism,
                         "vocab_size": get_value("vocab_size"),
-                        # vec-inf's models.yaml field is hf_model; huggingface_id is
-                        # only used by configs predating it.
-                        "huggingface_id": get_value("hf_model")
-                        or get_value("huggingface_id"),
+                        "huggingface_id": resolve_hf_model(
+                            model_family_value, model_name, get_value("hf_model")
+                        ),
                     }
                     detailed_models.append(model_data)
                 else:
