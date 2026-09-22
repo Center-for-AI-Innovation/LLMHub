@@ -1,16 +1,22 @@
-# LLMHub on NCSA Delta
+# LLMHub on NCSA Delta and DeltaAI
 
-Deployment kit for the Delta service VM `dt-svc-llmaas01.delta.ncsa.illinois.edu`:
-one script, one config file, one secrets template.
+Deployment kit for the service VMs of both clusters — Delta's
+`dt-svc-llmaas01` and DeltaAI's `dtai-svc-llmaas01` (both
+`.delta.ncsa.illinois.edu`): one script, one shared config file plus a
+per-cluster override, one secrets template. The directory is named for Delta
+because that is where it started; DeltaAI runs the same kit — see
+[DeltaAI](#deltaai).
 
 ```
 infra/delta/
-├── llmhub                      the CLI: preflight · deploy · start · stop · restart · status · smoke · logs
-├── config/delta.env            non-secret site config (paths, ports, versions) — committed
-└── config/secrets.env.example  secret key names, no values — committed
+├── llmhub                        the CLI: preflight · deploy · start · stop · restart · status · smoke · logs
+├── config/delta.env              shared non-secret config (paths, ports, versions); its values are Delta's — committed
+├── config/cluster-deltaai.env    what differs on DeltaAI, sourced before delta.env's defaults — committed
+└── config/secrets.env.example    secret key names, no values — committed
 ```
 
-The inference image is built separately: `devops/apptainers/delta/`.
+The inference image is built separately, per cluster: `devops/apptainers/delta/`
+and `devops/apptainers/deltaai/`.
 
 It deploys the **whole stack** — PostgreSQL (Apptainer), the FastAPI backend
 (uvicorn) and the Next.js frontend — from a git ref, with every runtime it
@@ -81,10 +87,14 @@ is the odd one out — a personal stack on shifted ports that anyone may run.
 | inference image | `/sw/llmhub/vllm.sif` (the symlink) | a **pinned version** | the symlink |
 | ref | a release tag | usually a branch | usually a branch |
 
+The table is Delta's. On DeltaAI the three `/projects` rows carry a `deltaai`
+name — see [DeltaAI](#deltaai); the `/sw` and `/data` rows are the same.
+
 `dev` pins an image version rather than following `vllm.sif` so that promoting a
 new image changes dev and prod at separate moments, and dev can exercise a
-candidate first. Update the pin in `config/delta.env` after the image passes the
-two-node NCCL gate in `devops/apptainers/delta/`.
+candidate first. Update the pin — `config/delta.env` on Delta,
+`config/cluster-deltaai.env` on DeltaAI — after the image passes the two-node
+NCCL gate for that cluster.
 
 Deploy root (`/projects`): source checkout, venv, logs, pidfiles, `secrets.env`,
 `DEPLOYED`, `local.env`. Local root (`/data`): PostgreSQL data + password, the
@@ -96,11 +106,76 @@ touch `/projects` (pnpm refuses a symlinked `node_modules`). Both
 survive a VM reboot; after one, run `./llmhub start`. After a VM *rebuild* the
 local root is gone and `deploy --apply` recreates it.
 
-## Things about Delta the script encodes
+## DeltaAI
 
-Each of these broke a deployment when ignored.
+The same kit deploys to DeltaAI's VM, `dtai-svc-llmaas01.delta.ncsa.illinois.edu`
+— an x86_64 VM driving aarch64 GH200 compute nodes. There is no separate
+DeltaAI kit on purpose: a second copy is how two deploy recipes drift apart.
 
-- **`apptainer pull` is run with `APPTAINER_IGNORE_PROOT=1`.** Delta's apptainer
+**The cluster is read from Slurm's `ClusterName`** — `delta-gh` is DeltaAI,
+anything else is Delta — not from `uname -m`, because both VMs are x86_64.
+Set `LLMHUB_CLUSTER=delta|deltaai` to override. `config/cluster-deltaai.env`
+is sourced before `delta.env`'s defaults and holds only what differs:
+
+| | Delta (`delta.env`) | DeltaAI (`cluster-deltaai.env`) |
+|---|---|---|
+| account | `bfmz-delta-gpu` | `bfmz-dtai-gh` |
+| partition / GPU type | `gpuA100x4-interactive` / `nvidia_a100` | `ghx4-interactive` / `nvidia_gh200_120gb` |
+| dev image pin | `vllm-v0.19.1-slingshot-v3.sif` | `vllm-v0.28.0-slingshot-deltaai.sif` |
+| torch-inductor cache (service user) | `…/public/torch_inductor` | `…/public/torch_inductor-deltaai` |
+| job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=single_node_vni,disable_rdzv_get` |
+| VM | `dt-svc-llmaas01` | `dtai-svc-llmaas01` |
+
+**The `/projects` roots carry the cluster.** `/projects` is the one filesystem
+the clusters share and `svcdeltallmhub` is the same account on both, so a root
+keyed on profile or user alone would collide:
+
+| | Delta | DeltaAI |
+|---|---|---|
+| deploy root | `/projects/bfmz/<user>/llmhub-<profile>` | `/projects/bfmz/<user>/llmhub-deltaai-<profile>` |
+| job workspaces | `/projects/llmhub/<profile>` | `/projects/llmhub/deltaai/<profile>` |
+| vec-inf log dir | `/projects/llmhub` | `/projects/llmhub/deltaai` |
+
+Each of these gets a `.llmhub-cluster` stamp. `deploy` refuses to write into a
+root stamped for the other cluster — checked before its first write — and
+`preflight` lists every root and fails if `LLMHUB_CLUSTER` disagrees with the
+scheduler. `/sw`, `/u` and `/data` are per-cluster or per-VM and keep their
+names.
+
+**A new stack needs its `local.env` before its first deploy**, exactly as
+Delta's does, or it comes up in direct mode with every job running as
+`svcdeltallmhub` itself:
+
+```bash
+printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhub<netid>\n' \
+    > /projects/bfmz/svcdeltallmhub/llmhub-deltaai-dev/local.env
+```
+
+Four things that look wrong on DeltaAI and are not:
+
+- **`infrastructures/delta/environment.yaml` is the render template on both
+  clusters.** Every cluster-specific field is overwritten; its
+  `allowed_values` names only Delta partitions, but vec-inf treats that list as
+  advisory (the field is `Union[Literal[…], str]`).
+- **`backend/config/infrastructures/delta-ai-ncsa/` is not DeltaAI's config.**
+  It holds Campus Cluster paths, and nothing in this kit reads it.
+- **The backend may log `Infrastructure: campus-cluster` at startup.** It guesses
+  from the host name, and a short `dtai-svc-llmaas01` matches no pattern. That
+  is cosmetic: `VEC_INF_CONFIG_DIR` in `backend/.env` is an absolute override,
+  and `deploy` refuses to run a dev or production stack without it.
+- **A single-node job logs `Using network Socket`.** vec-inf starts single-node
+  servers from the batch step, which has no Slingshot VNI; single-node
+  collectives run over NVLink, so it does not matter. Multi-node goes through
+  `srun` and selects CXI.
+
+## Things about the service VMs the script encodes
+
+Each of these broke a deployment when ignored. They were learned on Delta's VM;
+DeltaAI's is the same template, and a 2026-09-21 probe found the same apptainer
+1.5.1, the same tmpfs `/var/tmp`, a 149 G xfs `/data` owned by `svcdeltallmhub`,
+and the same Python 3.9.
+
+- **`apptainer pull` is run with `APPTAINER_IGNORE_PROOT=1`.** The VMs' apptainer
   1.5.1 has no suid helper and no subuid range, so it wraps the OCI→SIF
   conversion in proot, and proot-wrapped `mksquashfs` segfaults (exit 139) —
   on the 150 MB postgres image here as on the 22 GB vLLM image on the cluster.
@@ -143,9 +218,10 @@ Each of these broke a deployment when ignored.
 
 ## Inference config and `local.env`
 
-`deploy` renders `backend/config/infrastructures/delta/environment.yaml` into
-`$LLMHUB_DEPLOY_ROOT/vec-inf-config/` (image path, partition, GRES type, time,
-HF-cache bind, log dir — all from `delta.env`) and points the backend at it via
+`deploy` renders `backend/config/infrastructures/delta/environment.yaml` — the
+template on both clusters — into `$LLMHUB_DEPLOY_ROOT/vec-inf-config/` (image
+path, partition, GRES type, time, cache binds, log dir, and on DeltaAI the job
+pre-command — all from `delta.env` and the cluster file) and points the backend at it via
 `VEC_INF_CONFIG_DIR`. So a staging stack can run a different vLLM image or
 partition without editing the checkout or touching `/sw/llmhub`.
 
@@ -263,12 +339,17 @@ Local accounts are the default. CILogon needs four things, in this order:
 `smoke` never launches a model. `POST /api/models/deployments` submits a real
 SLURM job as the account running the backend (`VEC_INF_EXECUTION_MODE=direct`)
 or as `svcllmhub<netid>` (`impersonate`, service user only, PR #40) using
-`/sw/llmhub/vllm.sif`. That image is what
-`backend/config/infrastructures/delta/environment.yaml` names; rebuilding it
-is a cluster job, not a VM step. The recipe, its build script and the reasons
-it differs from the stock image — Slingshot NCCL, and the proot/`mksquashfs`
-failure that rules out a one-shot `apptainer build` on Delta — are in
-`devops/apptainers/delta/`.
+`/sw/llmhub/vllm.sif` — or, on `dev`, the pinned version. `render` writes the
+path into the vec-inf config; rebuilding the image is a cluster job, not a VM
+step, and each cluster has its own, because `/sw` is per-cluster and the compute
+nodes differ.
+
+- **Delta** — `devops/apptainers/delta/`: Slingshot NCCL, and the
+  proot/`mksquashfs` failure that rules out a one-shot `apptainer build` there.
+- **DeltaAI** — `devops/apptainers/deltaai/`: aarch64, and **not** Delta's
+  vLLM version. DeltaAI's `libfabric.so.1` and `libcxi.so.1` need glibc 2.38,
+  and every arm64 `vllm/vllm-openai` tag before v0.28.0 is Ubuntu 22.04 with
+  glibc 2.35, so v0.28.0 is the earliest base that can carry the fabric.
 
 ## Troubleshooting
 

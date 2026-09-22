@@ -1,5 +1,5 @@
 #!/bin/bash
-# llmhub — deploy and operate LLMHub on the NCSA Delta service VM.
+# llmhub — deploy and operate LLMHub on the NCSA Delta and DeltaAI service VMs.
 #
 #   ./llmhub preflight [--profile P] [--ref R]     read-only checks; any account
 #   ./llmhub deploy    [--apply] [--profile P] [--ref R] [--recreate]
@@ -18,7 +18,9 @@
 # only) on different VMs; staging (5533/8100/3100, any account) is a personal
 # stack. --ref accepts a tag, branch or commit; what
 # was deployed is recorded in $LLMHUB_DEPLOY_ROOT/DEPLOYED and reused later.
-# Config: config/delta.env. Secrets: $LLMHUB_SECRETS_FILE (0600, outside git).
+# Config: config/delta.env (shared; the values written there are Delta's) and
+# config/cluster-<cluster>.env (what differs; the cluster is read from Slurm).
+# Secrets: $LLMHUB_SECRETS_FILE (0600, outside git).
 
 set -eo pipefail   # no -u: helpers pipe into head/grep, and SIGPIPE would abort
 
@@ -422,8 +424,22 @@ resolve_ref() {  # name -> "kind sha"
 }
 
 render_vec_inf_config() {
+    # The TEMPLATE on both clusters: every cluster-specific field is overwritten
+    # below. Not infrastructures/delta-ai-ncsa/, which despite its name holds
+    # Campus Cluster paths and is not DeltaAI's config.
     local src="${BE}/config/infrastructures/delta/environment.yaml"
-    [ -r "$src" ] || { warn "no ${src} — VEC_INF_CONFIG_DIR not rendered"; return 0; }
+    if [ ! -r "$src" ]; then
+        # No rendered config means no VEC_INF_CONFIG_DIR in backend/.env, and the
+        # backend then GUESSES its infrastructure from the host name -- a short
+        # name that matches nothing (dtai-svc-llmaas01) gets the campus-cluster
+        # default, with Campus Cluster image paths. That used to be a warning.
+        # Fatal for the service-user profiles; a personal staging stack may
+        # still be deploying a ref from before the template existed.
+        case "$LLMHUB_PROFILE" in
+            production|dev) die "no ${src} -- cannot render the vec-inf config, and the backend would fall back to guessing its infrastructure from the host name" ;;
+            *) warn "no ${src} -- VEC_INF_CONFIG_DIR not rendered; the backend will guess its infrastructure from the host name"; return 0 ;;
+        esac
+    fi
     [ "$IMP" = 1 ] && umask 022    # the shared root must be world-readable; restored by the caller's subshell-free umask below
     mkdir -p "$VIC" "$LLMHUB_VEC_INF_WORK_DIR"
     # Per-profile now, so it may not exist yet. svcllmhub* must be able to
