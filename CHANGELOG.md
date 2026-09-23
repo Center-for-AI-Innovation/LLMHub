@@ -12,6 +12,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `_ensure_cuda_visible_devices_env()` now drops any pre-existing `CUDA_VISIBLE_DEVICES` field from the incoming environment string — including the stale shell-quoted workaround — and appends exactly one canonical unquoted field, so deployments pre-seeding the quoted `VEC_INF_ENV` workaround are self-healing.
 - Added regression tests covering the `CUDA_VISIBLE_DEVICES` field handling and the rendered container launch command (one `--env` per variable, unquoted CUDA field).
 
+## [1.0.0]
+
+### Added
+
+- User-impersonated job launches: backend deployments can submit vec-inf Slurm jobs as the requesting cluster user when impersonation mode is configured, instead of always running as the service account. Direct execution remains supported. ([#40](https://github.com/Center-for-AI-Innovation/LLMHub/pull/40))
+- Local Docker stack for running the full app (frontend + backend) locally via Compose. ([#54](https://github.com/Center-for-AI-Innovation/LLMHub/pull/54))
+- Magic Castle Terraform configuration and documentation for deploying LLMHub on an HPC cluster (Slurm controller, login node, GPU compute nodes, NFS storage, optional Caddy reverse proxy for public access). ([#48](https://github.com/Center-for-AI-Innovation/LLMHub/pull/48))
+
 ## [0.1.1]
 
 ### Added
@@ -23,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- After login, users land on the model catalog (`/model-library`) instead of chat. Clicking the logo still returns to the landing page.
 - Restricted the backend Python requirement to 3.11 only (requires-python, READMEs, AGENTS.md, CI), and pinned pre-commit’s default Python to 3.11 so Black’s env meets its runtime requirement.
 - Renamed the `frontend/app/(marketing)` route group to `frontend/app/(home)` for clarity — it's the root `/` landing page.
 
