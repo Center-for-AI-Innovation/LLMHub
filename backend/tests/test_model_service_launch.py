@@ -160,6 +160,80 @@ def test_launch_model_gated_weights_failure_fails_deployment(monkeypatch):
     assert "Failed to prepare gated model weights" in result.errorMessage
 
 
+def test_launch_model_scopes_gated_weights_to_protected_store_when_direct(monkeypatch):
+    """A gated model launched WITHOUT a cluster_username (direct/shared
+    execution) must still avoid the world-readable default cache -- it
+    should resolve to the protected MODEL_STORE_ROOT, not fall through to
+    the infrastructure default model_weights_parent_dir."""
+    gated_model = AvailableModel(
+        id="Qwen/Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B", gated="manual"
+    )
+    db = FakeGatedDbSession(gated_model)
+    service = ModelService()
+    fake_llm_client = FakeLLMClient()
+    service.llm_client = fake_llm_client
+
+    monkeypatch.setattr(
+        "app.services.model_service.check_model_hf_access",
+        lambda *a, **k: (True, None),
+    )
+    monkeypatch.setattr(
+        "app.services.model_service.resolve_gated_model_store_dir",
+        lambda model_name: "/protected/model-store",
+    )
+
+    deployment = ModelDeploymentCreate(
+        modelName="Qwen/Qwen3-8B",
+        modelId="Qwen/Qwen3-8B",
+        userId="11111111-1111-1111-1111-111111111111",
+        hf_token="valid-token",
+    )
+
+    result = service.launch_model(db=db, deployment=deployment)
+
+    assert result.status == "pending"
+    assert (
+        fake_llm_client.calls[0]["params"]["model_weights_parent_dir"]
+        == "/protected/model-store"
+    )
+
+
+def test_launch_model_direct_gated_store_failure_fails_deployment(monkeypatch):
+    """If the gated model isn't pre-staged in the protected store, a direct
+    launch must fail closed rather than silently fall back to the
+    world-readable default cache."""
+    gated_model = AvailableModel(
+        id="Qwen/Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B", gated="manual"
+    )
+    db = FakeGatedDbSession(gated_model)
+    service = ModelService()
+    service.llm_client = FakeLLMClient()
+
+    monkeypatch.setattr(
+        "app.services.model_service.check_model_hf_access",
+        lambda *a, **k: (True, None),
+    )
+
+    def _boom(model_name):
+        raise RuntimeError("model not found in the protected model store")
+
+    monkeypatch.setattr(
+        "app.services.model_service.resolve_gated_model_store_dir", _boom
+    )
+
+    deployment = ModelDeploymentCreate(
+        modelName="Qwen/Qwen3-8B",
+        modelId="Qwen/Qwen3-8B",
+        userId="11111111-1111-1111-1111-111111111111",
+        hf_token="valid-token",
+    )
+
+    result = service.launch_model(db=db, deployment=deployment)
+
+    assert result.status == "failed"
+    assert "Failed to prepare gated model weights" in result.errorMessage
+
+
 def test_deployment_create_trims_cluster_username():
     deployment = ModelDeploymentCreate(
         modelName="Qwen/Qwen3-8B",

@@ -119,9 +119,15 @@ def test_launch_model_gated_valid_token_proceeds():
     with (
         patch("app.services.model_service.check_model_hf_access") as mock_check,
         patch("app.services.model_service.ResourceService") as mock_resource_service,
+        patch(
+            "app.services.model_service.resolve_gated_model_store_dir"
+        ) as mock_store_dir,
     ):
 
         mock_check.return_value = (True, None)
+        # Direct (non-impersonated) launch: still must resolve to the
+        # protected model store, not the world-readable default cache.
+        mock_store_dir.return_value = "/protected/model-store"
         # Mock resource allocation success
         mock_resource_service.return_value.allocate_resources.return_value = {
             "success": True
@@ -134,6 +140,7 @@ def test_launch_model_gated_valid_token_proceeds():
 
         # Verify HF check was called
         mock_check.assert_called_once()
+        mock_store_dir.assert_called_once_with("Gated Model")
         # Verify it PROCEEDED to resource allocation
         mock_resource_service.return_value.allocate_resources.assert_called_once()
 

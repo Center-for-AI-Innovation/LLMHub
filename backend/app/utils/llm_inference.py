@@ -204,14 +204,41 @@ def _hardlink_tree(src: Path, dst: Path) -> None:
                 pass
 
 
+def resolve_gated_model_store_dir(model_name: str) -> Path:
+    """Return ``MODEL_STORE_ROOT`` to launch a direct-mode gated model from.
+
+    Direct (non-impersonated) execution always runs as the service account,
+    which already has its own access to the protected ``MODEL_STORE_ROOT``
+    (e.g. via ACL) -- unlike impersonated launches, no per-user hard-linked
+    copy is needed here. Requires the model to already be staged in the
+    store; callers must not fall back to the infrastructure-wide default
+    ``model_weights_parent_dir``, which is typically world-readable and would
+    defeat gating for anyone with plain filesystem access.
+    """
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    try:
+        source_dir = _resolve_model_store_dir(model_name)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
+    if source_dir is None or not source_dir.is_dir():
+        raise RuntimeError(
+            f"Model {model_name!r} not found in the protected model store "
+            f"(MODEL_STORE_ROOT={store_root!r}); direct-mode gated launches "
+            "require pre-staged weights rather than falling back to the "
+            "shared/world-readable default cache."
+        )
+    return Path(store_root).expanduser()
+
+
 def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) -> Path:
     """Hard-link ``model_name`` from the shared store into ``cluster_username``'s
     workspace and return the per-user ``model_weights_parent_dir`` to launch with.
 
     Hard links share the underlying inode with the store copy, so this costs no
-    extra storage quota. Only meaningful for impersonated (per-user) launches;
-    callers should skip this and use the infrastructure default for shared/direct
-    execution. Expects an already-validated username.
+    extra storage quota. Only meaningful for impersonated (per-user) launches --
+    for direct/shared execution, use ``resolve_gated_model_store_dir`` instead,
+    since the service account can read the protected store directly. Expects an
+    already-validated username.
     """
     try:
         source_dir = _resolve_model_store_dir(model_name)
