@@ -345,80 +345,41 @@ def test_ensure_gated_model_weights_for_user_links_into_workspace(
     )
 
 
-def test_resolve_gated_model_store_dir_raises_when_unconfigured(monkeypatch):
-    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", None)
-
-    try:
-        llm_inference.resolve_gated_model_store_dir()
-    except RuntimeError as exc:
-        assert "MODEL_STORE_ROOT is not configured" in str(exc)
-    else:
-        raise AssertionError("Expected RuntimeError when MODEL_STORE_ROOT is unset")
-
-
-def test_resolve_gated_model_store_dir_returns_store_root(monkeypatch, tmp_path):
-    store_root = tmp_path / "store"
-    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
-
-    # No existence check here by design: vec-inf's own cached-weights check
-    # already prefers a pre-staged local copy and falls back to a live
-    # hf_model download otherwise -- this just needs to point at the
-    # protected location either way.
-    weights_parent_dir = llm_inference.resolve_gated_model_store_dir()
-
-    assert weights_parent_dir == store_root
-
-
-def test_resolve_gated_bind_override_raises_when_unconfigured(monkeypatch):
-    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", None)
-
-    try:
-        llm_inference.resolve_gated_bind_override()
-    except RuntimeError as exc:
-        assert "MODEL_STORE_ROOT is not configured" in str(exc)
-    else:
-        raise AssertionError("Expected RuntimeError when MODEL_STORE_ROOT is unset")
-
-
-def test_resolve_gated_bind_override_raises_without_matching_default_entry(
-    monkeypatch, tmp_path
-):
+def test_resolve_gated_model_store_dir_raises_when_model_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
-    monkeypatch.setattr(
-        llm_inference, "DEFAULT_ARGS", {"bind": "/some/other/path:/root/.cache/other"}
-    )
 
     try:
-        llm_inference.resolve_gated_bind_override()
+        llm_inference.resolve_gated_model_store_dir("Qwen/Qwen3-8B")
     except RuntimeError as exc:
-        assert "No bind entry targeting" in str(exc)
+        assert "not found in the protected model store" in str(exc)
     else:
-        raise AssertionError("Expected RuntimeError when no bind entry matches")
+        raise AssertionError("Expected RuntimeError for a missing store model")
 
 
-def test_resolve_gated_bind_override_replaces_only_the_hf_cache_entry(
+def test_resolve_gated_model_store_dir_rejects_traversal(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+
+    try:
+        llm_inference.resolve_gated_model_store_dir("../../etc")
+    except RuntimeError as exc:
+        assert "Invalid model name" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for a traversing model_name")
+
+
+def test_resolve_gated_model_store_dir_returns_store_root_when_staged(
     monkeypatch, tmp_path
 ):
     store_root = tmp_path / "store"
+    store_model_dir = store_root / "Qwen/Qwen3-8B"
+    store_model_dir.mkdir(parents=True)
+    (store_model_dir / "config.json").write_text("{}")
+
     monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
-    monkeypatch.setattr(
-        llm_inference,
-        "DEFAULT_ARGS",
-        {
-            "bind": (
-                "/projects/modelcache/public/huggingface:/root/.cache/huggingface,"
-                "/projects/modelcache/public/torch_inductor:/root/.cache/torch_inductor"
-            )
-        },
-    )
 
-    bind = llm_inference.resolve_gated_bind_override()
+    weights_parent_dir = llm_inference.resolve_gated_model_store_dir("Qwen/Qwen3-8B")
 
-    entries = bind.split(",")
-    assert f"{store_root / 'huggingface'}:/root/.cache/huggingface" in entries
-    # The unrelated torch_inductor entry is preserved unchanged.
-    assert (
-        "/projects/modelcache/public/torch_inductor:/root/.cache/torch_inductor"
-        in entries
-    )
-    assert len(entries) == 2
+    # The protected store root itself, not a per-user copy -- direct/shared
+    # execution runs as the service account, which already has its own
+    # access, so no hard-linking is needed.
+    assert weights_parent_dir == store_root

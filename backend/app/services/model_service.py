@@ -29,7 +29,6 @@ from app.utils.infrastructure import (
 from app.utils.llm_inference import (
     LLMInferenceClient,
     ensure_gated_model_weights_for_user,
-    resolve_gated_bind_override,
     resolve_gated_model_store_dir,
 )
 
@@ -235,14 +234,9 @@ class ModelService:
                         deployment.cluster_username, deployment.modelName
                     )
                 else:
-                    # Point at the protected store either way: vec-inf's own
-                    # cached-weights check already prefers an existing local
-                    # copy there and falls back to a live hf_model download
-                    # otherwise, so this handles both cases -- as long as
-                    # that download is also redirected away from the default
-                    # (world-readable) cache via the bind override below.
-                    weights_parent_dir = resolve_gated_model_store_dir()
-                    params["bind"] = resolve_gated_bind_override()
+                    weights_parent_dir = resolve_gated_model_store_dir(
+                        deployment.modelName
+                    )
             except RuntimeError as exc:
                 db_deployment = ModelDeployment(
                     modelId=model_id,

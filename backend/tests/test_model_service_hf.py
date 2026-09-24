@@ -122,18 +122,12 @@ def test_launch_model_gated_valid_token_proceeds():
         patch(
             "app.services.model_service.resolve_gated_model_store_dir"
         ) as mock_store_dir,
-        patch(
-            "app.services.model_service.resolve_gated_bind_override"
-        ) as mock_bind_override,
     ):
 
         mock_check.return_value = (True, None)
         # Direct (non-impersonated) launch: still must resolve to the
         # protected model store, not the world-readable default cache.
         mock_store_dir.return_value = "/protected/model-store"
-        mock_bind_override.return_value = (
-            "/protected/model-store/huggingface:/root/.cache/huggingface"
-        )
         # Mock resource allocation success
         mock_resource_service.return_value.allocate_resources.return_value = {
             "success": True
@@ -146,8 +140,7 @@ def test_launch_model_gated_valid_token_proceeds():
 
         # Verify HF check was called
         mock_check.assert_called_once()
-        mock_store_dir.assert_called_once_with()
-        mock_bind_override.assert_called_once_with()
+        mock_store_dir.assert_called_once_with("Gated Model")
         # Verify it PROCEEDED to resource allocation
         mock_resource_service.return_value.allocate_resources.assert_called_once()
 
