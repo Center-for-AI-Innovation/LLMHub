@@ -20,11 +20,17 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
 
   const isModelLaunching = launchingModelId === modelId;
 
-  const handleLaunch = async (time: string) => {
+  const handleLaunch = async (time: string, account?: string) => {
     if (!model) return;
 
     try {
-      await launchModel(model.id, model.huggingfaceId, model.family, time);
+      await launchModel(
+        model.id,
+        model.huggingfaceId,
+        model.family,
+        time,
+        account,
+      );
       setIsDialogOpen(false);
     } catch (error) {
       console.error('Failed to launch model:', error);

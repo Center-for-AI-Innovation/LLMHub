@@ -16,7 +16,10 @@ from app.utils.cluster_users import normalize_cluster_username  # noqa: E402
 from app.utils.llm_inference import (  # noqa: E402
     _ensure_impersonated_workspace_dir,
     _get_impersonation_python,
-    _select_user_slurm_account,
+)
+from app.utils.slurm_accounts import (  # noqa: E402
+    list_user_slurm_accounts,
+    pick_default_slurm_account,
 )
 
 
@@ -101,9 +104,13 @@ def main() -> int:
     print(f"shared_work_root={settings.VEC_INF_SHARED_WORK_ROOT}")
     print(f"wrapper={settings.VEC_INF_IMPERSONATE_SCRIPT}")
     print(f"impersonate_python={_get_impersonation_python()}")
-    print(f"accounts_script={settings.VEC_INF_ACCOUNTS_SCRIPT}")
 
-    account = _select_user_slurm_account(cluster_username)
+    accounts = list_user_slurm_accounts(cluster_username)
+    print(f"accounts={','.join(accounts) if accounts else '<none>'}")
+    account = pick_default_slurm_account(accounts)
+    if account is None:
+        print("resolved_account=<none>")
+        return 1
     print(f"resolved_account={account}")
 
     workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)

@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.schemas._base import ORMBaseModel
 from app.utils.cluster_users import normalize_cluster_username
+from app.utils.slurm_accounts import is_valid_slurm_account_name
 
 
 class ModelDeploymentCreate(BaseModel):
@@ -34,6 +35,7 @@ class ModelDeploymentCreate(BaseModel):
         None  # GPU type (e.g., "l40s", "h100", "A100", "H200")
     )
     cluster_username: Optional[str] = Field(default=None, alias="clusterUsername")
+    account: Optional[str] = None  # Slurm account selected by the submitting user
     work_dir: Optional[str] = None  # Optional working directory for vec-inf jobs
     hf_model: Optional[str] = (
         None  # HuggingFace model ID (e.g., "Qwen/Qwen2.5-3B-Instruct")
@@ -63,6 +65,16 @@ class ModelDeploymentCreate(BaseModel):
             raise ValueError(
                 "clusterUsername must be a valid cluster login name"
             ) from exc
+
+    @field_validator("account")
+    @classmethod
+    def _validate_account(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not str(value).strip():
+            return None
+        account = str(value).strip()
+        if not is_valid_slurm_account_name(account):
+            raise ValueError("account must be a valid Slurm account name")
+        return account
 
 
 class ModelDeploymentUpdate(BaseModel):

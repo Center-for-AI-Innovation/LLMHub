@@ -13,6 +13,10 @@ from app.config.config import settings
 from app.config.logging import get_logger
 from app.utils.cluster_users import normalize_cluster_username
 from app.utils.infrastructure import get_vec_inf_log_base_dir
+from app.utils.slurm_accounts import (
+    list_user_slurm_accounts,
+    select_user_slurm_account,
+)
 
 # IMPORTANT: Set VEC_INF env vars BEFORE importing vec-inf.
 # vec-inf loads/caches config at import time.
@@ -48,8 +52,8 @@ from vec_inf.client.models import LaunchOptions  # noqa: E402
 
 logger = get_logger("llm_inference")
 
-_ACCOUNT_LINE_RE = re.compile(r"^(?P<account>\S+)\s+\d+\s+\d+\s+.+$")
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+_select_user_slurm_account = select_user_slurm_account
 
 
 def _grant_acl_access(path: Path, usernames: List[str], failure_context: str) -> None:
@@ -153,48 +157,6 @@ def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
             [cluster_username, service_account],
             f"shared cache dir {cache_dir} for {cluster_username}",
         )
-
-
-def _select_user_slurm_account(cluster_username: str, prefer_gpu: bool = True) -> str:
-    """Resolve the user's Slurm account. Expects a validated username."""
-    script_path = Path(
-        getattr(settings, "VEC_INF_ACCOUNTS_SCRIPT", "/sw/user/scripts/accounts")
-    )
-    if not script_path.exists():
-        raise RuntimeError(f"Accounts helper not found: {script_path}")
-
-    result = subprocess.run(
-        [str(script_path), "-u", cluster_username],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        stderr = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(
-            f"Failed to resolve Slurm account for {cluster_username}: {stderr}"
-        )
-
-    accounts: List[str] = []
-    for raw_line in result.stdout.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("Project Summary for User"):
-            continue
-        if line.startswith("Account") or set(line) == {"-"}:
-            continue
-        match = _ACCOUNT_LINE_RE.match(line)
-        if match:
-            accounts.append(match.group("account"))
-
-    if not accounts:
-        raise RuntimeError(f"No Slurm accounts found for {cluster_username}")
-
-    if prefer_gpu:
-        for account in accounts:
-            if account.lower().endswith("-gpu") or "-gpu-" in account.lower():
-                return account
-
-    return accounts[0]
 
 
 def _get_impersonation_python() -> str:
@@ -596,7 +558,15 @@ class LLMInferenceClient:
                 if not params.get("log_dir"):
                     params["log_dir"] = str(workspace_dir)
 
-            if not params.get("account"):
+            requested_account = params.get("account")
+            if requested_account:
+                accounts = list_user_slurm_accounts(cluster_username)
+                if requested_account not in accounts:
+                    raise RuntimeError(
+                        f"Slurm account {requested_account!r} is not associated "
+                        f"with {cluster_username}"
+                    )
+            else:
                 prefer_gpu = params.get("num_gpus", 1) != 0
                 params["account"] = _select_user_slurm_account(
                     cluster_username,
