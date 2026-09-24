@@ -181,6 +181,7 @@ export async function GET(request: Request) {
             variant: model.variant,
             specs: model.specs as any,
             huggingfaceId: model.huggingfaceId || undefined,
+            gated: model.gated ?? null,
           }));
 
           return NextResponse.json(models);
@@ -216,6 +217,7 @@ export async function GET(request: Request) {
           variant: model.variant,
           specs: model.specs as any,
           huggingfaceId: model.huggingfaceId || undefined,
+          gated: model.gated ?? null,
         }));
 
         // Update cache
@@ -301,6 +303,7 @@ export async function POST() {
           variant: model.variant,
           specs: model.specs as any,
           huggingfaceId: model.huggingfaceId || undefined,
+          gated: model.gated ?? null,
         }));
 
         // Update cache

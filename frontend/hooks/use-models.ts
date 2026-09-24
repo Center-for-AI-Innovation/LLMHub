@@ -76,6 +76,7 @@ export interface ModelInfo {
   variant: string;
   specs: ModelSpecs;
   huggingfaceId?: string; // HuggingFace model ID (e.g., "Qwen/Qwen3-8B")
+  gated?: string | null; // HF gating status: null/undefined (public), "auto", or "manual"
 }
 
 // Matches ModelDeployment table in lib/db/schema.ts
@@ -307,6 +308,7 @@ export function useLaunchModel() {
       time: string;
       partition: string;
       resource_type: string;
+      hfToken?: string;
     }): Promise<ModelDeployment> => {
       // Construct HuggingFace model ID if not provided
       // Most HF model paths follow pattern: Organization/ModelName
@@ -349,6 +351,9 @@ export function useLaunchModel() {
           time: params.time,
           partition: params.partition,
           resource_type: params.resource_type,
+          // Never persisted client-side or by the backend -- forwarded once
+          // for this launch request only (see backend hf_auth.py).
+          ...(params.hfToken ? { hf_token: params.hfToken } : {}),
         }),
       });
 

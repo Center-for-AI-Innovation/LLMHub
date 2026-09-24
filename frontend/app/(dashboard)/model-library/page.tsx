@@ -96,6 +96,7 @@ function ModelLibraryPageInner() {
     huggingfaceId?: string,
     family?: string,
     time?: string,
+    hfToken?: string,
   ) {
     if (!launchDefaults) {
       const message = launchDefaultsError instanceof Error
@@ -114,6 +115,7 @@ function ModelLibraryPageInner() {
         time: time ?? launchDefaults.time,
         partition: launchDefaults.partition,
         resource_type: launchDefaults.resource_type,
+        hfToken,
       });
       setLaunchError(null);
       if (deployment?.id) {
