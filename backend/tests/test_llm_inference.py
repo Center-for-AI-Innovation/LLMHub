@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from app.config.config import settings
@@ -89,15 +90,48 @@ def test_launch_model_requires_cluster_username_when_impersonating(monkeypatch):
     }
 
 
+def test_launch_model_impersonated_requires_workspace_dir(monkeypatch, tmp_path):
+    """No shared workspace root means no safe place to hand off the launch
+    payload (which can carry a secret), so refuse rather than silently
+    launching without one."""
+    wrapper_path = tmp_path / "impersonate-wrapper"
+    wrapper_path.write_text("#!/bin/sh\nexit 0\n")
+    wrapper_path.chmod(0o755)
+
+    monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
+    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", lambda _: None
+    )
+    monkeypatch.setattr(
+        llm_inference,
+        "_select_user_slurm_account",
+        lambda *_args, **_kwargs: "bgns-delta-gpu",
+    )
+
+    client = llm_inference.LLMInferenceClient()
+    result = client.launch_model("Qwen/Qwen3-8B", cluster_username="alice")
+
+    assert result["success"] is False
+    assert "no workspace directory configured" in result["error"]
+
+
 def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     captured = {}
     wrapper_path = tmp_path / "impersonate-wrapper"
     wrapper_path.write_text("#!/bin/sh\nexit 0\n")
     wrapper_path.chmod(0o755)
+    workspace_dir = tmp_path / "alice"
+    workspace_dir.mkdir()
 
     def fake_run(command, **kwargs):
         captured["command"] = command
         captured["kwargs"] = kwargs
+        # The payload file must exist (and be readable) at this point -- the
+        # real code deletes it only after subprocess.run returns.
+        captured["payload_path"] = command[-1]
+        captured["payload"] = json.loads(Path(command[-1]).read_text())
         return SimpleNamespace(
             returncode=0,
             stdout='{"success": true, "job_id": "12345", "slurm_job_id": "12345"}',
@@ -110,7 +144,7 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     monkeypatch.setattr(
         llm_inference,
         "_ensure_impersonated_workspace_dir",
-        lambda _: tmp_path / "alice",
+        lambda _: workspace_dir,
     )
     monkeypatch.setattr(
         llm_inference,
@@ -126,7 +160,7 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         num_gpus=2,
     )
 
-    payload = json.loads(captured["command"][-1])
+    payload = captured["payload"]
 
     assert result["success"] is True
     assert captured["command"][:4] == [
@@ -136,12 +170,18 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         llm_inference.sys.executable,
     ]
     assert captured["command"][4:6] == ["-m", "app.utils.vec_inf_launch_shim"]
+    # The secret-bearing payload travels as a file path, never inline in argv
+    # (argv is visible to any user on the host via ps/`/proc/<pid>/cmdline`).
+    assert captured["command"][-1] != json.dumps(payload)
+    assert captured["command"][-1].startswith(str(workspace_dir))
     assert captured["kwargs"]["cwd"] == str(llm_inference.PROJECT_ROOT)
     assert captured["kwargs"]["env"]["VEC_INF_ACCOUNT"] == "bgns-delta-gpu"
     assert captured["kwargs"]["env"]["SLURM_ACCOUNT"] == "bgns-delta-gpu"
     assert captured["kwargs"]["env"]["VEC_INF_LOG_DIR"].endswith("/alice")
     assert payload["params"]["work_dir"].endswith("/alice")
     assert payload["params"]["log_dir"].endswith("/alice")
+    # The payload file is cleaned up once the subprocess call returns.
+    assert not Path(captured["payload_path"]).exists()
 
 
 def test_parse_impersonated_response_handles_pty_noise():
@@ -153,3 +193,193 @@ def test_parse_impersonated_response_handles_pty_noise():
     result = llm_inference.LLMInferenceClient._parse_impersonated_response(stdout, "")
 
     assert result == {"success": False, "error": "sbatch failed"}
+
+
+def test_hardlink_tree_links_files_and_preserves_structure(tmp_path):
+    src = tmp_path / "src"
+    (src / "nested").mkdir(parents=True)
+    (src / "config.json").write_text("{}")
+    (src / "nested" / "weights.bin").write_text("weights")
+
+    dst = tmp_path / "dst"
+    llm_inference._hardlink_tree(src, dst)
+
+    assert dst.joinpath("config.json").read_text() == "{}"
+    assert dst.joinpath("nested", "weights.bin").read_text() == "weights"
+    # Hard links share the same inode as the source file.
+    assert (
+        dst.joinpath("config.json").stat().st_ino
+        == src.joinpath("config.json").stat().st_ino
+    )
+
+
+def test_hardlink_tree_leaves_existing_destination_files_untouched(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "config.json").write_text("new")
+
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    (dst / "config.json").write_text("already-there")
+
+    llm_inference._hardlink_tree(src, dst)
+
+    assert dst.joinpath("config.json").read_text() == "already-there"
+
+
+def test_resolve_model_store_dir_none_when_unconfigured(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", None)
+
+    assert llm_inference._resolve_model_store_dir("Qwen/Qwen3-8B") is None
+
+
+def test_resolve_model_store_dir_joins_model_name(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path))
+
+    assert llm_inference._resolve_model_store_dir("Qwen/Qwen3-8B") == (
+        tmp_path / "Qwen/Qwen3-8B"
+    )
+
+
+def test_resolve_model_store_dir_rejects_parent_traversal(monkeypatch, tmp_path):
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+
+    try:
+        llm_inference._resolve_model_store_dir("../../etc")
+    except ValueError as exc:
+        assert "resolves outside" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for a traversing model_name")
+
+
+def test_resolve_model_store_dir_rejects_absolute_override(monkeypatch, tmp_path):
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+
+    # pathlib's `/` operator treats an absolute right-hand side as replacing
+    # the left side entirely, so a naive join would silently escape the store.
+    try:
+        llm_inference._resolve_model_store_dir("/etc")
+    except ValueError as exc:
+        assert "resolves outside" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for an absolute model_name")
+
+
+def test_ensure_gated_model_weights_for_user_raises_when_model_missing(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+
+    try:
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Qwen/Qwen3-8B")
+    except RuntimeError as exc:
+        assert "not found in the shared model store" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for a missing store model")
+
+
+def test_ensure_gated_model_weights_for_user_raises_without_workspace_root(
+    monkeypatch, tmp_path
+):
+    store_model_dir = tmp_path / "store" / "Qwen/Qwen3-8B"
+    store_model_dir.mkdir(parents=True)
+    (store_model_dir / "config.json").write_text("{}")
+
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", lambda _: None
+    )
+
+    try:
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Qwen/Qwen3-8B")
+    except RuntimeError as exc:
+        assert "no impersonated workspace root configured" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when no workspace root is set")
+
+
+def test_ensure_gated_model_weights_for_user_rejects_traversal(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+    monkeypatch.setattr(
+        llm_inference,
+        "_ensure_impersonated_workspace_dir",
+        lambda _: tmp_path / "alice",
+    )
+
+    try:
+        llm_inference.ensure_gated_model_weights_for_user("alice", "../../etc")
+    except RuntimeError as exc:
+        assert "Invalid model name" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for a traversing model_name")
+
+
+def test_ensure_gated_model_weights_for_user_links_into_workspace(
+    monkeypatch, tmp_path
+):
+    store_model_dir = tmp_path / "store" / "Qwen/Qwen3-8B"
+    store_model_dir.mkdir(parents=True)
+    (store_model_dir / "config.json").write_text("{}")
+
+    workspace_dir = tmp_path / "alice"
+    workspace_dir.mkdir()
+
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", lambda _: workspace_dir
+    )
+
+    weights_parent_dir = llm_inference.ensure_gated_model_weights_for_user(
+        "alice", "Qwen/Qwen3-8B"
+    )
+
+    assert weights_parent_dir == workspace_dir / "model-weights"
+    linked_config = weights_parent_dir / "Qwen/Qwen3-8B" / "config.json"
+    assert (
+        linked_config.stat().st_ino
+        == store_model_dir.joinpath("config.json").stat().st_ino
+    )
+
+
+def test_resolve_gated_model_store_dir_raises_when_model_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+
+    try:
+        llm_inference.resolve_gated_model_store_dir("Qwen/Qwen3-8B")
+    except RuntimeError as exc:
+        assert "not found in the protected model store" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for a missing store model")
+
+
+def test_resolve_gated_model_store_dir_rejects_traversal(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+
+    try:
+        llm_inference.resolve_gated_model_store_dir("../../etc")
+    except RuntimeError as exc:
+        assert "Invalid model name" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for a traversing model_name")
+
+
+def test_resolve_gated_model_store_dir_returns_store_root_when_staged(
+    monkeypatch, tmp_path
+):
+    store_root = tmp_path / "store"
+    store_model_dir = store_root / "Qwen/Qwen3-8B"
+    store_model_dir.mkdir(parents=True)
+    (store_model_dir / "config.json").write_text("{}")
+
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+
+    weights_parent_dir = llm_inference.resolve_gated_model_store_dir("Qwen/Qwen3-8B")
+
+    # The protected store root itself, not a per-user copy -- direct/shared
+    # execution runs as the service account, which already has its own
+    # access, so no hard-linking is needed.
+    assert weights_parent_dir == store_root

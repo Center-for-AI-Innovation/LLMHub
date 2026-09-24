@@ -20,11 +20,11 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
 
   const isModelLaunching = launchingModelId === modelId;
 
-  const handleLaunch = async (time: string) => {
+  const handleLaunch = async (time: string, hfToken?: string) => {
     if (!model) return;
 
     try {
-      await launchModel(model.id, model.huggingfaceId, model.family, time);
+      await launchModel(model.id, model.huggingfaceId, model.family, time, hfToken);
       setIsDialogOpen(false);
     } catch (error) {
       console.error('Failed to launch model:', error);
@@ -96,6 +96,7 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
         modelName={displayModelName}
         isLaunching={isModelLaunching}
         onLaunch={handleLaunch}
+        gated={model.gated}
       />
     </div>
   );

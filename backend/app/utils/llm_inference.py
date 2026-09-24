@@ -4,6 +4,7 @@ import pwd
 import re
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -153,6 +154,116 @@ def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
             [cluster_username, service_account],
             f"shared cache dir {cache_dir} for {cluster_username}",
         )
+
+
+def _join_contained(base: Path, relative: str, description: str) -> Path:
+    """Join ``relative`` under ``base``, raising if it would escape ``base``.
+
+    ``model_name`` is user-controlled (HF repo ids like ``org/model`` are
+    expected and legitimately contain ``/``), so a character-class allowlist
+    would either break normal names or still miss ``..`` traversal / a
+    leading ``/`` (which pathlib's join treats as replacing ``base``
+    entirely). Resolving and checking containment catches both.
+    """
+    base_resolved = base.resolve()
+    candidate = (base / relative).resolve()
+    if candidate != base_resolved and base_resolved not in candidate.parents:
+        raise ValueError(
+            f"{description} {relative!r} resolves outside {base} (got {candidate})"
+        )
+    return candidate
+
+
+def _resolve_model_store_dir(model_name: str) -> Optional[Path]:
+    """Return the shared store's directory for ``model_name``, if configured."""
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    if not isinstance(store_root, str) or not store_root.strip():
+        return None
+    return _join_contained(Path(store_root).expanduser(), model_name, "model_name")
+
+
+def _hardlink_tree(src: Path, dst: Path) -> None:
+    """Recreate ``src`` under ``dst``, hard-linking each file.
+
+    Hard links are per-file (POSIX has no directory hard link), so this walks
+    the source tree and links files individually, creating directories as
+    needed. Existing destination files are left as-is, so this is safe to
+    call repeatedly (e.g. once per launch) without redoing finished work.
+    """
+    for root, _dirnames, filenames in os.walk(src):
+        rel_dir = Path(root).relative_to(src)
+        dest_dir = dst / rel_dir
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for filename in filenames:
+            dest_file = dest_dir / filename
+            if dest_file.exists():
+                continue
+            try:
+                os.link(Path(root) / filename, dest_file)
+            except FileExistsError:
+                pass
+
+
+def resolve_gated_model_store_dir(model_name: str) -> Path:
+    """Return ``MODEL_STORE_ROOT`` to launch a direct-mode gated model from.
+
+    Direct (non-impersonated) execution always runs as the service account,
+    which already has its own access to the protected ``MODEL_STORE_ROOT``
+    (e.g. via ACL) -- unlike impersonated launches, no per-user hard-linked
+    copy is needed here. Requires the model to already be staged in the
+    store; callers must not fall back to the infrastructure-wide default
+    ``model_weights_parent_dir``, which is typically world-readable and would
+    defeat gating for anyone with plain filesystem access.
+    """
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    try:
+        source_dir = _resolve_model_store_dir(model_name)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
+    if source_dir is None or not source_dir.is_dir():
+        raise RuntimeError(
+            f"Model {model_name!r} not found in the protected model store "
+            f"(MODEL_STORE_ROOT={store_root!r}); direct-mode gated launches "
+            "require pre-staged weights rather than falling back to the "
+            "shared/world-readable default cache."
+        )
+    return Path(store_root).expanduser()
+
+
+def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) -> Path:
+    """Hard-link ``model_name`` from the shared store into ``cluster_username``'s
+    workspace and return the per-user ``model_weights_parent_dir`` to launch with.
+
+    Hard links share the underlying inode with the store copy, so this costs no
+    extra storage quota. Only meaningful for impersonated (per-user) launches --
+    for direct/shared execution, use ``resolve_gated_model_store_dir`` instead,
+    since the service account can read the protected store directly. Expects an
+    already-validated username.
+    """
+    try:
+        source_dir = _resolve_model_store_dir(model_name)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
+    if source_dir is None or not source_dir.is_dir():
+        raise RuntimeError(
+            f"Model {model_name!r} not found in the shared model store "
+            f"(MODEL_STORE_ROOT={getattr(settings, 'MODEL_STORE_ROOT', None)!r})"
+        )
+
+    workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
+    if workspace_dir is None:
+        raise RuntimeError(
+            "Cannot prepare user-scoped model weights: no impersonated workspace "
+            "root configured (VEC_INF_SHARED_WORK_ROOT / vec-inf log dir)"
+        )
+
+    weights_parent_dir = workspace_dir / "model-weights"
+    try:
+        dest_dir = _join_contained(weights_parent_dir, model_name, "model_name")
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid model name for user workspace: {exc}") from exc
+    _hardlink_tree(source_dir, dest_dir)
+    return weights_parent_dir
 
 
 def _select_user_slurm_account(cluster_username: str, prefer_gpu: bool = True) -> str:
@@ -605,41 +716,64 @@ class LLMInferenceClient:
         except RuntimeError as exc:
             return {"success": False, "error": str(exc)}
 
+        if workspace_dir is None:
+            return {
+                "success": False,
+                "error": (
+                    "Cannot prepare impersonated launch: no workspace directory "
+                    "configured (VEC_INF_SHARED_WORK_ROOT / vec-inf log dir)"
+                ),
+            }
+
+        # The payload can carry a secret (hf_token, via params["env"]). Command-line
+        # arguments are visible to any user on the host via `ps`/`/proc/<pid>/cmdline`
+        # for the process's lifetime, so write it to a file instead and pass only the
+        # path. The file lands in the impersonated user's workspace, which already has
+        # a default ACL granting exactly [cluster_username, this service account] read
+        # access (see _ensure_impersonated_workspace_dir) -- an explicit 0600 mode keeps
+        # every other user on the host locked out.
         payload = self._build_launch_payload(
             model_name, enable_cloudflare_tunnel, params
         )
-        command = [str(wrapper_path)]
-        if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
-            command.append("--no-login-shell")
-        command.extend(
-            [
-                cluster_username,
-                "--",
-                _get_impersonation_python(),
-                "-m",
-                "app.utils.vec_inf_launch_shim",
-                payload,
-            ]
-        )
+        payload_path = workspace_dir / f".launch-payload-{uuid.uuid4().hex}.json"
+        fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(payload)
 
-        env = os.environ.copy()
-        if _should_inject_project_pythonpath():
-            env = self._prepend_pythonpath(env)
-        if getattr(settings, "VEC_INF_ENV", None):
-            env["VEC_INF_ENV"] = str(settings.VEC_INF_ENV)
-        if workspace_dir is not None:
+        try:
+            command = [str(wrapper_path)]
+            if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
+                command.append("--no-login-shell")
+            command.extend(
+                [
+                    cluster_username,
+                    "--",
+                    _get_impersonation_python(),
+                    "-m",
+                    "app.utils.vec_inf_launch_shim",
+                    str(payload_path),
+                ]
+            )
+
+            env = os.environ.copy()
+            if _should_inject_project_pythonpath():
+                env = self._prepend_pythonpath(env)
+            if getattr(settings, "VEC_INF_ENV", None):
+                env["VEC_INF_ENV"] = str(settings.VEC_INF_ENV)
             env["VEC_INF_LOG_DIR"] = str(workspace_dir)
             env["VEC_INF_WORK_DIR"] = str(params.get("work_dir") or workspace_dir)
-        if params.get("account"):
-            env["VEC_INF_ACCOUNT"] = str(params["account"])
-            env["SLURM_ACCOUNT"] = str(params["account"])
-        result = subprocess.run(
-            command,
-            text=True,
-            capture_output=True,
-            env=env,
-            cwd=str(PROJECT_ROOT),
-        )
+            if params.get("account"):
+                env["VEC_INF_ACCOUNT"] = str(params["account"])
+                env["SLURM_ACCOUNT"] = str(params["account"])
+            result = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                env=env,
+                cwd=str(PROJECT_ROOT),
+            )
+        finally:
+            payload_path.unlink(missing_ok=True)
 
         parsed = self._parse_impersonated_response(result.stdout, result.stderr)
         if result.returncode != 0 and parsed.get("success", True):

@@ -38,6 +38,11 @@ class ModelDeploymentCreate(BaseModel):
     hf_model: Optional[str] = (
         None  # HuggingFace model ID (e.g., "Qwen/Qwen2.5-3B-Instruct")
     )
+    hf_token: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="User HF token for gated/private weights; verified with auth_check before launch",
+    )
     vllm_args: Optional[str] = (
         None  # Additional vLLM args (comma-separated, e.g., "--max-model-len=4096,--max-num-seqs=64")
     )
