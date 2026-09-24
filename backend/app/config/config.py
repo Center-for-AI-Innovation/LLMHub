@@ -57,6 +57,12 @@ class Settings(BaseSettings):
         "MODEL_STORE_ROOT"
     )  # Shared store of all model weights, keyed by model name; gated models are
     # hard-linked from here into the launching user's workspace (VEC_INF_SHARED_WORK_ROOT)
+    HF_CACHE_CONTAINER_PATH: str = os.getenv(
+        "HF_CACHE_CONTAINER_PATH", "/root/.cache/huggingface"
+    )  # Container-side path the default (world-readable) HF cache bind mount
+    # targets; a gated direct-mode launch redirects this specific bind entry to
+    # MODEL_STORE_ROOT/huggingface instead, so a live download of a gated
+    # model never lands in the world-readable default cache.
 
     # Background service settings
     SYNC_INTERVAL: int = int(

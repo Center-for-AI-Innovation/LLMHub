@@ -44,6 +44,7 @@ def _apply_vec_inf_environment() -> None:
 _apply_vec_inf_environment()
 
 # Python SDK for vec-inf (imported AFTER env vars are set)
+from vec_inf.client._slurm_vars import DEFAULT_ARGS  # noqa: E402
 from vec_inf.client.api import VecInfClient  # noqa: E402
 from vec_inf.client.models import LaunchOptions  # noqa: E402
 
@@ -204,30 +205,79 @@ def _hardlink_tree(src: Path, dst: Path) -> None:
                 pass
 
 
-def resolve_gated_model_store_dir(model_name: str) -> Path:
+def resolve_gated_model_store_dir() -> Path:
     """Return ``MODEL_STORE_ROOT`` to launch a direct-mode gated model from.
 
     Direct (non-impersonated) execution always runs as the service account,
     which already has its own access to the protected ``MODEL_STORE_ROOT``
     (e.g. via ACL) -- unlike impersonated launches, no per-user hard-linked
-    copy is needed here. Requires the model to already be staged in the
-    store; callers must not fall back to the infrastructure-wide default
-    ``model_weights_parent_dir``, which is typically world-readable and would
-    defeat gating for anyone with plain filesystem access.
+    copy is needed here. Unlike the impersonated path, this does not require
+    the model to already be staged: vec-inf's own validate_weights_path
+    already prefers an existing local copy under this directory and falls
+    back to a live hf_model download otherwise, so pointing
+    model_weights_parent_dir here handles both cases. Callers must also
+    apply resolve_gated_bind_override() so a fresh download is redirected
+    into the protected store instead of the world-readable default cache.
     """
     store_root = getattr(settings, "MODEL_STORE_ROOT", None)
-    try:
-        source_dir = _resolve_model_store_dir(model_name)
-    except ValueError as exc:
-        raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
-    if source_dir is None or not source_dir.is_dir():
+    if not isinstance(store_root, str) or not store_root.strip():
         raise RuntimeError(
-            f"Model {model_name!r} not found in the protected model store "
-            f"(MODEL_STORE_ROOT={store_root!r}); direct-mode gated launches "
-            "require pre-staged weights rather than falling back to the "
-            "shared/world-readable default cache."
+            "MODEL_STORE_ROOT is not configured; a gated model cannot be "
+            "safely launched in direct mode (no protected location to "
+            "read from or download into)."
         )
     return Path(store_root).expanduser()
+
+
+def resolve_gated_bind_override() -> str:
+    """Redirect the container's HF cache bind mount to the protected model store.
+
+    Splits the deployment's real default ``bind`` config (vec-inf's resolved
+    ``DEFAULT_ARGS["bind"]``, i.e. environment.yaml's default_args.bind) into
+    ``src:dst`` entries and replaces only the one whose container-side target
+    is ``settings.HF_CACHE_CONTAINER_PATH`` with one backed by
+    ``MODEL_STORE_ROOT/huggingface``, so a gated model's live download lands
+    there instead of the world-readable default cache. Other bind entries
+    (e.g. a torch_inductor cache) are preserved unchanged.
+
+    Raises RuntimeError if MODEL_STORE_ROOT isn't configured, or if the
+    default bind config has no entry targeting HF_CACHE_CONTAINER_PATH --
+    launching without a confirmed redirect would silently leave the download
+    unprotected rather than failing loudly.
+    """
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    if not isinstance(store_root, str) or not store_root.strip():
+        raise RuntimeError(
+            "MODEL_STORE_ROOT is not configured; cannot redirect a gated "
+            "model's download away from the default (world-readable) cache."
+        )
+    container_target = getattr(
+        settings, "HF_CACHE_CONTAINER_PATH", "/root/.cache/huggingface"
+    )
+
+    default_bind = DEFAULT_ARGS.get("bind", "") or ""
+    entries = [entry for entry in default_bind.split(",") if entry.strip()]
+
+    protected_hf_cache = str(Path(store_root).expanduser() / "huggingface")
+    new_entries = []
+    replaced = False
+    for entry in entries:
+        _src, sep, dst = entry.partition(":")
+        if sep and dst.strip() == container_target:
+            new_entries.append(f"{protected_hf_cache}:{container_target}")
+            replaced = True
+        else:
+            new_entries.append(entry)
+
+    if not replaced:
+        raise RuntimeError(
+            f"No bind entry targeting {container_target!r} found in the "
+            "default configuration (checked DEFAULT_ARGS['bind']); cannot "
+            "confirm a gated model's download would be redirected away from "
+            "the default cache."
+        )
+
+    return ",".join(new_entries)
 
 
 def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) -> Path:
@@ -400,6 +450,8 @@ class LLMInferenceDirectClient:
             mapped["work_dir"] = params["work_dir"]
         if params.get("log_dir") is not None:
             mapped["log_dir"] = params["log_dir"]
+        if params.get("bind") is not None:
+            mapped["bind"] = params["bind"]
 
         if params.get("account") is not None:
             mapped["account"] = params["account"]

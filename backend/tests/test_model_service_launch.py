@@ -163,8 +163,9 @@ def test_launch_model_gated_weights_failure_fails_deployment(monkeypatch):
 def test_launch_model_scopes_gated_weights_to_protected_store_when_direct(monkeypatch):
     """A gated model launched WITHOUT a cluster_username (direct/shared
     execution) must still avoid the world-readable default cache -- it
-    should resolve to the protected MODEL_STORE_ROOT, not fall through to
-    the infrastructure default model_weights_parent_dir."""
+    should resolve to the protected MODEL_STORE_ROOT (whether a copy is
+    already staged there or a fresh download lands there), and the
+    container's HF cache bind must be redirected there too."""
     gated_model = AvailableModel(
         id="Qwen/Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B", gated="manual"
     )
@@ -179,7 +180,11 @@ def test_launch_model_scopes_gated_weights_to_protected_store_when_direct(monkey
     )
     monkeypatch.setattr(
         "app.services.model_service.resolve_gated_model_store_dir",
-        lambda model_name: "/protected/model-store",
+        lambda: "/protected/model-store",
+    )
+    monkeypatch.setattr(
+        "app.services.model_service.resolve_gated_bind_override",
+        lambda: "/protected/model-store/huggingface:/root/.cache/huggingface",
     )
 
     deployment = ModelDeploymentCreate(
@@ -196,12 +201,16 @@ def test_launch_model_scopes_gated_weights_to_protected_store_when_direct(monkey
         fake_llm_client.calls[0]["params"]["model_weights_parent_dir"]
         == "/protected/model-store"
     )
+    assert (
+        fake_llm_client.calls[0]["params"]["bind"]
+        == "/protected/model-store/huggingface:/root/.cache/huggingface"
+    )
 
 
 def test_launch_model_direct_gated_store_failure_fails_deployment(monkeypatch):
-    """If the gated model isn't pre-staged in the protected store, a direct
-    launch must fail closed rather than silently fall back to the
-    world-readable default cache."""
+    """If the protected store can't be resolved (e.g. MODEL_STORE_ROOT isn't
+    configured), a direct launch must fail closed rather than silently fall
+    back to the world-readable default cache."""
     gated_model = AvailableModel(
         id="Qwen/Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B", gated="manual"
     )
@@ -214,8 +223,8 @@ def test_launch_model_direct_gated_store_failure_fails_deployment(monkeypatch):
         lambda *a, **k: (True, None),
     )
 
-    def _boom(model_name):
-        raise RuntimeError("model not found in the protected model store")
+    def _boom():
+        raise RuntimeError("MODEL_STORE_ROOT is not configured")
 
     monkeypatch.setattr(
         "app.services.model_service.resolve_gated_model_store_dir", _boom
