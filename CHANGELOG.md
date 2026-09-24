@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Multi-GPU container launches failed on Apptainer: vec-inf 0.9.0 rendered a single comma-joined `--env K1=V1,K2=V2` flag, and Apptainer's pflag CSV parsing rejected the expanded `CUDA_VISIBLE_DEVICES=0,1,2,3` value (`1 must be formatted as key=value`). Slurm script generation now emits one `--env` flag per environment variable so values containing commas survive. ([#56](https://github.com/Center-for-AI-Innovation/LLMHub/issues/56))
+- `_ensure_cuda_visible_devices_env()` now drops any pre-existing `CUDA_VISIBLE_DEVICES` field from the incoming environment string — including the stale shell-quoted workaround — and appends exactly one canonical unquoted field, so deployments pre-seeding the quoted `VEC_INF_ENV` workaround are self-healing.
+- Added regression tests covering the `CUDA_VISIBLE_DEVICES` field handling and the rendered container launch command (one `--env` per variable, unquoted CUDA field).
+
 ## [1.0.0]
 
 ### Added
