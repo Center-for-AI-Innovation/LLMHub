@@ -35,5 +35,5 @@ default_args:
   bind: "/projects/modelcache/public/huggingface:/root/.cache/huggingface,/projects/modelcache/public/torch_inductor:/root/.cache/torch_inductor"
   venv: "apptainer"
   data_type: "auto"
-  log_dir: "/projects/bfmz/alhazmy2/cache-test/logs"
+  log_dir: "/projects/llmhub"
   model_weights_parent_dir: "/projects/modelcache/public"
