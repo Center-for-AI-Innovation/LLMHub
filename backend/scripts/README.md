@@ -43,66 +43,41 @@ Validates the Delta impersonation path for user-submitted launches.
 .venv/bin/python scripts/check-impersonation-setup.py --user svcllmhubrohan13 --skip-wrapper
 ```
 
-### `clean_model_cache.py`
-Evicts models nobody has launched recently from the shared Hugging Face cache, so
-it does not grow until the disk fills.
+### `evict_unused_models.py`
+Deletes models from the shared Hugging Face cache that nobody has launched in 90
+days. Models enter the cache when a launch downloads them; this removes the ones
+no longer used.
 
-**Models get into the cache on their own.** A launch whose weights are not on
-disk downloads them, so the cache fills with what people actually use. This
-script is only the other half: deleting what has gone cold.
-
-**Which directory it cleans:** `MODEL_CACHE_DIR` from the backend `.env`, or
-`--cache-dir`. It is never inferred -- cache paths differ per cluster, and the
-job refuses to run rather than guess. Every run logs the directory it chose.
-
-**What counts as "used":** the `ModelDeployment` table, which records every
-launch and is never purged. A model whose most recent launch is older than the
-cutoff (default 90 days) is deleted. Filesystem access times are deliberately
-not used -- `/projects` may be mounted `noatime`, which would make every model
-look permanently untouched.
-
-**Cache entries are matched to launches by exact Hugging Face repo id**
-(`AvailableModel.huggingfaceId`), never by model name. Dropping the org prefix
-would let a hand-staged `someone/Qwen3-8B` inherit `Qwen/Qwen3-8B`'s history and
-be deleted.
-
-**Unmatched entries are left alone** and listed at the end of each run, so the
-set stays visible rather than growing silently. A cached repo goes unmatched when
-it was hand-staged (the shared cache is writable by users, see
-`_ensure_shared_cache_dir_access`), renamed upstream (`CohereForAI/*` became
-`CohereLabs/*`), or dropped from `models.yaml` -- whose catalog row, and with it
-the repo id mapping, the model sync deletes. Nothing reclaims those
-automatically; someone has to look at the list.
-
-Deletion goes through `huggingface_hub`'s `scan_cache_dir()` /
-`delete_revisions()`, not `rm`: the cache stores files as shared blobs with
-symlinked snapshots, so removing directories by hand orphans blobs.
+- **Directory:** `MODEL_CACHE_DIR` from the backend `.env`, or `--cache-dir`.
+  Never inferred, because it differs per cluster.
+- **Last use:** the newest `ModelDeployment` for each model, matched to the cache
+  by exact Hugging Face repo id (`AvailableModel.huggingfaceId`).
+- **No launch history** (hand-staged, renamed upstream, or removed from
+  `models.yaml`): kept, and listed at the end of each run.
+- **Deletion** goes through `huggingface_hub`'s `delete_revisions()`, not `rm`,
+  so shared blobs and snapshot links stay consistent.
 
 **Usage:**
 ```bash
 # Report what would be evicted, deleting nothing
-.venv/bin/python scripts/clean_model_cache.py --dry-run
+.venv/bin/python scripts/evict_unused_models.py --dry-run
 
 # Clean a directory other than MODEL_CACHE_DIR
-.venv/bin/python scripts/clean_model_cache.py --cache-dir /path/to/hf-cache --dry-run
+.venv/bin/python scripts/evict_unused_models.py --cache-dir /path/to/hf-cache --dry-run
 
 # Evict for real, with a different cutoff
-.venv/bin/python scripts/clean_model_cache.py --days 120
+.venv/bin/python scripts/evict_unused_models.py --days 120
 ```
 
 **Cron (as the service account that owns the cache, e.g. `svcdeltallmhub`):**
 ```
-0 3 * * 0 cd /path/to/backend && .venv/bin/python scripts/clean_model_cache.py >> /projects/llmhub/logs/model-cache-clean.log 2>&1
+0 3 * * 0 cd /path/to/backend && .venv/bin/python scripts/evict_unused_models.py >> /projects/llmhub/logs/model-eviction.log 2>&1
 ```
 
-Weekly is plenty for a 90-day window. The script needs `DATABASE_URL` and
-`MODEL_CACHE_DIR` from the backend `.env`.
+Needs `DATABASE_URL` and `MODEL_CACHE_DIR` from the backend `.env`.
 
-**Not covered yet:** `<model_weights_parent_dir>/<model_name>` and the per-user
-hard links under `<VEC_INF_SHARED_WORK_ROOT>/<user>/model-weights/`. Those only
-get populated once the gated-model work lands, and will need their own rule --
-removing a store copy without its hard links frees nothing, because the links
-keep the inodes alive.
+**Not covered:** pre-staged weights under `<model_weights_parent_dir>/<model_name>`
+and per-user hard links under `<VEC_INF_SHARED_WORK_ROOT>/<user>/model-weights/`.
 
 
 ## Infrastructure Detection Process

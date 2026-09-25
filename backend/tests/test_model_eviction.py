@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.config.config import settings
 from app.models.available_model import AvailableModel
 from app.models.model_deployment import ModelDeployment
-from app.utils import model_cache
+from scripts import evict_unused_models
 
 
 @pytest.fixture
@@ -76,7 +76,7 @@ def _fake_cache(monkeypatch, repos, freed=0):
             execute=lambda: deleted.extend(hashes),
         ),
     )
-    monkeypatch.setattr(model_cache, "scan_cache_dir", lambda _dir: cache_info)
+    monkeypatch.setattr(evict_unused_models, "scan_cache_dir", lambda _dir: cache_info)
     return deleted
 
 
@@ -86,24 +86,24 @@ def _fake_cache(monkeypatch, repos, freed=0):
 
 def test_cache_dir_comes_from_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
-    assert model_cache.resolve_cache_dir() == tmp_path
+    assert evict_unused_models.resolve_cache_dir() == tmp_path
 
 
 def test_cache_dir_override_wins(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "MODEL_CACHE_DIR", "/some/other/place")
-    assert model_cache.resolve_cache_dir(str(tmp_path)) == tmp_path
+    assert evict_unused_models.resolve_cache_dir(str(tmp_path)) == tmp_path
 
 
 def test_cache_dir_unset_refuses_to_guess(monkeypatch):
     monkeypatch.setattr(settings, "MODEL_CACHE_DIR", None)
     with pytest.raises(RuntimeError, match="never inferred"):
-        model_cache.resolve_cache_dir()
+        evict_unused_models.resolve_cache_dir()
 
 
 def test_cache_dir_must_exist(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path / "nope"))
     with pytest.raises(RuntimeError, match="does not exist"):
-        model_cache.resolve_cache_dir()
+        evict_unused_models.resolve_cache_dir()
 
 
 # --- launch history ---
@@ -114,7 +114,7 @@ def test_last_launched_keys_on_repo_id_and_takes_the_newest(db):
     _launch(db, "Qwen3-8B", "Qwen/Qwen3-8B", now - timedelta(days=200))
     _launch(db, "Qwen3-8B", "Qwen/Qwen3-8B", now - timedelta(days=2))
 
-    assert model_cache.last_launched_by_repo(db) == {
+    assert evict_unused_models.last_launched_by_repo(db) == {
         "Qwen/Qwen3-8B": now - timedelta(days=2)
     }
 
@@ -122,7 +122,7 @@ def test_last_launched_keys_on_repo_id_and_takes_the_newest(db):
 def test_models_without_a_repo_id_are_absent(db):
     _launch(db, "Mystery-7B", None, datetime.utcnow())
 
-    assert model_cache.last_launched_by_repo(db) == {}
+    assert evict_unused_models.last_launched_by_repo(db) == {}
 
 
 # --- eviction ---
@@ -138,7 +138,7 @@ def test_evicts_only_models_past_the_cutoff(db, monkeypatch, tmp_path):
         freed=900_000_000,
     )
 
-    result = model_cache.evict_unused_models(db, tmp_path, max_age_days=90)
+    result = evict_unused_models.evict_unused_models(db, tmp_path, max_age_days=90)
 
     assert result["evicted"] == ["Qwen/Qwen3-8B"]
     assert result["kept"] == ["microsoft/Phi-3.5-mini-instruct"]
@@ -156,7 +156,7 @@ def test_matching_is_by_full_repo_id_not_model_name(db, monkeypatch, tmp_path):
     _launch(db, "Qwen3-8B", "Qwen/Qwen3-8B", now - timedelta(days=200))
     deleted = _fake_cache(monkeypatch, [_repo("someone-else/Qwen3-8B")])
 
-    result = model_cache.evict_unused_models(db, tmp_path, max_age_days=90)
+    result = evict_unused_models.evict_unused_models(db, tmp_path, max_age_days=90)
 
     assert result["unmatched"] == ["someone-else/Qwen3-8B"]
     assert result["evicted"] == []
@@ -166,7 +166,7 @@ def test_matching_is_by_full_repo_id_not_model_name(db, monkeypatch, tmp_path):
 def test_never_launched_models_are_left_alone(db, monkeypatch, tmp_path):
     deleted = _fake_cache(monkeypatch, [_repo("someone/hand-staged-model")])
 
-    result = model_cache.evict_unused_models(db, tmp_path, max_age_days=90)
+    result = evict_unused_models.evict_unused_models(db, tmp_path, max_age_days=90)
 
     assert result["unmatched"] == ["someone/hand-staged-model"]
     assert deleted == []
@@ -177,7 +177,7 @@ def test_dry_run_reports_without_deleting(db, monkeypatch, tmp_path):
     _launch(db, "Qwen3-8B", "Qwen/Qwen3-8B", now - timedelta(days=200))
     deleted = _fake_cache(monkeypatch, [_repo("Qwen/Qwen3-8B")], freed=2_000_000_000)
 
-    result = model_cache.evict_unused_models(
+    result = evict_unused_models.evict_unused_models(
         db, tmp_path, max_age_days=90, dry_run=True
     )
 
