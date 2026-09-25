@@ -10,6 +10,7 @@ const ModelContext = React.createContext<{
     huggingfaceId?: string,
     family?: string,
     time?: string,
+    hfToken?: string,
   ) => Promise<void>;
   launchingModelId: string | null;
   openLogsPanel?: (deploymentId: string, modelName: string) => void;

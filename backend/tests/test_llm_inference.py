@@ -343,3 +343,43 @@ def test_ensure_gated_model_weights_for_user_links_into_workspace(
         linked_config.stat().st_ino
         == store_model_dir.joinpath("config.json").stat().st_ino
     )
+
+
+def test_resolve_gated_model_store_dir_raises_when_model_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+
+    try:
+        llm_inference.resolve_gated_model_store_dir("Qwen/Qwen3-8B")
+    except RuntimeError as exc:
+        assert "not found in the protected model store" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for a missing store model")
+
+
+def test_resolve_gated_model_store_dir_rejects_traversal(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
+
+    try:
+        llm_inference.resolve_gated_model_store_dir("../../etc")
+    except RuntimeError as exc:
+        assert "Invalid model name" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for a traversing model_name")
+
+
+def test_resolve_gated_model_store_dir_returns_store_root_when_staged(
+    monkeypatch, tmp_path
+):
+    store_root = tmp_path / "store"
+    store_model_dir = store_root / "Qwen/Qwen3-8B"
+    store_model_dir.mkdir(parents=True)
+    (store_model_dir / "config.json").write_text("{}")
+
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+
+    weights_parent_dir = llm_inference.resolve_gated_model_store_dir("Qwen/Qwen3-8B")
+
+    # The protected store root itself, not a per-user copy -- direct/shared
+    # execution runs as the service account, which already has its own
+    # access, so no hard-linking is needed.
+    assert weights_parent_dir == store_root

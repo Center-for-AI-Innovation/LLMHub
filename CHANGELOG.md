@@ -8,7 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Support for launching vec-inf jobs as an impersonated cluster user (`VEC_INF_EXECUTION_MODE=impersonate`), so Slurm jobs run and are billed under the requesting user's own account instead of the shared service account.
 - Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources, and a supplied token is appended to the launch environment. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
 - `backend/scripts/evict_unused_models.py`, a weekly cron job that deletes models from the shared Hugging Face cache nobody has launched in 90 days, based on `ModelDeployment` history. The cache directory comes from `MODEL_CACHE_DIR` or `--cache-dir`. Models with no launch history are kept and listed.
 
@@ -28,6 +27,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Added the missing `0003_snapshot.json` and corrected the `0003_add_model_gated` migration's out-of-order timestamp (older than `0002`'s, which Drizzle uses as a migration watermark) and its absence from `frontend/lib/db/schema.ts`.
 
 ## [1.0.0]
+
+### Added
+
+- User-impersonated job launches: backend deployments can submit vec-inf Slurm jobs as the requesting cluster user when impersonation mode is configured, instead of always running as the service account. Direct execution remains supported. ([#40](https://github.com/Center-for-AI-Innovation/LLMHub/pull/40))
+- Local Docker stack for running the full app (frontend + backend) locally via Compose. ([#54](https://github.com/Center-for-AI-Innovation/LLMHub/pull/54))
+- Magic Castle Terraform configuration and documentation for deploying LLMHub on an HPC cluster (Slurm controller, login node, GPU compute nodes, NFS storage, optional Caddy reverse proxy for public access). ([#48](https://github.com/Center-for-AI-Innovation/LLMHub/pull/48))
+
+## [0.1.1]
 
 ### Added
 

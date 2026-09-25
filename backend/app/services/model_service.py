@@ -29,6 +29,7 @@ from app.utils.infrastructure import (
 from app.utils.llm_inference import (
     LLMInferenceClient,
     ensure_gated_model_weights_for_user,
+    resolve_gated_model_store_dir,
 )
 
 logger = get_logger("model_service")
@@ -220,14 +221,22 @@ class ModelService:
             db.refresh(db_deployment)
             return db_deployment
 
-        # For a gated model launched as a specific cluster user, scope the weights
-        # to that user's workspace (hard-linked from the shared store) instead of
-        # the infrastructure-wide default, so only authorized users can reach them.
-        if cached_gated and deployment.cluster_username:
+        # A gated model must never fall back to the infrastructure-wide default
+        # model_weights_parent_dir, which is typically world-readable -- anyone
+        # with plain filesystem access could bypass this gate entirely otherwise.
+        # Impersonated launches get a per-user hard-linked copy (the launched
+        # process runs as that user); direct launches run as the service
+        # account, which already has its own access to the protected store.
+        if cached_gated:
             try:
-                weights_parent_dir = ensure_gated_model_weights_for_user(
-                    deployment.cluster_username, deployment.modelName
-                )
+                if deployment.cluster_username:
+                    weights_parent_dir = ensure_gated_model_weights_for_user(
+                        deployment.cluster_username, deployment.modelName
+                    )
+                else:
+                    weights_parent_dir = resolve_gated_model_store_dir(
+                        deployment.modelName
+                    )
             except RuntimeError as exc:
                 db_deployment = ModelDeployment(
                     modelId=model_id,
