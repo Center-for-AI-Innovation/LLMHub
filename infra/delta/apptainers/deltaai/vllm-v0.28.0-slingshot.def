@@ -1,0 +1,412 @@
+Bootstrap: docker
+From: vllm/vllm-openai:v0.28.0
+
+# =============================================================================
+# vLLM image for LLMHub on NCSA DeltaAI (aarch64/GH200, Slingshot 11)
+#
+# Sibling of ../delta/. Same purpose, different machine -- and a different vLLM
+# version, which is forced (first bullet below).
+# Build ONLY with build-vllm-slingshot.sbatch -- %setup needs VLLM_RECIPE_DIR.
+#
+# Why each DeltaAI-specific choice, measured 2026-09-17 (job 3166459, gh059):
+#
+#   * BASE IS v0.28.0, NOT Delta's v0.19.1, AND THAT IS FORCED. libfabric.so.1
+#     and libcxi.so.1 each require GLIBC_2.38 (objdump -T), and libcxi is a
+#     hard DT_NEEDED of libfabric -- omit it and libfabric does not load at
+#     all, which presents as "NCCL chose sockets", not as a loader error. So
+#     the base must carry glibc >= 2.38. Measured across the arm64 tags:
+#     v0.19.1 through v0.27.1 are Ubuntu 22.04 / glibc 2.35 and CANNOT host
+#     this shim; v0.28.0 is the first Ubuntu 24.04 / glibc 2.39 release.
+#     Build job 3166512 found this the hard way -- it died in %post because
+#     apptainer's own fakeroot shim, taken from the SLES host, hit the floor
+#     first.
+#     Two inferences that looked safe and were WRONG: the arm64 and x86_64
+#     variants of one tag are not the same base, and the Ubuntu bump does not
+#     track the CUDA bump (CUDA went 12.9 -> 13.0.2 at v0.20.0; Ubuntu stayed
+#     at 22.04 until v0.28.0). Do not infer either -- measure.
+#     The floor is asymmetric: Delta's host is glibc 2.34, DeltaAI's is 2.38,
+#     so any base that satisfies DeltaAI also satisfies Delta. Parity is still
+#     reachable, at v0.28.0+, just not at v0.19.1.
+#
+#   * PLUGIN IS BUILT FROM SOURCE, --without-mpi. DeltaAI ships a prebuilt
+#     aarch64 plugin (/sw/user/nccl/aws-ofi-nccl-1.18.0-lf2.3.1-cu12.9) and it
+#     is tempting, but its DT_NEEDED drags in the whole Cray PE stack --
+#     libsci_gnu_mpi, libsci_gnu, libmpi_gnu_123, libdsmml, libxpmem, libpmi,
+#     libpals -- plus a dynamic libcudart.so.12/libcupti.so.12. Every one of
+#     those would have to be staged into the container -- and the CUDA ones
+#     could not be satisfied anyway, because v0.28.0 ships CUDA 13 while the
+#     site plugin is cu12.9. That mismatch is the same one that made DeltaAI
+#     source-build 1.18.0 in the first place. A --without-mpi source build has
+#     the same minimal closure as Delta's plugin, no Cray PE dependency at all,
+#     and compiles against whatever CUDA the base carries. This is the path
+#     already proven on DeltaAI (the
+#     bbka DeltaAI-python-installs vLLM container, jobs 1955151/1957963/1958004).
+#
+#   * NO FI_PROVIDER_PATH. The CXI provider is NOT a dlopen'd .so here, despite
+#     what the cross-cluster porting note says. Measured on DeltaAI at
+#     libfabric 2.3.1: /opt/cray/libfabric/2.3.1/lib64/libfabric/ is EMPTY,
+#     `nm -D --defined-only libfabric.so.1 | grep -ci cxi` is 0 of 40 total,
+#     and libcxi.so.1 is a hard DT_NEEDED. Identical to Delta. Setting the
+#     variable asserts something untrue; staging libcxi.so.1 is what matters,
+#     and it is a HARD requirement -- without it libfabric fails to load
+#     outright, and the symptom is "NCCL chose sockets", not a loader error.
+#
+#   * THE HPE TUNING VARS ARE BAKED IN. vec-inf runs
+#     `apptainer exec --nv ... --containall`, which strips the host
+#     environment -- so every FI_CXI_*/NCCL_* value the
+#     nccl-ofi-plugin/1.18.0-cuda129 module sets would be lost. Those values
+#     are HPE's, validated on DeltaAI by jobs 1972971 and 1980946. They belong
+#     in %environment. The one that cannot live here is
+#     SLURM_NETWORK=single_node_vni,disable_rdzv_get, which srun consumes on
+#     the HOST side, so it belongs in vec-inf's containerization.module_load_cmd.
+#     Measured NOT required for the fabric to work: gate job 3188139 ran with
+#     it unset and selected CXI on all 8 ranks. Set it anyway -- HPE calls
+#     disable_rdzv_get required for the hybrid RX match mode set below, and
+#     the only at-scale validation of these values had it set.
+# =============================================================================
+
+%setup
+    set -eu
+    : "${VLLM_RECIPE_DIR:?VLLM_RECIPE_DIR is unset -- build with build-vllm-slingshot.sbatch, not apptainer build directly}"
+
+    # --- Cray libfabric 2.3.1, lib AND headers --------------------------------
+    # Isolated under /opt/cray-shim, never /usr/lib64: registering the host's
+    # /usr/lib64 globally puts SLES OpenSSL ahead of the container's, and vLLM
+    # pulls models from HuggingFace over HTTPS through Python's ssl module.
+    # Headers are needed because the plugin is compiled here, against this
+    # exact libfabric.
+    # cp -a is wrong: it preserves host UIDs that do not exist in-image.
+    mkdir -p "${APPTAINER_ROOTFS}/opt/cray-shim/lib" \
+             "${APPTAINER_ROOTFS}/opt/cray-shim/include" \
+             "${APPTAINER_ROOTFS}/opt/cray-shim/staging" \
+             "${APPTAINER_ROOTFS}/opt/aws-ofi-nccl"
+    cp -v --no-preserve=ownership,mode,timestamps \
+        /opt/cray/libfabric/2.3.1/lib64/libfabric.so* \
+        "${APPTAINER_ROOTFS}/opt/cray-shim/lib/"
+    cp -rv --no-preserve=ownership,mode,timestamps \
+        /opt/cray/libfabric/2.3.1/include/. \
+        "${APPTAINER_ROOTFS}/opt/cray-shim/include/"
+
+    # --- ship the recipe INSIDE the image -------------------------------------
+    # A two-step build records "bootstrap: localimage" in the SIF's own
+    # Def.FILE descriptor, so `apptainer inspect --deffile` SUCCEEDS and tells
+    # you nothing. No `|| true` here: this copy failing silently once already
+    # shipped an image with no recipe.
+    mkdir -p "${APPTAINER_ROOTFS}/opt/cray-shim/recipe"
+    cp -v --no-preserve=ownership,mode,timestamps \
+        "${VLLM_RECIPE_DIR}/vllm-v0.28.0-slingshot.def" \
+        "${APPTAINER_ROOTFS}/opt/cray-shim/recipe/"
+
+%files
+    # Generated from `ldd /opt/cray/libfabric/2.3.1/lib64/libfabric.so.1` on a
+    # GH200 node, NOT translated from Delta's list -- the SLES names differ
+    # (libldap_r-2.4.so.2 / liblber-2.4.so.2 vs RHEL's libldap.so.2 /
+    # liblber.so.2) and a %files entry naming a host file that does not exist
+    # FAILS the build.
+    #
+    # Everything lands in staging/ and is pruned in %post against the
+    # container's own loader cache. Do NOT hand-trim this list: the gap set
+    # depends on the base image and must be recomputed, not assumed. glibc
+    # members (libc, libm, libpthread, libdl, libresolv) are excluded on
+    # purpose -- copying a SLES glibc over the container's breaks the image.
+    /usr/lib64/libatomic.so.1         /opt/cray-shim/staging/libatomic.so.1
+    /usr/lib64/libbrotlicommon.so.1   /opt/cray-shim/staging/libbrotlicommon.so.1
+    /usr/lib64/libbrotlidec.so.1      /opt/cray-shim/staging/libbrotlidec.so.1
+    /lib64/libcom_err.so.2            /opt/cray-shim/staging/libcom_err.so.2
+    /usr/lib64/libcrypto.so.3         /opt/cray-shim/staging/libcrypto.so.3
+    /usr/lib64/libcurl.so.4           /opt/cray-shim/staging/libcurl.so.4
+    /usr/lib64/libcxi.so.1            /opt/cray-shim/staging/libcxi.so.1
+    /usr/lib64/libgssapi_krb5.so.2    /opt/cray-shim/staging/libgssapi_krb5.so.2
+    /usr/lib64/libidn2.so.0           /opt/cray-shim/staging/libidn2.so.0
+    /usr/lib64/libjitterentropy.so.3  /opt/cray-shim/staging/libjitterentropy.so.3
+    /usr/lib64/libjson-c.so.5         /opt/cray-shim/staging/libjson-c.so.5
+    /usr/lib64/libk5crypto.so.3       /opt/cray-shim/staging/libk5crypto.so.3
+    /usr/lib64/libkeyutils.so.1       /opt/cray-shim/staging/libkeyutils.so.1
+    /usr/lib64/libkrb5.so.3           /opt/cray-shim/staging/libkrb5.so.3
+    /usr/lib64/libkrb5support.so.0    /opt/cray-shim/staging/libkrb5support.so.0
+    /usr/lib64/liblber-2.4.so.2       /opt/cray-shim/staging/liblber-2.4.so.2
+    /usr/lib64/libldap_r-2.4.so.2     /opt/cray-shim/staging/libldap_r-2.4.so.2
+    /usr/lib64/libnghttp2.so.14       /opt/cray-shim/staging/libnghttp2.so.14
+    /usr/lib64/libnl-3.so.200         /opt/cray-shim/staging/libnl-3.so.200
+    /usr/lib64/libpcre2-8.so.0        /opt/cray-shim/staging/libpcre2-8.so.0
+    /usr/lib64/libpsl.so.5            /opt/cray-shim/staging/libpsl.so.5
+    /usr/lib64/libsasl2.so.3          /opt/cray-shim/staging/libsasl2.so.3
+    /usr/lib64/libselinux.so.1        /opt/cray-shim/staging/libselinux.so.1
+    /usr/lib64/libssh.so.4            /opt/cray-shim/staging/libssh.so.4
+    /usr/lib64/libssl.so.3            /opt/cray-shim/staging/libssl.so.3
+    /usr/lib64/libunistring.so.2      /opt/cray-shim/staging/libunistring.so.2
+    /usr/lib64/libz.so.1              /opt/cray-shim/staging/libz.so.1
+    /usr/lib64/libzstd.so.1           /opt/cray-shim/staging/libzstd.so.1
+
+%post
+    set -eu
+
+    # --- 1. prune the staged host libs against what the container provides ---
+    # Done HERE rather than by trimming %files, because the gap set depends on
+    # the base image. On Delta's v0.19.1 base the genuine gaps were libcxi,
+    # libhwloc, libsasl2, libldap, liblber, libcrypt, libevent -- and
+    # libssl/libcrypto/libcurl/libjson-c/libnl-3 were all ALREADY PRESENT and
+    # had to be dropped. Keeping the host copies is actively harmful.
+    # Libraries that must come from the HOST even though the container has a
+    # copy, because our injected libs reference their symbols by a symbol
+    # VERSION the container's build does not define.
+    #
+    #   libnl-3.so.200 -- measured: libcxi.so.1 has 12 undefined references
+    #   tagged `@libnl_3` (nl_socket_alloc, nl_connect, nlmsg_parse, ...).
+    #   SLES's libnl-3 defines `libnl_3`; Ubuntu 24.04 builds libnl-3 without
+    #   it. At RUNTIME the loader falls back to unversioned resolution, so
+    #   `ldd` is clean and you get only "no version information available" --
+    #   which the cross-cluster porting note records as benign, and at runtime
+    #   it is. At LINK time `ld` refuses outright, so the in-container plugin
+    #   build fails with 12 undefined references and configure reports only
+    #   "could not find a working Libfabric install". Delta never hits this
+    #   because it ships a PREBUILT plugin and compiles nothing in-image.
+    #   Build job 3167221 is the measurement.
+    #
+    # Keeping the host copy is necessary but NOT sufficient: the shim dir is
+    # searched last, so ld still prefers the container's copy. The companion
+    # half of this fix is -Wl,-rpath-link below. Measured: build 3167246 kept
+    # the host libnl-3 and failed with the identical 12 undefined references.
+    #
+    # This is a narrow exemption, not a general mechanism, on purpose: the
+    # direct link probe below is the general net. If a future base image lacks
+    # some other version tag, the probe fails with the linker's own words
+    # rather than this list silently going stale.
+    VERSION_PINNED_TO_HOST="libnl-3.so.200"
+
+    echo "=== pruning staged host libs against the container's loader cache ==="
+    kept=0; dropped=0
+    for f in /opt/cray-shim/staging/*; do
+        [ -e "$f" ] || continue
+        soname=$(basename "$f")
+        case " $VERSION_PINNED_TO_HOST " in
+            *" $soname "*)
+                echo "  VERSION-PINNED ${soname} -- keeping host copy even though the container has one"
+                mv "$f" /opt/cray-shim/lib/; kept=$((kept+1)); continue ;;
+        esac
+        # grep -F with surrounding whitespace: ldconfig -p output is
+        # tab-indented, so a pattern with a leading space matches nothing and
+        # would report EVERY library as a gap -- a false negative that reads
+        # like a decisive result.
+        if ldconfig -p 2>/dev/null | grep -qF "	${soname} "; then
+            echo "  container HAS ${soname} -- dropping host copy"
+            rm -f "$f"; dropped=$((dropped+1))
+        else
+            echo "  GAP ${soname} -- keeping host copy"
+            mv "$f" /opt/cray-shim/lib/; kept=$((kept+1))
+        fi
+    done
+    rmdir /opt/cray-shim/staging 2>/dev/null || true
+    echo "--- pruned: ${kept} kept, ${dropped} dropped"
+    # A prune that kept everything, or nothing, means the probe was broken --
+    # not that the base image changed that much. Fail loudly rather than ship.
+    [ "$kept" -gt 0 ] && [ "$dropped" -gt 0 ] \
+        || { echo "FATAL: implausible prune result (kept=${kept} dropped=${dropped}) -- the ldconfig probe is wrong"; exit 1; }
+    # libcxi.so.1 is the one that cannot be missing: libfabric links it
+    # DT_NEEDED, so without it libfabric does not load at all and NCCL falls
+    # back to sockets, which looks like a performance problem.
+    [ -e /opt/cray-shim/lib/libcxi.so.1 ] \
+        || { echo "FATAL: libcxi.so.1 was pruned or never staged -- libfabric will not load"; exit 1; }
+    for _vp in $VERSION_PINNED_TO_HOST; do
+        [ -e "/opt/cray-shim/lib/${_vp}" ] \
+            || { echo "FATAL: ${_vp} is version-pinned to the host but is not in the shim -- add it to %files"; exit 1; }
+    done
+
+    # --- 2. register the shim dirs, container libs winning any collision -----
+    # zz- prefix so these are scanned AFTER the container's own directories.
+    # This must be an ldconfig entry, not just %environment LD_LIBRARY_PATH:
+    # anything that resets that variable (a module load, srun --export, a user
+    # script) would silently lose the shim and NCCL would fall back to sockets.
+    echo "/opt/cray-shim/lib"    >  /etc/ld.so.conf.d/zz-cray-shim.conf
+    echo "/opt/aws-ofi-nccl/lib" >> /etc/ld.so.conf.d/zz-cray-shim.conf
+    ldconfig
+    ldd /opt/cray-shim/lib/libfabric.so.1 | grep -q 'not found' \
+        && { echo "FATAL: injected libfabric has unresolved dependencies"; ldd /opt/cray-shim/lib/libfabric.so.1; exit 1; }
+    echo "=== injected libfabric resolves cleanly ==="
+
+    # --- 3. build aws-ofi-nccl 1.18.0 from source ----------------------------
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        git make g++ autoconf automake libtool m4 pkg-config libhwloc-dev
+    rm -rf /var/lib/apt/lists/*
+
+    # --- prove the libfabric link works, with the real ld error -----------
+    # configure only ever says "could not find a working Libfabric install".
+    # Do the same link ourselves first, so a failure prints the linker's own
+    # words instead of a summary. Verified to succeed on the HOST with these
+    # exact flags, so a failure here is container-specific by construction.
+    cat > /tmp/lfprobe.cpp <<'PROBE'
+namespace conftest { extern "C" int fi_getinfo (); }
+int main (void) { return conftest::fi_getinfo (); }
+PROBE
+    echo "=== direct libfabric link probe ==="
+    if g++ -std=c++17 -o /tmp/lfprobe /tmp/lfprobe.cpp \
+           -isystem /opt/cray-shim/include -L/opt/cray-shim/lib -lfabric \
+           -Wl,-rpath-link,/opt/cray-shim/lib 2>/tmp/lfprobe.err; then
+        echo "  link OK"
+    else
+        echo "  LINK FAILED — ld says:"; sed 's/^/    /' /tmp/lfprobe.err
+        echo "  --- retrying with -Wl,--verbose to show the search path ---"
+        g++ -std=c++17 -o /tmp/lfprobe /tmp/lfprobe.cpp -L/opt/cray-shim/lib -lfabric \
+            -Wl,--verbose 2>&1 | grep -iE 'attempt to open|succeeded|failed|libfabric' | tail -25 | sed 's/^/    /'
+        echo "  --- ld default search dirs ---"
+        ld --verbose 2>/dev/null | grep SEARCH_DIR | tr ';' '\n' | sed 's/^/    /' | head -15
+        echo "  --- the file ld should have used ---"
+        ls -lL /opt/cray-shim/lib/libfabric.so* | sed 's/^/    /'
+        readelf -h /opt/cray-shim/lib/libfabric.so 2>&1 | grep -E 'Class|Machine|Type' | sed 's/^/    /'
+        nm -D --defined-only /opt/cray-shim/lib/libfabric.so 2>/dev/null | grep -cw fi_getinfo \
+            | sed 's/^/    fi_getinfo defined-symbol count: /'
+        exit 1
+    fi
+
+    builddir="$(mktemp -d /tmp/aws-ofi-build.XXXXXX)"
+    git clone --depth 1 --branch v1.18.0 https://github.com/aws/aws-ofi-nccl.git "$builddir/aws-ofi-nccl"
+    cd "$builddir/aws-ofi-nccl"
+    ./autogen.sh
+
+    # The build host's module environment leaks in through %post; a stray
+    # CPATH or CFLAGS here produces a plugin linked against the wrong headers.
+    unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH CFLAGS CXXFLAGS CPPFLAGS LDFLAGS GCC_EXEC_PREFIX COMPILER_PATH
+    export CC=/usr/bin/gcc CXX=/usr/bin/g++
+    export CFLAGS="-std=gnu17 -O2" CXXFLAGS="-std=c++17 -O2"
+    # -rpath-link, not -L: `-L` governs how `-lNAME` is resolved, but the
+    # INDIRECT dependencies of a shared library on the command line are looked
+    # up by a different search order that does not include -L. ld consults
+    # -rpath-link first, then the library's own RUNPATH, then the default dirs
+    # and /etc/ld.so.conf. The shim dir is registered LAST in ld.so.conf on
+    # purpose (so container libraries win collisions -- that is what keeps the
+    # host OpenSSL from shadowing the container's), which means that without
+    # this flag ld resolves libcxi's libnl-3.so.200 to the CONTAINER copy and
+    # the 12 `@libnl_3` symbols come back undefined. Link-time only: runtime
+    # resolution is left exactly as it was, because the loader's unversioned
+    # fallback is proven to work on DeltaAI.
+    export LDFLAGS="-Wl,-rpath-link,/opt/cray-shim/lib"
+    # Empty the pkg-config vars: letting pkg-config inject -I/usr/include
+    # breaks GCC 13's cstdlib include_next.
+    export LIBFABRIC_CFLAGS="-I/opt/cray-shim/include" LIBFABRIC_LIBS="-L/opt/cray-shim/lib -lfabric"
+    export HWLOC_CFLAGS="" HWLOC_LIBS="-lhwloc"
+
+    # A failed configure says only "could not find a working Libfabric
+    # install"; the actual linker error is in config.log, which dies with the
+    # build. Print it, or every iteration costs a full rebuild to learn one line.
+    if ! ./configure \
+        --prefix=/opt/aws-ofi-nccl \
+        --with-cuda=/usr/local/cuda \
+        --with-libfabric=/opt/cray-shim \
+        --with-hwloc=/usr \
+        --without-mpi; then
+        echo "=== configure FAILED — every -lfabric link attempt ==="
+        grep -n -A8 'conftest.*-lfabric' config.log | sed 's/^/  /' | head -40
+        echo "=== configure FAILED — fi_getinfo search block (confdefs stripped) ==="
+        # The '| #define ...' confdefs dump is ~45 lines and has twice pushed
+        # the actual second link attempt out of a head-limited window.
+        awk '/checking for library containing fi_getinfo/{f=1} f' config.log \
+            | grep -v '^| ' | head -40
+        echo "=== configure FAILED — last 40 lines of config.log ==="
+        tail -40 config.log
+        echo "=== what the linker could actually see ==="
+        ls -l /opt/cray-shim/lib/ /opt/cray-shim/include/ 2>&1 | head -30
+        ldd /opt/cray-shim/lib/libfabric.so 2>&1 | head -25
+        exit 1
+    fi
+    find . -name Makefile -type f -exec sed -i 's@ -isystem /usr/include@@g' {} +
+    make -j"$(nproc)"
+    make install
+    cd /; rm -rf "$builddir"
+
+    # --- 4. make ours the only NCCL net plugin -------------------------------
+    # NCCL dlopens "libnccl-net.so". Any bundled plugin shadows ours during
+    # discovery, fails with "NET/IB : No device found", and silently falls
+    # back to Socket transport.
+    cd /opt/aws-ofi-nccl/lib
+    [ -e libnccl-net.so ] || ln -sf libnccl-net-ofi.so libnccl-net.so
+    chmod a+rx libnccl-net*.so*
+    chmod -R a+rX /opt/cray-shim /opt/aws-ofi-nccl
+    rm -f /usr/lib64/libnccl-net.so.[0-9]* 2>/dev/null || true
+    rm -rf /opt/hpcx/nccl_rdma_sharp_plugin/lib/libnccl-net* \
+           /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net* \
+           /opt/amazon/aws-ofi-nccl 2>/dev/null || true
+    ldconfig
+
+    # --- 5. /tmp perms under -all-root ---------------------------------------
+    # mksquashfs -all-root makes every directory root-owned, including /tmp,
+    # which ends up 0700 instead of 1777. Apptainer normally binds the host
+    # /tmp over it so this stays hidden -- but vec-inf runs --containall.
+    chmod 1777 /tmp /var/tmp 2>/dev/null || true
+
+    # --- 6. Ray: vec-inf's multi-node vLLM path ------------------------------
+    # vec-inf 0.9.0 launches multi-node vLLM as a Ray cluster and passes
+    # --distributed-executor-backend ray. The upstream image ships NO
+    # ray -- measured on the v0.20.0 and v0.29.0 arm64 images, neither has it.
+    # Single-node TP never touches this. Same pin as Delta's image.
+    echo "=== installing ray for the vec-inf multi-node launcher ==="
+    uv pip install --system --no-cache --link-mode=copy "ray[default,cgraph]==2.58.0"
+    python3 -c 'import ray, cupy; print("ray", ray.__version__, "cupy", cupy.__version__)'
+
+    # --- 7. verifications that can actually fail -----------------------------
+    echo "=== ldd plugin (NO 'not found' expected) ==="
+    ldd /opt/aws-ofi-nccl/lib/libnccl-net-ofi.so
+    ldd /opt/aws-ofi-nccl/lib/libnccl-net-ofi.so | grep -q 'not found' \
+        && { echo "FATAL: plugin has unresolved dependencies"; exit 1; }
+    echo "=== plugin version, read from the binary ==="
+    strings /opt/aws-ofi-nccl/lib/libnccl-net-ofi.so | grep -m1 'Initializing aws-ofi-nccl' \
+        || { echo "FATAL: no aws-ofi-nccl version string in the built plugin"; exit 1; }
+    echo "=== container OpenSSL must still be the CONTAINER's ==="
+    python3 -c "import ssl; print('  ', ssl.OPENSSL_VERSION)"
+    echo "=== cxi markers in the injected libfabric ==="
+    python3 -c "d=open('/opt/cray-shim/lib/libfabric.so.1','rb').read(); n=d.count(b'cxi_'); print('  cxi markers:', n); raise SystemExit(0 if n else 1)"
+
+%environment
+    # The shim dirs are in the ldconfig cache (see %post step 2), so this is
+    # belt-and-braces -- deliberately NOT the only route to the plugin.
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/sbsa-linux/lib:/usr/local/cuda/targets/aarch64-linux/lib:/opt/aws-ofi-nccl/lib:/opt/cray-shim/lib:${LD_LIBRARY_PATH}
+    export NCCL_NET_PLUGIN=/opt/aws-ofi-nccl/lib/libnccl-net.so
+    # NO FI_PROVIDER_PATH -- see the header. The provider directory is empty
+    # on DeltaAI exactly as it is on Delta; libcxi.so.1 is what carries CXI.
+    export FI_LOG_LEVEL=warn
+
+    # --- HPE Slingshot tuning, from nccl-ofi-plugin/1.18.0-cuda129 -----------
+    # --containall strips the module's environment, so these must live in the
+    # image. Validated on DeltaAI by jobs 1972971 (no regression vs defaults)
+    # and 1980946 (96.33 GB/s allreduce at 64M, 8 GPUs / 2 nodes).
+    export FI_PROVIDER=cxi
+    export NCCL_NET_OFI_PROVIDER=cxi
+    export NCCL_SOCKET_IFNAME=hsn
+    export NCCL_IB_DISABLE=1
+    export NCCL_CROSS_NIC=1
+    export NCCL_PLUGIN_P2P=0
+    export NCCL_DMABUF_ENABLE=0
+    export NCCL_NET_GDR_LEVEL=PHB
+    export FI_MR_CACHE_MONITOR=userfaultfd
+    export FI_CXI_DISABLE_HOST_REGISTER=1
+    export FI_CXI_DEFAULT_CQ_SIZE=131072
+    export FI_CXI_RDZV_PROTO=alt_read
+    export FI_CXI_RDZV_EAGER_SIZE=0
+    export FI_CXI_DEFAULT_TX_SIZE=2048
+    export FI_CXI_RX_MATCH_MODE=hybrid
+
+    # --- vLLM's symmetric-memory all-reduce must be OFF on GH200 -------------
+    # Default ON since vLLM v0.11.0, and its eligibility check gates only on
+    # CUDA platform + device capability {9.0,10.0} + world size {2,4,6,8} --
+    # there is NO same-node guard, unlike custom_all_reduce.py. A multi-node
+    # TP group therefore enters torch symmetric-memory rendezvous, which
+    # exchanges CUDA memory file descriptors over NODE-LOCAL AF_UNIX sockets in
+    # a ring. The cross-node hops fail, some ranks warn and carry on while the
+    # rest block in recvmsg, and the collective deadlocks at engine init with
+    # GPUs at 0%, no error and no timeout.
+    # Costs nothing here: GH200 quads are an all-to-all NVLink mesh with NO
+    # NVSwitch, every GPU reports has_multicast_support=False, and vLLM
+    # self-disables symm-mem without multicast anyway. Measured A/B on
+    # single-node TP=4 (DeltaAI job 2718901): throughput identical.
+    # Evidence: DeltaAI jobs 2718134 (HANG) vs 2718171 (clean, 2:19), SUP-28341.
+    # NOT true on NVSwitch machines -- on Delta's gpuH200x8 the default ON is
+    # wanted for single-node TP. This line is DeltaAI-specific on purpose.
+    export VLLM_ALLREDUCE_USE_SYMM_MEM=0
+
+%labels
+    org.ncsa.system      deltaai
+    org.ncsa.vllm        v0.28.0
+    org.ncsa.ray         2.58.0
+    org.ncsa.awsofinccl  1.18.0-source
+    org.ncsa.slingshot   cray-libfabric-2.3.1
+    org.ncsa.recipe      LLMHub/infra/delta/apptainers/deltaai

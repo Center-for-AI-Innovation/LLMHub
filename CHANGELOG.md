@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Model cards for DeepSeek-family models (Model Library and Active Models) show a Country of Concern notice: a small-font caution banner with a warning icon stating the model was trained in a US government designated Country of Concern and noting the October 19, 2026 Homeland Security directive ordering federal civilian agencies to remove DeepSeek (LLMHub is seeking university guidance and not removing it yet, possibly with little notice). The "Country of Concern" phrase links to the UI System guidance PDF. Cards for other models are unchanged.
 - Dev contrast-harness section and frontend unit tests covering the Country of Concern notice.
+- vLLM image recipe for NCSA DeltaAI (`infra/delta/apptainers/deltaai/`): `vllm/vllm-openai:v0.28.0` (arm64) with aws-ofi-nccl 1.18.0 built from source for Slingshot, Ray for vec-inf's multi-node launcher, and the HPE Slingshot tuning baked in. It is the image the deployment kit's DeltaAI config pins. v0.28.0 is the earliest arm64 base with the glibc (>= 2.38) that DeltaAI's libfabric needs.
 
 ### Fixed
 
