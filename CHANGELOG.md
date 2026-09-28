@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- vLLM image recipe for NCSA DeltaAI (`infra/delta/apptainers/deltaai/`): `vllm/vllm-openai:v0.28.0` (arm64) with aws-ofi-nccl 1.18.0 built from source for Slingshot, Ray for vec-inf's multi-node launcher, and the HPE Slingshot tuning baked in. It is the image the deployment kit's DeltaAI config pins. v0.28.0 is the earliest arm64 base with the glibc (>= 2.38) that DeltaAI's libfabric needs.
+
 ## [1.1.0]
 
 ### Added
