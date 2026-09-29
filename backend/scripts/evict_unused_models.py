@@ -183,6 +183,8 @@ def main() -> int:
         help="Report what would be evicted without deleting anything",
     )
     args = parser.parse_args()
+    if args.days < 1:
+        parser.error("--days must be at least 1")
 
     db = None
     compile_result = None
