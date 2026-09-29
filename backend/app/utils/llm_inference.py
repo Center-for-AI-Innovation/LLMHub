@@ -71,6 +71,34 @@ def _grant_acl_access(path: Path, usernames: List[str], failure_context: str) ->
                 ) from exc
 
 
+def _restrict_payload_file_acl(path: Path, cluster_username: str) -> None:
+    """Make ``path`` readable by the owner and ``cluster_username`` only.
+
+    A file created inside the workspace inherits its default ACL, and the mode
+    passed to open() becomes the ACL mask. 0600 masks the inherited
+    ``user:<cluster_username>`` entry down to nothing, so the impersonated user
+    can't read the file. Widening the mask alone would also expose the file to
+    the inherited ``group::`` entry (a primary group shared by many accounts on
+    Delta), so replace the whole ACL instead.
+    """
+    command = [
+        "setfacl",
+        "--set",
+        f"u::rw-,u:{cluster_username}:r--,g::---,m::r--,o::---",
+        str(path),
+    ]
+    try:
+        subprocess.run(command, text=True, capture_output=True, check=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Required ACL command not found: {command[0]}") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        raise RuntimeError(
+            f"Failed to grant {cluster_username} access to launch payload: "
+            f"{stderr or exc}"
+        ) from exc
+
+
 def _resolve_impersonated_workspace_root() -> Optional[Path]:
     raw_root = (
         getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
@@ -726,15 +754,18 @@ class LLMInferenceClient:
         # The payload can carry a secret (hf_token, via params["env"]). Command-line
         # arguments are visible to any user on the host via `ps`/`/proc/<pid>/cmdline`
         # for the process's lifetime, so write it to a file instead and pass only the
-        # path. The file lands in the impersonated user's workspace, which already has
-        # a default ACL granting exactly [cluster_username, this service account] read
-        # access (see _ensure_impersonated_workspace_dir). 0640 because the group bits
-        # become the ACL mask (0600 would block that user); other users get nothing.
+        # path. The file lands in the impersonated user's workspace.
         payload = self._build_launch_payload(
             model_name, enable_cloudflare_tunnel, params
         )
         payload_path = workspace_dir / f".launch-payload-{uuid.uuid4().hex}.json"
-        fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
+        fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            _restrict_payload_file_acl(payload_path, cluster_username)
+        except RuntimeError as exc:
+            os.close(fd)
+            payload_path.unlink(missing_ok=True)
+            return {"success": False, "error": str(exc)}
         with os.fdopen(fd, "w") as f:
             f.write(payload)
 
