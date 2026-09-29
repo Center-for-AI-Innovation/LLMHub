@@ -45,8 +45,7 @@ Validates the Delta impersonation path for user-submitted launches.
 
 ### `evict_unused_models.py`
 Deletes models from the shared Hugging Face cache that nobody has launched in 90
-days. Models enter the cache when a launch downloads them; this removes the ones
-no longer used.
+days.
 
 - **Directory:** `MODEL_CACHE_DIR` from the backend `.env`, or `--cache-dir`.
   Never inferred, because it differs per cluster.
@@ -77,9 +76,6 @@ no longer used.
 ```
 
 Needs `DATABASE_URL` and `MODEL_CACHE_DIR` from the backend `.env`.
-
-**Not covered:** pre-staged weights under `<model_weights_parent_dir>/<model_name>`
-and per-user hard links under `<VEC_INF_SHARED_WORK_ROOT>/<user>/model-weights/`.
 
 
 ## Infrastructure Detection Process

@@ -53,10 +53,8 @@ class Settings(BaseSettings):
     VEC_INF_ACCOUNTS_SCRIPT: str = (
         "/sw/user/scripts/accounts"  # Helper to resolve a user's Slurm accounts
     )
-    MODEL_CACHE_DIR: Optional[str] = os.getenv(
-        "MODEL_CACHE_DIR"
-    )  # Shared HF cache this cluster's jobs download into; scripts/evict_unused_models.py
-    # evicts unused models from it. Differs per cluster, so it is never inferred.
+    # Shared caches cleaned by scripts/evict_unused_models.py
+    MODEL_CACHE_DIR: Optional[str] = os.getenv("MODEL_CACHE_DIR")
     COMPILE_CACHE_DIR: Optional[str] = os.getenv("COMPILE_CACHE_DIR")
     MODEL_STORE_ROOT: Optional[str] = os.getenv(
         "MODEL_STORE_ROOT"
