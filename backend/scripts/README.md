@@ -56,6 +56,8 @@ no longer used.
   `models.yaml`): kept, and listed at the end of each run.
 - **Deletion** goes through `huggingface_hub`'s `delete_revisions()`, not `rm`,
   so shared blobs and snapshot links stay consistent.
+- **Compile cache:** if `COMPILE_CACHE_DIR` (or `--compile-cache-dir`) is set,
+  directories there with no file read or written in `--days` are deleted too.
 
 **Usage:**
 ```bash

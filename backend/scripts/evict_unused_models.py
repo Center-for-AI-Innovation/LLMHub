@@ -4,14 +4,16 @@
 vLLM fills the cache when a launch downloads a model; this script empties it.
 A model's last launch comes from ``ModelDeployment``, matched to cache entries by
 exact HF repo id (``AvailableModel.huggingfaceId``). Cache entries with no
-launch history are kept and reported.
+launch history are kept and reported. The compile cache (``COMPILE_CACHE_DIR``)
+is keyed by hash, not model, so its directories are deleted by file age instead.
 """
 
 import argparse
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -44,7 +46,7 @@ def resolve_cache_dir(override: Optional[str] = None) -> Path:
 
     cache_dir = Path(raw.strip()).expanduser()
     if not cache_dir.is_dir():
-        raise RuntimeError(f"Model cache directory does not exist: {cache_dir}")
+        raise RuntimeError(f"Cache directory does not exist: {cache_dir}")
     return cache_dir
 
 
@@ -124,6 +126,41 @@ def evict_unused_models(
     }
 
 
+def evict_stale_compile_cache(
+    cache_dir: Path,
+    max_age_days: int = DEFAULT_MAX_AGE_DAYS,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Delete compile-cache dirs with no file read or written in ``max_age_days``."""
+    cutoff = (datetime.now() - timedelta(days=max_age_days)).timestamp()
+    removed = 0
+    freed_bytes = 0
+    emptied: Set[Path] = set()
+
+    for dirpath, dirnames, filenames in os.walk(cache_dir, topdown=False):
+        path = Path(dirpath)
+        try:
+            if filenames:
+                stats = [(path / name).lstat() for name in filenames]
+                if max(max(s.st_atime, s.st_mtime) for s in stats) >= cutoff:
+                    continue
+                removed += 1
+                freed_bytes += sum(stat.st_size for stat in stats)
+                if not dry_run:
+                    for name in filenames:
+                        (path / name).unlink()
+            elif not dirnames and path.stat().st_mtime >= cutoff:
+                continue  # may belong to a job that is still writing
+            if path != cache_dir and all(path / name in emptied for name in dirnames):
+                emptied.add(path)
+                if not dry_run:
+                    path.rmdir()
+        except OSError as exc:
+            logger.warning("Skipped %s: %s", path, exc)
+
+    return {"removed": removed, "freed_bytes": freed_bytes}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -131,10 +168,14 @@ def main() -> int:
         help="HF cache directory to clean (default: MODEL_CACHE_DIR from .env)",
     )
     parser.add_argument(
+        "--compile-cache-dir",
+        help="Compile cache directory to clean (default: COMPILE_CACHE_DIR from .env)",
+    )
+    parser.add_argument(
         "--days",
         type=int,
         default=DEFAULT_MAX_AGE_DAYS,
-        help=f"Evict models unused for this many days (default: {DEFAULT_MAX_AGE_DAYS})",
+        help=f"Evict entries unused for this many days (default: {DEFAULT_MAX_AGE_DAYS})",
     )
     parser.add_argument(
         "--dry-run",
@@ -144,12 +185,19 @@ def main() -> int:
     args = parser.parse_args()
 
     db = None
+    compile_result = None
     try:
         cache_dir = resolve_cache_dir(args.cache_dir)
+        compile_raw = args.compile_cache_dir or settings.COMPILE_CACHE_DIR
+        compile_dir = resolve_cache_dir(compile_raw) if compile_raw else None
         db = SessionLocal()
         result = evict_unused_models(
             db, cache_dir, max_age_days=args.days, dry_run=args.dry_run
         )
+        if compile_dir:
+            compile_result = evict_stale_compile_cache(
+                compile_dir, max_age_days=args.days, dry_run=args.dry_run
+            )
     except Exception as exc:
         # Cron only sees the exit code, so log the reason.
         logger.error("Model eviction failed: %s", exc)
@@ -158,6 +206,7 @@ def main() -> int:
         if db is not None:
             db.close()
 
+    suffix = " (dry run, nothing deleted)" if args.dry_run else ""
     logger.info(
         "Eviction complete on %s: evicted=%d kept=%d unmatched=%d freed=%.1fGB%s",
         cache_dir,
@@ -165,8 +214,18 @@ def main() -> int:
         len(result["kept"]),
         len(result["unmatched"]),
         result["freed_bytes"] / 1e9,
-        " (dry run, nothing deleted)" if args.dry_run else "",
+        suffix,
     )
+    if compile_result is None:
+        logger.info("COMPILE_CACHE_DIR not set; skipped the compile cache")
+    else:
+        logger.info(
+            "Compile cache cleanup on %s: removed=%d dirs freed=%.1fGB%s",
+            compile_dir,
+            compile_result["removed"],
+            compile_result["freed_bytes"] / 1e9,
+            suffix,
+        )
     if result["unmatched"]:
         logger.warning(
             "%d cached models have no launch history and are never evicted: %s",

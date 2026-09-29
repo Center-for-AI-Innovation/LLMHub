@@ -57,6 +57,7 @@ class Settings(BaseSettings):
         "MODEL_CACHE_DIR"
     )  # Shared HF cache this cluster's jobs download into; scripts/evict_unused_models.py
     # evicts unused models from it. Differs per cluster, so it is never inferred.
+    COMPILE_CACHE_DIR: Optional[str] = os.getenv("COMPILE_CACHE_DIR")
     MODEL_STORE_ROOT: Optional[str] = os.getenv(
         "MODEL_STORE_ROOT"
     )  # Shared store of all model weights, keyed by model name; gated models are

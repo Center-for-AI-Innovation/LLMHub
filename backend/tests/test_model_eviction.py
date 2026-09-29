@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
@@ -184,3 +185,38 @@ def test_dry_run_reports_without_deleting(db, monkeypatch, tmp_path):
     assert result["evicted"] == ["Qwen/Qwen3-8B"]
     assert result["freed_bytes"] == 2_000_000_000
     assert deleted == []
+
+
+# --- compile cache ---
+
+
+def _cache_file(path, age_days, read_days_ago=None):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x" * 10)
+    mtime = (datetime.now() - timedelta(days=age_days)).timestamp()
+    atime = (datetime.now() - timedelta(days=read_days_ago or age_days)).timestamp()
+    os.utime(path, (atime, mtime))
+
+
+def test_compile_cache_removes_only_fully_stale_dirs(tmp_path):
+    _cache_file(tmp_path / "fxgraph" / "ab" / "old", 200)
+    _cache_file(tmp_path / "new" / "kernel.so", 1)
+    _cache_file(tmp_path / "read" / "kernel.so", 200, read_days_ago=1)
+    _cache_file(tmp_path / "mixed" / "a.so", 200)
+    _cache_file(tmp_path / "mixed" / "b.json", 1)
+
+    result = evict_unused_models.evict_stale_compile_cache(tmp_path, max_age_days=90)
+
+    assert result == {"removed": 1, "freed_bytes": 10}
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mixed", "new", "read"]
+
+
+def test_compile_cache_dry_run_deletes_nothing(tmp_path):
+    _cache_file(tmp_path / "old" / "kernel.so", 200)
+
+    result = evict_unused_models.evict_stale_compile_cache(
+        tmp_path, max_age_days=90, dry_run=True
+    )
+
+    assert result == {"removed": 1, "freed_bytes": 10}
+    assert (tmp_path / "old" / "kernel.so").exists()
