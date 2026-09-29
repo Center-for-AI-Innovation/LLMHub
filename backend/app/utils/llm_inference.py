@@ -129,13 +129,11 @@ def _get_shared_cache_dirs() -> List[Path]:
 
     host_dirs: List[Path] = []
     for mount in bind_value.split(","):
-        parts = mount.split(":", 1)
-        if len(parts) != 2:
-            continue
-        host_path, container_path = parts
-        if container_path not in {
-            "/root/.cache/huggingface",
-            "/root/.cache/torch_inductor",
+        host_path, _, container_path = mount.strip().partition(":")
+        # A bare path is mounted at the same location inside the container.
+        if Path(container_path or host_path).name not in {
+            "huggingface",
+            "torch_inductor",
         }:
             continue
         host_dirs.append(Path(host_path).expanduser())
@@ -730,13 +728,13 @@ class LLMInferenceClient:
         # for the process's lifetime, so write it to a file instead and pass only the
         # path. The file lands in the impersonated user's workspace, which already has
         # a default ACL granting exactly [cluster_username, this service account] read
-        # access (see _ensure_impersonated_workspace_dir) -- an explicit 0600 mode keeps
-        # every other user on the host locked out.
+        # access (see _ensure_impersonated_workspace_dir). 0640 because the group bits
+        # become the ACL mask (0600 would block that user); other users get nothing.
         payload = self._build_launch_payload(
             model_name, enable_cloudflare_tunnel, params
         )
         payload_path = workspace_dir / f".launch-payload-{uuid.uuid4().hex}.json"
-        fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o640)
         with os.fdopen(fd, "w") as f:
             f.write(payload)
 

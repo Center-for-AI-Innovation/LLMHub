@@ -31,7 +31,7 @@ default_args:
   resource_type: ""
   exclude: ""
   nodelist: ""
-  bind: "/projects/modelcache/public/huggingface:/root/.cache/huggingface,/projects/modelcache/public/torch_inductor:/root/.cache/torch_inductor"
+  bind: "/projects/modelcache/public/huggingface,/projects/modelcache/public/torch_inductor:/root/.cache/torch_inductor"
   venv: "apptainer"
   data_type: "auto"
   log_dir: "~/.vec-inf-logs"
