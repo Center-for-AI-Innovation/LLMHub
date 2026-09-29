@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources, and a supplied token is appended to the launch environment. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
-- `backend/scripts/evict_unused_models.py`, a weekly cron job that deletes models from the shared Hugging Face cache nobody has launched in 90 days, based on `ModelDeployment` history. The cache directory comes from `MODEL_CACHE_DIR` or `--cache-dir`. Models with no launch history are kept and listed. It also deletes stale entries from the shared torch inductor cache (`COMPILE_CACHE_DIR`).
+- `backend/scripts/evict_unused_models.py`, a cleanup script meant to run weekly from cron (not scheduled automatically), that deletes models from the shared Hugging Face cache nobody has launched in 90 days, based on `ModelDeployment` history. The cache directory comes from `MODEL_CACHE_DIR` or `--cache-dir`. Models with no launch history are kept and listed. It also deletes stale entries from the shared torch inductor cache (`COMPILE_CACHE_DIR`).
 
 ### Changed
 

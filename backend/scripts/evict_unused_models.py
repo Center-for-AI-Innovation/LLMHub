@@ -58,7 +58,11 @@ def last_launched_by_repo(db: Session) -> Dict[str, datetime]:
     rows = (
         db.query(AvailableModel.huggingfaceId, func.max(ModelDeployment.createdAt))
         .join(ModelDeployment, ModelDeployment.modelId == AvailableModel.id)
-        .filter(AvailableModel.huggingfaceId.isnot(None))
+        .filter(
+            AvailableModel.huggingfaceId.isnot(None),
+            # Requests rejected before reaching Slurm never loaded the model.
+            ModelDeployment.slurmJobId != "failed",
+        )
         .group_by(AvailableModel.huggingfaceId)
         .all()
     )
