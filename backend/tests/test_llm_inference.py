@@ -1,6 +1,12 @@
 import json
+import os
+import pwd
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from app.config.config import settings
 from app.utils import llm_inference
@@ -151,6 +157,9 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         "_select_user_slurm_account",
         lambda *_args, **_kwargs: "bgns-delta-gpu",
     )
+    monkeypatch.setattr(
+        llm_inference, "_restrict_payload_file_acl", lambda *_args: None
+    )
     monkeypatch.setattr(llm_inference.subprocess, "run", fake_run)
 
     client = llm_inference.LLMInferenceClient()
@@ -182,6 +191,67 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     assert payload["params"]["log_dir"].endswith("/alice")
     # The payload file is cleaned up once the subprocess call returns.
     assert not Path(captured["payload_path"]).exists()
+
+
+@pytest.mark.skipif(
+    shutil.which("setfacl") is None or shutil.which("getfacl") is None,
+    reason="needs real POSIX ACL tools",
+)
+def test_impersonated_payload_file_is_readable_by_cluster_user(
+    monkeypatch, tmp_path
+):
+    """Regression: the payload file used to be created 0600 inside the
+    ACL'd workspace, which set the ACL mask to --- and masked out the
+    impersonated user's inherited entry. Nothing is mocked on the filesystem
+    side here: the workspace gets its ACLs from the real
+    _ensure_impersonated_workspace_dir, and the payload file's ACL is read
+    back with real getfacl while the wrapper would be running."""
+    real_run = subprocess.run
+    # The named ACL entry must be a user that exists on this host.
+    cluster_username = pwd.getpwuid(os.getuid()).pw_name
+    wrapper_path = tmp_path / "impersonate-wrapper"
+    wrapper_path.write_text("#!/bin/sh\nexit 0\n")
+    wrapper_path.chmod(0o755)
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        if command[0] != str(wrapper_path):
+            return real_run(command, **kwargs)
+        captured["acl"] = real_run(
+            ["getfacl", "--omit-header", "--absolute-names", command[-1]],
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+        return SimpleNamespace(
+            returncode=0,
+            stdout='{"success": true, "job_id": "1", "slurm_job_id": "1"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
+    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
+    monkeypatch.setattr(settings, "VEC_INF_SHARED_WORK_ROOT", str(tmp_path / "work"))
+    monkeypatch.setattr(llm_inference, "_ensure_shared_cache_dir_access", lambda _: None)
+    monkeypatch.setattr(
+        llm_inference,
+        "_select_user_slurm_account",
+        lambda *_args, **_kwargs: "bgns-delta-gpu",
+    )
+    monkeypatch.setattr(llm_inference.subprocess, "run", fake_run)
+
+    result = llm_inference.LLMInferenceClient().launch_model(
+        "Qwen/Qwen3-8B", cluster_username=cluster_username
+    )
+
+    assert result["success"] is True
+    acl = captured["acl"].splitlines()
+    assert f"user:{cluster_username}:r--" in acl
+    assert "mask::r--" in acl
+    # The owning group is a primary group shared by many accounts on Delta.
+    assert "group::---" in acl
+    assert "other::---" in acl
 
 
 def test_parse_impersonated_response_handles_pty_noise():
