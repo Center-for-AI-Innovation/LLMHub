@@ -813,7 +813,14 @@ cmd_preflight() {
     if [ "$IMP" = 1 ]; then
         [ "$ME" = "$LLMHUB_SERVICE_USER" ] && ok "running as ${LLMHUB_SERVICE_USER} (the sudo edge svcdeltallmhub → svcllmhub* belongs to the backend)" \
             || bad "impersonate mode is service-user-only; you are ${ME}"
-        [ -w "$LLMHUB_SHARED_WORK_ROOT" ] && ok "${LLMHUB_SHARED_WORK_ROOT} writable (per-user workspaces)" || bad "${LLMHUB_SHARED_WORK_ROOT} not writable by ${ME}"
+        # A first deploy creates it (render_vec_inf_config), so judge the nearest
+        # existing ancestor -- as the shared-root check below does.
+        local wr="$LLMHUB_SHARED_WORK_ROOT"; while [ ! -d "$wr" ] && [ "$wr" != / ]; do wr="$(dirname "$wr")"; done
+        if [ "$wr" = "$LLMHUB_SHARED_WORK_ROOT" ]; then
+            [ -w "$wr" ] && ok "${wr} writable (per-user workspaces)" || bad "${wr} not writable by ${ME}"
+        else
+            [ -w "$wr" ] && ok "${LLMHUB_SHARED_WORK_ROOT} will be created by deploy (under writable ${wr})" || bad "cannot create ${LLMHUB_SHARED_WORK_ROOT}: ${wr} not writable by ${ME}"
+        fi
         local sr="$LLMHUB_SHARED_ROOT"; while [ ! -d "$sr" ] && [ "$sr" != / ]; do sr="$(dirname "$sr")"; done
         [ -w "$sr" ] && ok "shared root ${LLMHUB_SHARED_ROOT} (under writable ${sr})" || bad "cannot write under ${sr} for the shared root"
         world_readable "$sr" && ok "${sr} is world-readable" || bad "${sr} is not world-readable — svcllmhub* could not reach the shared root"
