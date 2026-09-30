@@ -501,7 +501,11 @@ render_backend_env() {
         emit API_V1_STR /api
         emit PROJECT_NAME "\"LLMHub Backend (${LLMHUB_PROFILE} ${LLMHUB_REF})\""
         emit BACKEND_CORS_ORIGINS "[${cors}]"
-        emit DATABASE_URL "$(db_url)"
+        # Name the driver the backend installs (psycopg2-binary). A bare
+        # postgresql:// means psycopg2 to SQLAlchemy 2.0 but psycopg 3 to 2.1,
+        # which the backend does not install -- and it pins only >=2.0.23.
+        # The frontend (node-postgres) keeps the bare URL: POSTGRES_URL below.
+        emit DATABASE_URL "$(db_url | sed 's#^postgresql://#postgresql+psycopg2://#')"
         emit SLURM_ACCOUNT "$LLMHUB_SLURM_ACCOUNT"
         emit VEC_INF_ACCOUNT "$LLMHUB_SLURM_ACCOUNT"
         emit VEC_INF_WORK_DIR "$LLMHUB_VEC_INF_WORK_DIR"
