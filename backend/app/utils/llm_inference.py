@@ -73,7 +73,9 @@ def _grant_acl_access(path: Path, usernames: List[str], failure_context: str) ->
                 ) from exc
 
 
-def _restrict_payload_file_acl(path: Path, cluster_username: str) -> None:
+def _restrict_acl_to_cluster_user(
+    path: Path, cluster_username: str, directory: bool = False
+) -> None:
     """Make ``path`` readable by the owner and ``cluster_username`` only.
 
     A file created inside the workspace inherits its default ACL, and the mode
@@ -86,7 +88,11 @@ def _restrict_payload_file_acl(path: Path, cluster_username: str) -> None:
     command = [
         "setfacl",
         "--set",
-        f"u::rw-,u:{cluster_username}:r--,g::---,m::r--,o::---",
+        (
+            f"u::rwx,u:{cluster_username}:r-x,g::---,m::r-x,o::---"
+            if directory
+            else f"u::rw-,u:{cluster_username}:r--,g::---,m::r--,o::---"
+        ),
         str(path),
     ]
     try:
@@ -201,7 +207,7 @@ def _download_gated_model(store_dir: Path, repo_id: str, hf_token: str) -> None:
         )
         shutil.rmtree(partial_dir / ".cache", ignore_errors=True)
         # Hard links share these inodes, so the launching user must be able to read them.
-        # The store directory itself stays closed to everyone but the service account.
+        # Access is limited by the store and each user's model-weights directory.
         for path in [partial_dir, *partial_dir.rglob("*")]:
             path.chmod(0o755 if path.is_dir() else 0o644)
         partial_dir.rename(store_dir)
@@ -319,6 +325,9 @@ def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) 
         )
 
     weights_parent_dir = workspace_dir / "model-weights"
+    # The workspace's owning group is shared by many accounts; keep it out of the links.
+    weights_parent_dir.mkdir(exist_ok=True)
+    _restrict_acl_to_cluster_user(weights_parent_dir, cluster_username, directory=True)
     try:
         dest_dir = _join_contained(weights_parent_dir, model_name, "model_name")
     except ValueError as exc:
@@ -796,7 +805,7 @@ class LLMInferenceClient:
         payload_path = workspace_dir / f".launch-payload-{uuid.uuid4().hex}.json"
         fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
-            _restrict_payload_file_acl(payload_path, cluster_username)
+            _restrict_acl_to_cluster_user(payload_path, cluster_username)
         except RuntimeError as exc:
             os.close(fd)
             payload_path.unlink(missing_ok=True)

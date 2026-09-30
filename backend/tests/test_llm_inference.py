@@ -158,7 +158,7 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         lambda *_args, **_kwargs: "bgns-delta-gpu",
     )
     monkeypatch.setattr(
-        llm_inference, "_restrict_payload_file_acl", lambda *_args: None
+        llm_inference, "_restrict_acl_to_cluster_user", lambda *_args: None
     )
     monkeypatch.setattr(llm_inference.subprocess, "run", fake_run)
 
@@ -402,12 +402,19 @@ def test_ensure_gated_model_weights_for_user_links_into_workspace(
     monkeypatch.setattr(
         llm_inference, "_ensure_impersonated_workspace_dir", lambda _: workspace_dir
     )
+    restricted = []
+    monkeypatch.setattr(
+        llm_inference,
+        "_restrict_acl_to_cluster_user",
+        lambda path, user, directory=False: restricted.append((path, user, directory)),
+    )
 
     weights_parent_dir = llm_inference.ensure_gated_model_weights_for_user(
         "alice", "Qwen/Qwen3-8B"
     )
 
     assert weights_parent_dir == workspace_dir / "model-weights"
+    assert restricted == [(weights_parent_dir, "alice", True)]
     linked_config = weights_parent_dir / "Qwen/Qwen3-8B" / "config.json"
     assert (
         linked_config.stat().st_ino
@@ -492,3 +499,27 @@ def test_gated_model_downloads_into_store_then_is_found(monkeypatch, tmp_path):
         llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
         is None
     )
+
+
+@pytest.mark.skipif(
+    shutil.which("setfacl") is None or shutil.which("getfacl") is None,
+    reason="needs real POSIX ACL tools",
+)
+def test_model_weights_dir_is_closed_to_the_owning_group(tmp_path):
+    cluster_username = pwd.getpwuid(os.getuid()).pw_name
+    weights_dir = tmp_path / "model-weights"
+    weights_dir.mkdir(mode=0o770)
+
+    llm_inference._restrict_acl_to_cluster_user(
+        weights_dir, cluster_username, directory=True
+    )
+
+    acl = subprocess.run(
+        ["getfacl", "--omit-header", "--absolute-names", str(weights_dir)],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+    assert f"user:{cluster_username}:r-x" in acl
+    assert "group::---" in acl
+    assert "other::---" in acl
