@@ -10,10 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources, and a supplied token is appended to the launch environment. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
 - `backend/scripts/evict_unused_models.py`, a cleanup script meant to run weekly from cron (not scheduled automatically), that deletes models from the shared Hugging Face cache nobody has launched in 90 days, based on `ModelDeployment` history. The cache directory comes from `MODEL_CACHE_DIR` or `--cache-dir`. Models with no launch history are kept and listed. It also deletes stale entries from the shared torch inductor cache (`COMPILE_CACHE_DIR`).
+- Gated models missing from `MODEL_STORE_ROOT` are downloaded there by the backend on first launch, using the user's token. That launch asks the user to retry in a few minutes; the next one hard-links the weights as before.
 
 ### Changed
 
-- DeltaAI (`delta-ai-ncsa`) now points at the shared `/projects/modelcache` cache instead of the `/model-weights` placeholder, matching Delta.
+- `delta-ai-ncsa/environment.yaml` now points at `/projects/modelcache` instead of `/model-weights`, which doesn't exist on DeltaAI.
+- Shared-cache write access is granted only on `MODEL_CACHE_DIR` and `COMPILE_CACHE_DIR`, not on every matching bind.
+- Delta kit: supports in-job downloads and writes the cache and model store settings to the backend `.env`.
 - After login, users land on the model catalog (`/model-library`) instead of chat. Clicking the logo still returns to the landing page.
 
 ### Fixed
@@ -24,6 +27,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - HF gating: a failed Hub gating-status lookup no longer silently marks a model as public — a brand-new model fails closed (requires a token and a real per-user Hub check) instead, and a lookup failure on a known model still keeps its cached status. Previously an API error and a confirmed-public repo were indistinguishable, so a genuine gated-to-public transition could also never clear the cache.
 - HF gating: the impersonated launch payload file is now readable by the impersonated user. It was created `0600` in an ACL'd workspace, which set the ACL mask to `---` and masked out that user's inherited entry, so every impersonated launch failed with `Could not read payload file: [Errno 13] Permission denied`. The file's ACL is now set explicitly to the owner plus the cluster user, with no group or other access.
 - Impersonated launches from the UI: the frontend now sends the cluster username, derived from the signed-in email (local part, or the part after `+`), with each launch. Before this, every UI launch in impersonate mode failed with `Cluster username is required`. The derived value also replaces any `clusterUsername` in the request body; the route used to forward the client's body as-is, so a signed-in user could launch as another cluster user. `cluster-username.ts` is cherry-picked from [#81](https://github.com/Center-for-AI-Innovation/LLMHub/pull/81).
+- `launch_model` ignores `hf_model`, `model_weights_parent_dir` and `work_dir` from the request, and looks up gated weights by the access-checked `modelId`. A user could otherwise launch any repo or get another gated model's weights.
+- Gated launches no longer write the user's HF token into the job's `.sbatch` and `.json` files.
 - Pinned `sqlalchemy<2.1`. SQLAlchemy 2.1 maps `postgresql://` to the psycopg (v3) driver, but only psycopg2 is installed, so a fresh install's backend failed at startup with `No module named 'psycopg'`.
 - Bumped `huggingface_hub` minimum to `0.25.0`, the version that actually introduced `auth_check()` and the `huggingface_hub.errors` module this feature depends on.
 - Added the missing `0003_snapshot.json` and corrected the `0003_add_model_gated` migration's out-of-order timestamp (older than `0002`'s, which Drizzle uses as a migration watermark) and its absence from `frontend/lib/db/schema.ts`.

@@ -124,6 +124,7 @@ def test_launch_model_scopes_gated_weights_to_cluster_user(monkeypatch):
         fake_llm_client.calls[0]["params"]["model_weights_parent_dir"]
         == "/workspace/alice/model-weights"
     )
+    assert "valid-token" not in (fake_llm_client.calls[0]["params"].get("env") or "")
 
 
 def test_launch_model_gated_weights_failure_fails_deployment(monkeypatch):

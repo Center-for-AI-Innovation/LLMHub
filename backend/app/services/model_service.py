@@ -314,7 +314,8 @@ class ModelService:
                 f"Allocated {total_gpus} GPU resources for model {deployment.modelName}"
             )
 
-        if hf_token:
+        # Gated weights are already local; keep the token out of the job's files.
+        if hf_token and not cached_gated:
             base_env = params.get("env") or getattr(settings, "VEC_INF_ENV", None)
             params["env"] = append_hf_token_to_env(base_env, hf_token)
 
