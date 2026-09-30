@@ -5,24 +5,10 @@ import pytest
 from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
 
 from app.utils.hf_auth import (
-    append_hf_token_to_env,
     check_model_hf_access,
     fetch_model_gating_status,
     verify_hf_model_repo_access,
 )
-
-# ---------------------------------------------------------------------------
-# append_hf_token_to_env
-# ---------------------------------------------------------------------------
-
-
-def test_append_hf_token_to_env_empty_base():
-    assert append_hf_token_to_env(None, "abc") == "HF_TOKEN=abc"
-
-
-def test_append_hf_token_to_env_appends():
-    assert append_hf_token_to_env("A=1", "tok") == "A=1,HF_TOKEN=tok"
-
 
 # ---------------------------------------------------------------------------
 # verify_hf_model_repo_access — unit tests (mocked HfApi)

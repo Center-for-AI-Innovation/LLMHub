@@ -8,7 +8,6 @@ from uuid import UUID
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from app.config.config import settings
 from app.config.logging import get_logger
 from app.models.available_model import AvailableModel
 from app.models.model_deployment import ModelDeployment
@@ -17,7 +16,6 @@ from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentU
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.services.resource_service import ResourceService
 from app.utils.hf_auth import (
-    append_hf_token_to_env,
     check_model_hf_access,
     fetch_model_gating_status,
 )
@@ -173,6 +171,8 @@ class ModelService:
         """Launch a model and create a deployment record."""
         # Extract parameters for the launch command (never persist hf_token on the deployment row).
         # Fields that pick the repo, weights or write location come from the server only.
+        # vllm_args too: vec-inf writes them unquoted into the job script, and flags
+        # like --tokenizer or --lora-modules could load weights the gate never checked.
         params = deployment.model_dump(
             exclude={
                 "modelName",
@@ -182,6 +182,7 @@ class ModelService:
                 "hf_model",
                 "model_weights_parent_dir",
                 "work_dir",
+                "vllm_args",
             }
         )
         # Only the requesting user's own token authorizes a gated launch --
@@ -313,11 +314,6 @@ class ModelService:
             logger.info(
                 f"Allocated {total_gpus} GPU resources for model {deployment.modelName}"
             )
-
-        # Gated weights are already local; keep the token out of the job's files.
-        if hf_token and not cached_gated:
-            base_env = params.get("env") or getattr(settings, "VEC_INF_ENV", None)
-            params["env"] = append_hf_token_to_env(base_env, hf_token)
 
         # Launch the model
         logger.info(

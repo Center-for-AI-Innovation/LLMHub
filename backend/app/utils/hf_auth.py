@@ -95,11 +95,3 @@ def check_model_hf_access(
             "Supply an hf_token that has been granted access on the Hub."
         )
     return verify_hf_model_repo_access(huggingface_id, user_token)
-
-
-def append_hf_token_to_env(env_value: Optional[str], hf_token: str) -> str:
-    """Append ``HF_TOKEN=...`` to vec-inf's comma-separated ``env`` string."""
-    pair = f"HF_TOKEN={hf_token}"
-    if not env_value:
-        return pair
-    return f"{env_value},{pair}"

@@ -295,6 +295,7 @@ def test_launch_model_ignores_client_launch_inputs():
         hf_model="attacker/evil-repo",
         model_weights_parent_dir="/projects/modelcache/restricted",
         work_dir="/projects/modelcache/public/huggingface",
+        vllm_args="--tokenizer=/projects/modelcache/restricted/Gated-7B",
     )
 
     service.launch_model(db=db, deployment=deployment)
@@ -303,6 +304,27 @@ def test_launch_model_ignores_client_launch_inputs():
     assert params["hf_model"] == "Qwen/Qwen3-8B"
     assert "model_weights_parent_dir" not in params
     assert "work_dir" not in params
+    assert "vllm_args" not in params
+
+
+def test_launch_model_keeps_hf_token_out_of_public_launches():
+    model = AvailableModel(id="Qwen/Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B")
+    db = FakeGatedDbSession(model)
+    service = ModelService()
+    fake_llm_client = FakeLLMClient()
+    service.llm_client = fake_llm_client
+
+    deployment = ModelDeploymentCreate(
+        modelName="Qwen/Qwen3-8B",
+        modelId="Qwen/Qwen3-8B",
+        userId="11111111-1111-1111-1111-111111111111",
+        hf_token="user-token",
+    )
+
+    service.launch_model(db=db, deployment=deployment)
+
+    params = fake_llm_client.calls[0]["params"]
+    assert "user-token" not in repr(params)
 
 
 def test_launch_model_runs_the_access_checked_model_id():
