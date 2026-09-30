@@ -20,7 +20,12 @@ from app.schemas.model_request import (
 )
 from app.services.email_service import EmailService
 from app.services.model_service import ModelService
+from app.utils.cluster_users import normalize_cluster_username
 from app.utils.infrastructure import InfrastructureManager
+from app.utils.slurm_accounts import (
+    list_user_slurm_accounts,
+    pick_default_slurm_account,
+)
 
 router = APIRouter()
 model_service = ModelService()
@@ -49,6 +54,32 @@ def get_launch_defaults() -> Dict[str, Any]:
         "partition": partition,
         "resource_type": resource_type,
         "time": time,
+    }
+
+
+@router.get("/slurm-accounts", response_model=Dict[str, Any])
+def get_slurm_accounts(clusterUsername: str) -> Dict[str, Any]:
+    """Return Slurm accounts associated with a cluster user."""
+    try:
+        cluster_username = normalize_cluster_username(clusterUsername)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="clusterUsername must be a valid cluster login name",
+        ) from exc
+
+    try:
+        accounts = list_user_slurm_accounts(cluster_username)
+    except RuntimeError as exc:
+        logger.error("Failed to list Slurm accounts for %s: %s", cluster_username, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "accounts": accounts,
+        "defaultAccount": pick_default_slurm_account(accounts),
     }
 
 
