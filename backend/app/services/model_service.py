@@ -628,7 +628,10 @@ class ModelService:
             and db_deployment.resourceAllocation
             and db_deployment.resourceAllocation.get("enable_cloudflare_tunnel")
         ):
-            job_name = db_deployment.modelName.replace("/", "-")
+            # Jobs are launched (and so named) by modelId.
+            job_name = (db_deployment.modelId or db_deployment.modelName).replace(
+                "/", "-"
+            )
             cluster_username = db_deployment.resourceAllocation.get("cluster_username")
             tunnel_url = self.llm_client.get_tunnel_url(
                 job_name,
