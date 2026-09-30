@@ -2,13 +2,15 @@ import json
 import os
 import pwd
 import re
+import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import yaml
+from huggingface_hub import snapshot_download
 
 from app.config.config import settings
 from app.config.logging import get_logger
@@ -71,7 +73,9 @@ def _grant_acl_access(path: Path, usernames: List[str], failure_context: str) ->
                 ) from exc
 
 
-def _restrict_payload_file_acl(path: Path, cluster_username: str) -> None:
+def _restrict_acl_to_cluster_user(
+    path: Path, cluster_username: str, directory: bool = False
+) -> None:
     """Make ``path`` readable by the owner and ``cluster_username`` only.
 
     A file created inside the workspace inherits its default ACL, and the mode
@@ -84,7 +88,11 @@ def _restrict_payload_file_acl(path: Path, cluster_username: str) -> None:
     command = [
         "setfacl",
         "--set",
-        f"u::rw-,u:{cluster_username}:r--,g::---,m::r--,o::---",
+        (
+            f"u::rwx,u:{cluster_username}:r-x,g::---,m::r-x,o::---"
+            if directory
+            else f"u::rw-,u:{cluster_username}:r--,g::---,m::r--,o::---"
+        ),
         str(path),
     ]
     try:
@@ -135,39 +143,11 @@ def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
 
 
 def _get_shared_cache_dirs() -> List[Path]:
-    config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.getenv(
-        "VEC_INF_CONFIG_DIR"
-    )
-    if not isinstance(config_dir, str) or not config_dir.strip():
-        return []
-
-    env_path = Path(config_dir).expanduser() / "environment.yaml"
-    if not env_path.exists():
-        return []
-
-    try:
-        with env_path.open() as file_obj:
-            config = yaml.safe_load(file_obj) or {}
-    except Exception:
-        return []
-
-    bind_value = (((config.get("default_args") or {}).get("bind")) or "").strip()
-    if not bind_value:
-        return []
-
-    host_dirs: List[Path] = []
-    for mount in bind_value.split(","):
-        parts = mount.split(":", 1)
-        if len(parts) != 2:
-            continue
-        host_path, container_path = parts
-        if container_path not in {
-            "/root/.cache/huggingface",
-            "/root/.cache/torch_inductor",
-        }:
-            continue
-        host_dirs.append(Path(host_path).expanduser())
-    return host_dirs
+    return [
+        Path(cache_dir).expanduser()
+        for cache_dir in (settings.MODEL_CACHE_DIR, settings.COMPILE_CACHE_DIR)
+        if cache_dir
+    ]
 
 
 def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
@@ -208,6 +188,65 @@ def _resolve_model_store_dir(model_name: str) -> Optional[Path]:
     if not isinstance(store_root, str) or not store_root.strip():
         return None
     return _join_contained(Path(store_root).expanduser(), model_name, "model_name")
+
+
+_gated_downloads_in_progress: set = set()
+_gated_downloads_lock = threading.Lock()
+
+
+def _download_gated_model(store_dir: Path, repo_id: str, hf_token: str) -> None:
+    partial_dir = store_dir.with_name(store_dir.name + ".partial")
+    try:
+        partial_dir.parent.mkdir(parents=True, exist_ok=True)
+        # Reruns resume from partial_dir; original/ holds a duplicate raw checkpoint.
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=partial_dir,
+            token=hf_token,
+            ignore_patterns=["original/*"],
+        )
+        shutil.rmtree(partial_dir / ".cache", ignore_errors=True)
+        # Hard links share these inodes, so the launching user must be able to read them.
+        # Access is limited by the store and each user's model-weights directory.
+        for path in [partial_dir, *partial_dir.rglob("*")]:
+            path.chmod(0o755 if path.is_dir() else 0o644)
+        partial_dir.rename(store_dir)
+        logger.info("Downloaded gated model %s into %s", repo_id, store_dir)
+    except Exception as exc:
+        logger.error("Gated model download failed for %s: %s", repo_id, exc)
+    finally:
+        with _gated_downloads_lock:
+            _gated_downloads_in_progress.discard(str(store_dir))
+
+
+def start_gated_model_download(
+    model_name: str, repo_id: Optional[str], hf_token: Optional[str]
+) -> Optional[str]:
+    """Start a background download of a gated model missing from ``MODEL_STORE_ROOT``.
+
+    Returns a message for the user while weights are downloading, or None when
+    they are already in the store (or no store/repo is configured).
+    """
+    try:
+        store_dir = _resolve_model_store_dir(model_name)
+    except ValueError:
+        return None
+    if store_dir is None or not repo_id or not hf_token or store_dir.is_dir():
+        return None
+
+    with _gated_downloads_lock:
+        already_running = str(store_dir) in _gated_downloads_in_progress
+        _gated_downloads_in_progress.add(str(store_dir))
+    if not already_running:
+        threading.Thread(
+            target=_download_gated_model,
+            args=(store_dir, repo_id, hf_token),
+            daemon=True,
+        ).start()
+    return (
+        f"Downloading gated model weights for {model_name}. "
+        "Launch again in a few minutes."
+    )
 
 
 def _hardlink_tree(src: Path, dst: Path) -> None:
@@ -286,6 +325,9 @@ def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) 
         )
 
     weights_parent_dir = workspace_dir / "model-weights"
+    # The workspace's owning group is shared by many accounts; keep it out of the links.
+    weights_parent_dir.mkdir(exist_ok=True)
+    _restrict_acl_to_cluster_user(weights_parent_dir, cluster_username, directory=True)
     try:
         dest_dir = _join_contained(weights_parent_dir, model_name, "model_name")
     except ValueError as exc:
@@ -763,7 +805,7 @@ class LLMInferenceClient:
         payload_path = workspace_dir / f".launch-payload-{uuid.uuid4().hex}.json"
         fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
-            _restrict_payload_file_acl(payload_path, cluster_username)
+            _restrict_acl_to_cluster_user(payload_path, cluster_username)
         except RuntimeError as exc:
             os.close(fd)
             payload_path.unlink(missing_ok=True)

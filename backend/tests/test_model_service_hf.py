@@ -140,7 +140,7 @@ def test_launch_model_gated_valid_token_proceeds():
 
         # Verify HF check was called
         mock_check.assert_called_once()
-        mock_store_dir.assert_called_once_with("Gated Model")
+        mock_store_dir.assert_called_once_with(model_id)
         # Verify it PROCEEDED to resource allocation
         mock_resource_service.return_value.allocate_resources.assert_called_once()
 

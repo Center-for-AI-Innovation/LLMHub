@@ -158,7 +158,7 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         lambda *_args, **_kwargs: "bgns-delta-gpu",
     )
     monkeypatch.setattr(
-        llm_inference, "_restrict_payload_file_acl", lambda *_args: None
+        llm_inference, "_restrict_acl_to_cluster_user", lambda *_args: None
     )
     monkeypatch.setattr(llm_inference.subprocess, "run", fake_run)
 
@@ -402,12 +402,19 @@ def test_ensure_gated_model_weights_for_user_links_into_workspace(
     monkeypatch.setattr(
         llm_inference, "_ensure_impersonated_workspace_dir", lambda _: workspace_dir
     )
+    restricted = []
+    monkeypatch.setattr(
+        llm_inference,
+        "_restrict_acl_to_cluster_user",
+        lambda path, user, directory=False: restricted.append((path, user, directory)),
+    )
 
     weights_parent_dir = llm_inference.ensure_gated_model_weights_for_user(
         "alice", "Qwen/Qwen3-8B"
     )
 
     assert weights_parent_dir == workspace_dir / "model-weights"
+    assert restricted == [(weights_parent_dir, "alice", True)]
     linked_config = weights_parent_dir / "Qwen/Qwen3-8B" / "config.json"
     assert (
         linked_config.stat().st_ino
@@ -453,3 +460,66 @@ def test_resolve_gated_model_store_dir_returns_store_root_when_staged(
     # execution runs as the service account, which already has its own
     # access, so no hard-linking is needed.
     assert weights_parent_dir == store_root
+
+
+def test_shared_cache_dirs_come_from_settings_only(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", "/cache/huggingface")
+    monkeypatch.setattr(settings, "COMPILE_CACHE_DIR", None)
+
+    assert llm_inference._get_shared_cache_dirs() == [Path("/cache/huggingface")]
+
+
+def test_gated_model_downloads_into_store_then_is_found(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path))
+
+    def fake_snapshot_download(repo_id, local_dir, token, ignore_patterns):
+        assert (repo_id, token) == ("org/gated", "user-token")
+        Path(local_dir).mkdir(parents=True, exist_ok=True)
+        (Path(local_dir) / "config.json").write_text("{}")
+
+    class InlineThread:
+        def __init__(self, target, args, daemon):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(llm_inference, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
+
+    message = llm_inference.start_gated_model_download(
+        "Gated-7B", "org/gated", "user-token"
+    )
+
+    assert "Downloading" in message
+    config = tmp_path / "Gated-7B" / "config.json"
+    assert config.stat().st_mode & 0o777 == 0o644
+    assert not (tmp_path / "Gated-7B.partial").exists()
+    assert (
+        llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
+        is None
+    )
+
+
+@pytest.mark.skipif(
+    shutil.which("setfacl") is None or shutil.which("getfacl") is None,
+    reason="needs real POSIX ACL tools",
+)
+def test_model_weights_dir_is_closed_to_the_owning_group(tmp_path):
+    cluster_username = pwd.getpwuid(os.getuid()).pw_name
+    weights_dir = tmp_path / "model-weights"
+    weights_dir.mkdir(mode=0o770)
+
+    llm_inference._restrict_acl_to_cluster_user(
+        weights_dir, cluster_username, directory=True
+    )
+
+    acl = subprocess.run(
+        ["getfacl", "--omit-header", "--absolute-names", str(weights_dir)],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+    assert f"user:{cluster_username}:r-x" in acl
+    assert "group::---" in acl
+    assert "other::---" in acl

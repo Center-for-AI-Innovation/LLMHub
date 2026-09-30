@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     VEC_INF_ACCOUNTS_SCRIPT: str = (
         "/sw/user/scripts/accounts"  # Helper to resolve a user's Slurm accounts
     )
+    # Shared caches cleaned by scripts/evict_unused_models.py
+    MODEL_CACHE_DIR: Optional[str] = os.getenv("MODEL_CACHE_DIR")
+    COMPILE_CACHE_DIR: Optional[str] = os.getenv("COMPILE_CACHE_DIR")
     MODEL_STORE_ROOT: Optional[str] = os.getenv(
         "MODEL_STORE_ROOT"
     )  # Shared store of all model weights, keyed by model name; gated models are

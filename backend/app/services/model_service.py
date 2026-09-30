@@ -30,6 +30,7 @@ from app.utils.llm_inference import (
     LLMInferenceClient,
     ensure_gated_model_weights_for_user,
     resolve_gated_model_store_dir,
+    start_gated_model_download,
 )
 
 logger = get_logger("model_service")
@@ -170,9 +171,18 @@ class ModelService:
         self, db: Session, deployment: ModelDeploymentCreate
     ) -> ModelDeployment:
         """Launch a model and create a deployment record."""
-        # Extract parameters for the launch command (never persist hf_token on the deployment row)
+        # Extract parameters for the launch command (never persist hf_token on the deployment row).
+        # Fields that pick the repo, weights or write location come from the server only.
         params = deployment.model_dump(
-            exclude={"modelName", "modelId", "userId", "hf_token"}
+            exclude={
+                "modelName",
+                "modelId",
+                "userId",
+                "hf_token",
+                "hf_model",
+                "model_weights_parent_dir",
+                "work_dir",
+            }
         )
         # Only the requesting user's own token authorizes a gated launch --
         # never fall back to a shared/service credential (that would let any
@@ -200,6 +210,8 @@ class ModelService:
         )
         hf_repo_id = db_model.huggingfaceId if db_model else None
         cached_gated = db_model.gated if db_model else None
+        if hf_repo_id:
+            params["hf_model"] = hf_repo_id
 
         has_access, hf_err = check_model_hf_access(cached_gated, hf_repo_id, hf_token)
         if not has_access:
@@ -228,15 +240,30 @@ class ModelService:
         # process runs as that user); direct launches run as the service
         # account, which already has its own access to the protected store.
         if cached_gated:
+            download_message = start_gated_model_download(
+                model_id, hf_repo_id, hf_token
+            )
+            if download_message:
+                db_deployment = ModelDeployment(
+                    modelId=model_id,
+                    modelName=deployment.modelName,
+                    userId=deployment.userId,
+                    slurmJobId="failed",
+                    status="failed",
+                    errorMessage=download_message,
+                    resourceAllocation=resource_allocation,
+                )
+                db.add(db_deployment)
+                db.commit()
+                db.refresh(db_deployment)
+                return db_deployment
             try:
                 if deployment.cluster_username:
                     weights_parent_dir = ensure_gated_model_weights_for_user(
-                        deployment.cluster_username, deployment.modelName
+                        deployment.cluster_username, model_id
                     )
                 else:
-                    weights_parent_dir = resolve_gated_model_store_dir(
-                        deployment.modelName
-                    )
+                    weights_parent_dir = resolve_gated_model_store_dir(model_id)
             except RuntimeError as exc:
                 db_deployment = ModelDeployment(
                     modelId=model_id,
@@ -287,7 +314,8 @@ class ModelService:
                 f"Allocated {total_gpus} GPU resources for model {deployment.modelName}"
             )
 
-        if hf_token:
+        # Gated weights are already local; keep the token out of the job's files.
+        if hf_token and not cached_gated:
             base_env = params.get("env") or getattr(settings, "VEC_INF_ENV", None)
             params["env"] = append_hf_token_to_env(base_env, hf_token)
 
