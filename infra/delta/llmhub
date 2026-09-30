@@ -930,8 +930,16 @@ cmd_launch_test() {
     done
     if ! { [ "$st" = ready ] || [ "$st" = running ]; } || [ -z "$ep" ]; then
         bad "server not ready: status=${st} ${err:+error=$err}"
-        info "job log: ${cu:+${LLMHUB_SHARED_WORK_ROOT}/${cu}}${cu:-${LLMHUB_VEC_INF_LOG_DIR}}/${model%%-*}/${model}.${job}/   (GET ${api}/${id}/logs)"
-        [ "$KEEP" = 1 ] || { curl -s -o /dev/null -X DELETE "${api}/${id}" 2>/dev/null; info "shutdown requested"; }
+        local jl="$LLMHUB_VEC_INF_LOG_DIR"; [ -n "$cu" ] && jl="${LLMHUB_SHARED_WORK_ROOT}/${cu}"
+        info "job log: ${jl}/${model%%-*}/${model}.${job}/   (GET ${api}/${id}/logs)"
+        if [ "$KEEP" != 1 ]; then
+            curl -s -o /dev/null -X DELETE "${api}/${id}" 2>/dev/null; info "shutdown requested"
+            # The backend treats a deployment it has marked `failed` as terminal and
+            # skips scancel -- but vec-inf derives `failed` from stderr text, so the
+            # SLURM job may still be running and holding its GPUs.
+            sleep 5; local js; js="$(squeue -h -j "$job" -o %T 2>/dev/null)"
+            [ -z "$js" ] || warn "SLURM job ${job} is still ${js} -- the backend did not cancel it. Cancel with: ${cu:+sudo -u ${cu} }scancel ${job}"
+        fi
         exit 1
     fi
     ok "server up: ${ep} (job ${job} on $(squeue -h -j "$job" -o '%N' 2>/dev/null))"
