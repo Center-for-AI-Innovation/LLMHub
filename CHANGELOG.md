@@ -8,12 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Launch-time Slurm account picker: users choose which allocation to charge before a model starts. ([#51](https://github.com/Center-for-AI-Innovation/LLMHub/issues/51))
+- Backend `GET /api/models/slurm-accounts` and frontend `/api/slurm-accounts` routes that list the signed-in user's Slurm accounts.
 - Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources, and a supplied token is appended to the launch environment. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
 - `backend/scripts/evict_unused_models.py`, a cleanup script meant to run weekly from cron (not scheduled automatically), that deletes models from the shared Hugging Face cache nobody has launched in 90 days, based on `ModelDeployment` history. The cache directory comes from `MODEL_CACHE_DIR` or `--cache-dir`. Models with no launch history are kept and listed. It also deletes stale entries from the shared torch inductor cache (`COMPILE_CACHE_DIR`).
 - Gated models missing from `MODEL_STORE_ROOT` are downloaded there by the backend on first launch, using the user's token. That launch asks the user to retry in a few minutes; the next one hard-links the weights as before.
 
 ### Changed
 
+- Resolve a user's Slurm accounts with `sacctmgr` instead of the Delta-local `/sw/user/scripts/accounts` helper, and omit the placeholder `noalloc` account.
+- Derive the cluster username from the signed-in email local-part, using the suffix after `+` for impersonation addresses such as `rohan13+svcllmhubrohan13@ncsa.illinois.edu`.
 - `delta-ai-ncsa/environment.yaml` now points at `/projects/modelcache` instead of `/model-weights`, which doesn't exist on DeltaAI.
 - Shared-cache write access is granted only on `MODEL_CACHE_DIR` and `COMPILE_CACHE_DIR`, not on every matching bind.
 - Delta kit: supports in-job downloads and writes the cache and model store settings to the backend `.env`.
@@ -26,7 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - HF gating: `model_name` is now resolved and containment-checked before being joined into shared-store and per-user workspace paths, closing a path-traversal gap (a crafted model name could otherwise read outside `MODEL_STORE_ROOT` or write outside the per-user workspace).
 - HF gating: a failed Hub gating-status lookup no longer silently marks a model as public — a brand-new model fails closed (requires a token and a real per-user Hub check) instead, and a lookup failure on a known model still keeps its cached status. Previously an API error and a confirmed-public repo were indistinguishable, so a genuine gated-to-public transition could also never clear the cache.
 - HF gating: the impersonated launch payload file is now readable by the impersonated user. It was created `0600` in an ACL'd workspace, which set the ACL mask to `---` and masked out that user's inherited entry, so every impersonated launch failed with `Could not read payload file: [Errno 13] Permission denied`. The file's ACL is now set explicitly to the owner plus the cluster user, with no group or other access.
-- Impersonated launches from the UI: the frontend now sends the cluster username, derived from the signed-in email (local part, or the part after `+`), with each launch. Before this, every UI launch in impersonate mode failed with `Cluster username is required`. The derived value also replaces any `clusterUsername` in the request body; the route used to forward the client's body as-is, so a signed-in user could launch as another cluster user. `cluster-username.ts` is cherry-picked from [#81](https://github.com/Center-for-AI-Innovation/LLMHub/pull/81).
+- Impersonated launches from the UI now send the derived cluster username; before this, every UI launch in impersonate mode failed with `Cluster username is required`. It also replaces any `clusterUsername` in the request body. The route used to forward the client's body as-is, so a signed-in user could launch as another cluster user.
 - `launch_model` ignores `hf_model`, `model_weights_parent_dir` and `work_dir` from the request, and looks up gated weights by the access-checked `modelId`. A user could otherwise launch any repo or get another gated model's weights.
 - Gated launches no longer write the user's HF token into the job's `.sbatch` and `.json` files.
 - Pinned `sqlalchemy<2.1`. SQLAlchemy 2.1 maps `postgresql://` to the psycopg (v3) driver, but only psycopg2 is installed, so a fresh install's backend failed at startup with `No module named 'psycopg'`.
@@ -58,8 +62,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- `background_service.py`: `shutdown_deployment()`’s return value was not being captured in `_check_expired_deployments()`, leaving `updated`undefined for every expired deployment (shutdown-completion emails were never sent). Fixed by assigning the call’s result to `updated`.
+- `background_service.py`: `shutdown_deployment()`’s return value was not being captured in `_check_expired_deployments()`, leaving `updated` undefined for every expired deployment (shutdown-completion emails were never sent). Fixed by assigning the call’s result to `updated`.
 - Added `default_language_version: python3.11` so pre-commit’s Black env uses Python ≥3.10 (Black 26.5.1 requirement).
-- Improved contrast and accessibility for status/chip colors, sidebar headings, and the model library search input (visible label via sr-only)
-- Fixed several WCAG AA contrast failures  in swvweal components by switching bare `text-destructive`/`text-secondary` usages to their `-accessible` variants and tightening a few tokens’ lightness.
+- Improved contrast and accessibility for status/chip colors, sidebar headings, and the model library search input (visible label via sr-only).
+- Fixed several WCAG AA contrast failures in components by switching bare `text-destructive`/`text-secondary` usages to their `-accessible` variants and tightening a few tokens’ lightness.
 - Expanded contrast-harness/CI coverage (buttons, dialogs, diff view, home/login pages) so regressions like these are caught automatically going forward.

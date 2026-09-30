@@ -28,7 +28,7 @@ describe('POST /api/deployments', () => {
     vi.unstubAllGlobals();
   });
 
-  it('forwards the session-derived cluster username, ignoring one from the client', async () => {
+  it('forwards the selected account and session-derived cluster username, ignoring one from the client', async () => {
     authMock.mockResolvedValue({
       user: { id: 'user-1', email: 'alice_13@illinois.edu' },
     });
@@ -46,6 +46,7 @@ describe('POST /api/deployments', () => {
         time: '00:30:00',
         partition: 'gpuA40x4',
         resource_type: 'A40',
+        account: 'bgns-delta-gpu',
         clusterUsername: 'attacker',
       }),
     );
@@ -55,6 +56,7 @@ describe('POST /api/deployments', () => {
     const payload = JSON.parse(
       String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}'),
     );
+    expect(payload.account).toBe('bgns-delta-gpu');
     expect(payload.clusterUsername).toBe('alice_13');
     expect(payload.userId).toBe('user-1');
   });
@@ -80,6 +82,7 @@ describe('POST /api/deployments', () => {
         time: '00:30:00',
         partition: 'gpuA40x4',
         resource_type: 'A40',
+        account: 'bfmz-delta-gpu',
       }),
     );
 

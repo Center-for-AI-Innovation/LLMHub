@@ -108,6 +108,10 @@ export async function POST(request: NextRequest) {
     }
 
     const clusterUsername = clusterUsernameFromEmail(userEmail);
+    const account =
+      typeof body.account === 'string' && body.account.trim()
+        ? body.account.trim()
+        : undefined;
 
     const response = await fetch(`${BACKEND_API_URL}/api/models/deployments`, {  
       method: 'POST',
@@ -126,6 +130,7 @@ export async function POST(request: NextRequest) {
         partition: body.partition,
         resource_type: body.resource_type,
         clusterUsername: clusterUsername ?? undefined,
+        account,
       }),
     });
 

@@ -96,6 +96,7 @@ function ModelLibraryPageInner() {
     huggingfaceId?: string,
     family?: string,
     time?: string,
+    account?: string,
     hfToken?: string,
   ) {
     if (!launchDefaults) {
@@ -115,6 +116,7 @@ function ModelLibraryPageInner() {
         time: time ?? launchDefaults.time,
         partition: launchDefaults.partition,
         resource_type: launchDefaults.resource_type,
+        account,
         hfToken,
       });
       setLaunchError(null);

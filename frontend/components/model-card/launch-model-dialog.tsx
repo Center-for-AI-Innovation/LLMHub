@@ -13,19 +13,29 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { SKIP_SLURM_ACCOUNT_PICKER, useSlurmAccounts } from '@/hooks/use-models';
 
 interface LaunchModelDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   modelName: string;
   isLaunching: boolean;
-  onLaunch: (time: string, hfToken?: string) => void;
+  onLaunch: (time: string, account?: string, hfToken?: string) => void;
   /** HF gating status: null/undefined means public, any other value is gated. */
   gated?: string | null;
 }
 
+const skipAccountPicker = SKIP_SLURM_ACCOUNT_PICKER;
+
 /**
- * Dialog for collecting job duration before launching a model.
+ * Dialog for collecting job duration and Slurm account before launching a model.
  * Formats hours + minutes into HH:MM:00 for the backend.
  */
 export function LaunchModelDialog({
@@ -38,6 +48,21 @@ export function LaunchModelDialog({
 }: LaunchModelDialogProps) {
   const [hours, setHours] = React.useState<string>('0');
   const [minutes, setMinutes] = React.useState<string>('30');
+  const [accountOverride, setAccountOverride] = React.useState<string | null>(
+    null,
+  );
+
+  const {
+    data: slurmAccounts,
+    isLoading: isLoadingAccounts,
+    isError: isAccountsError,
+    error: accountsError,
+    refetch: refetchAccounts,
+    isFetching: isFetchingAccounts,
+  } = useSlurmAccounts();
+
+  const selectedAccount =
+    accountOverride ?? slurmAccounts?.defaultAccount ?? '';
   // Deliberately component state only -- never sessionStorage/localStorage,
   // never sent anywhere except the one launch request below. Cleared
   // whenever the dialog closes so it doesn't linger even in memory.
@@ -70,9 +95,14 @@ export function LaunchModelDialog({
     const h = parseInt(hours, 10);
     const m = parseInt(minutes, 10);
     if (h === 0 && m === 0) return;
+    if (!skipAccountPicker && !selectedAccount) return;
     if (isGated && hfToken.trim() === '') return;
     const formatted = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
-    onLaunch(formatted, isGated ? hfToken.trim() : undefined);
+    onLaunch(
+      formatted,
+      selectedAccount || undefined,
+      isGated ? hfToken.trim() : undefined,
+    );
   }
 
   const h = parseInt(hours || '0', 10);
@@ -86,9 +116,19 @@ export function LaunchModelDialog({
         ? 'Minutes cannot be empty.'
         : isZeroDuration
           ? 'Duration must be at least 1 minute.'
-          : isGated && hfToken.trim() === ''
-            ? 'This model requires a Hugging Face access token.'
-            : null;
+          : !skipAccountPicker && isAccountsError
+            ? accountsError instanceof Error
+              ? accountsError.message
+              : 'Could not load Slurm accounts.'
+            : !skipAccountPicker &&
+                !isLoadingAccounts &&
+                (slurmAccounts?.accounts.length ?? 0) === 0
+              ? 'No Slurm accounts are associated with your cluster user.'
+              : !skipAccountPicker && !isLoadingAccounts && !selectedAccount
+                ? 'Select a Slurm account.'
+                : isGated && hfToken.trim() === ''
+                  ? 'This model requires a Hugging Face access token.'
+                  : null;
 
   const isInvalid = validationErrorMessage !== null;
 
@@ -97,19 +137,25 @@ export function LaunchModelDialog({
     if (isLaunching && !nextOpen) {
       return;
     }
+    if (nextOpen) {
+      setAccountOverride(null);
+    }
     onOpenChange(nextOpen);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="w-[calc(100%-2rem)] sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Clock className="size-5 text-primary" />
             Set Model Lifetime
           </DialogTitle>
           <DialogDescription>
-            Specify how long you need <span className="font-medium text-foreground">{modelName}</span> to run.
+            Specify how long you need{' '}
+            <span className="font-medium text-foreground">{modelName}</span> to
+            run
+            {skipAccountPicker ? '.' : ', and which Slurm account to charge.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -128,7 +174,9 @@ export function LaunchModelDialog({
                 className="text-center tabular-nums"
               />
             </div>
-            <span className="mb-2.5 text-xl font-semibold text-muted-foreground">:</span>
+            <span className="mb-2.5 text-xl font-semibold text-muted-foreground">
+              :
+            </span>
             <div className="flex-1 space-y-1.5">
               <Label htmlFor="launch-minutes">Minutes</Label>
               <Input
@@ -144,8 +192,56 @@ export function LaunchModelDialog({
             </div>
           </div>
 
+          {skipAccountPicker ? null : (
+            <div className="space-y-1.5 pb-4">
+              <Label htmlFor="launch-account">Slurm account</Label>
+              <Select
+                value={selectedAccount || undefined}
+                onValueChange={setAccountOverride}
+                disabled={
+                  isLaunching ||
+                  isLoadingAccounts ||
+                  isAccountsError ||
+                  (slurmAccounts?.accounts.length ?? 0) === 0
+                }
+              >
+                <SelectTrigger id="launch-account" className="w-full">
+                  <SelectValue
+                    placeholder={
+                      isLoadingAccounts
+                        ? 'Loading accounts…'
+                        : 'Select an account'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(slurmAccounts?.accounts ?? []).map((account) => (
+                    <SelectItem key={account} value={account}>
+                      {account}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Jobs are charged to this allocation.
+              </p>
+              {isAccountsError ? (
+                <button
+                  type="button"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                  onClick={() => {
+                    void refetchAccounts();
+                  }}
+                  disabled={isFetchingAccounts}
+                >
+                  {isFetchingAccounts ? 'Retrying…' : 'Retry loading accounts'}
+                </button>
+              ) : null}
+            </div>
+          )}
+
           {isGated && (
-            <div className="mb-3 space-y-1.5">
+            <div className="space-y-1.5 pb-4">
               <Label htmlFor="launch-hf-token">Hugging Face access token</Label>
               <Input
                 id="launch-hf-token"
@@ -163,7 +259,9 @@ export function LaunchModelDialog({
           )}
 
           {validationErrorMessage && (
-            <p className="mb-3 text-xs text-destructive">{validationErrorMessage}</p>
+            <p className="mb-3 text-xs text-destructive">
+              {validationErrorMessage}
+            </p>
           )}
 
           <DialogFooter>
@@ -175,7 +273,12 @@ export function LaunchModelDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isInvalid || isLaunching}>
+            <Button
+              type="submit"
+              disabled={
+                isInvalid || isLaunching || (!skipAccountPicker && isLoadingAccounts)
+              }
+            >
               {isLaunching ? (
                 <>
                   <Loader2 className="mr-2 size-4 animate-spin" />

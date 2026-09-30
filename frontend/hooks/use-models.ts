@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { type LaunchDefaults } from '@/app/api/launch-defaults/route';
+import { type SlurmAccounts } from '@/app/api/slurm-accounts/route';
 
 import { type ShareDeploymentResponse } from '@/lib/models/deployment-sharing';
 import { useDebounce } from '@/hooks/use-debounce';
@@ -296,6 +297,35 @@ export function useLaunchDefaults() {
   });
 }
 
+export const SLURM_ACCOUNTS_QUERY_KEY = ['slurm-accounts'] as const;
+export const SKIP_SLURM_ACCOUNT_PICKER =
+  process.env.NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS === 'true';
+
+export function useSlurmAccounts() {
+  return useQuery<SlurmAccounts>({
+    queryKey: SLURM_ACCOUNTS_QUERY_KEY,
+    queryFn: async () => {
+      const res = await fetch('/api/slurm-accounts', { cache: 'no-store' });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(
+          (errorData as { error?: string }).error ||
+            `Failed to fetch Slurm accounts (${res.status})`,
+        );
+      }
+      const data: SlurmAccounts = await res.json();
+      return {
+        accounts: Array.isArray(data.accounts) ? data.accounts : [],
+        defaultAccount: data.defaultAccount ?? null,
+      };
+    },
+    enabled: !SKIP_SLURM_ACCOUNT_PICKER,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    retry: 1,
+  });
+}
+
 // Launch a model
 export function useLaunchModel() {
   const queryClient = useQueryClient();
@@ -308,6 +338,7 @@ export function useLaunchModel() {
       time: string;
       partition: string;
       resource_type: string;
+      account?: string;
       hfToken?: string;
     }): Promise<ModelDeployment> => {
       // Construct HuggingFace model ID if not provided
@@ -351,6 +382,7 @@ export function useLaunchModel() {
           time: params.time,
           partition: params.partition,
           resource_type: params.resource_type,
+          ...(params.account ? { account: params.account } : {}),
           // Never persisted client-side or by the backend -- forwarded once
           // for this launch request only (see backend hf_auth.py).
           ...(params.hfToken ? { hf_token: params.hfToken } : {}),
