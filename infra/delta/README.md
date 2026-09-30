@@ -123,7 +123,7 @@ is sourced before `delta.env`'s defaults and holds only what differs:
 | partition / GPU type | `gpuA100x4-interactive` / `nvidia_a100` | `ghx4-interactive` / `nvidia_gh200_120gb` |
 | dev image pin | `vllm-v0.19.1-slingshot-v3.sif` | `vllm-v0.28.0-slingshot-deltaai.sif` |
 | torch-inductor cache (service user) | `…/public/torch_inductor` | `…/public/torch_inductor-deltaai` |
-| job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=single_node_vni,disable_rdzv_get` |
+| job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=single_node_vni,disable_rdzv_get`; on 1-node jobs also `APPTAINERENV_NCCL_NET_PLUGIN=none` |
 | VM | `dt-svc-llmaas01` | `dtai-svc-llmaas01` |
 
 **The `/projects` roots carry the cluster.** `/projects` is the one filesystem
@@ -163,10 +163,13 @@ Four things that look wrong on DeltaAI and are not:
   from the host name, and a short `dtai-svc-llmaas01` matches no pattern. That
   is cosmetic: `VEC_INF_CONFIG_DIR` in `backend/.env` is an absolute override,
   and `deploy` refuses to run a dev or production stack without it.
-- **A single-node job logs `Using network Socket`.** vec-inf starts single-node
-  servers from the batch step, which has no Slingshot VNI; single-node
-  collectives run over NVLink, so it does not matter. Multi-node goes through
-  `srun` and selects CXI.
+- **A single-node job runs without the OFI network plugin.** vec-inf starts
+  single-node servers from the batch step, which has no Slingshot VNI, so the
+  plugin could not open CXI anyway (collectives run over NVLink in-node) — and
+  trying prints `cxip_nic_get_rgroup_vni(): Failed to find valid default rgroup
+  and vni`, which vec-inf reads as fatal and which no `FI_LOG_PROV` value
+  silences. `module_load_cmd` switches it off for 1-node jobs only. Multi-node
+  goes through `srun`, gets a VNI and selects CXI.
 
 ## Things about the service VMs the script encodes
 
