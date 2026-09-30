@@ -538,14 +538,14 @@ def test_gated_store_refuses_a_group_readable_root(monkeypatch, tmp_path):
     store_root.chmod(0o770)
     monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
 
-    with pytest.raises(RuntimeError, match="open to group/other"):
+    with pytest.raises(RuntimeError, match="open to other accounts"):
         llm_inference.resolve_gated_model_store_dir("Gated-7B")
-    with pytest.raises(RuntimeError, match="open to group/other"):
+    with pytest.raises(RuntimeError, match="open to other accounts"):
         llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
     message = llm_inference.start_gated_model_download(
         "Other-7B", "org/other", "user-token"
     )
-    assert "open to group/other" in message
+    assert "open to other accounts" in message
 
 
 def test_gated_store_root_is_created_owner_only(monkeypatch, tmp_path):
@@ -557,6 +557,29 @@ def test_gated_store_root_is_created_owner_only(monkeypatch, tmp_path):
     llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
 
     assert store_root.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.skipif(
+    shutil.which("setfacl") is None or shutil.which("getfacl") is None,
+    reason="needs POSIX ACL tools",
+)
+def test_gated_store_accepts_delta_style_acl(monkeypatch, tmp_path):
+    # Delta's store: mode 770 (group bits are the ACL mask), group::---, and a
+    # named entry for the service account only.
+    store_root = tmp_path / "restricted"
+    store_root.mkdir()
+    store_root.chmod(0o770)
+    subprocess.run(
+        ["setfacl", "-m", f"u:{os.geteuid()}:rwx,g::---,o::---", str(store_root)],
+        check=True,
+    )
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+
+    llm_inference._check_store_root_private()
+
+    subprocess.run(["setfacl", "-m", "u:65534:r-x", str(store_root)], check=True)
+    with pytest.raises(RuntimeError, match="user:65534:r-x"):
+        llm_inference._check_store_root_private()
 
 
 class _NoopThread:
@@ -628,3 +651,14 @@ def test_model_weights_dir_is_closed_to_the_owning_group(tmp_path):
     assert f"user:{cluster_username}:r-x" in acl
     assert "group::---" in acl
     assert "other::---" in acl
+
+
+def test_launch_options_derive_parallel_sizes_from_gpu_request():
+    client = object.__new__(llm_inference.LLMInferenceDirectClient)
+    client.slurm_account = None
+
+    options = client._build_launch_options(num_gpus=4, num_nodes=2)
+
+    assert options.gpus_per_node == 4
+    assert options.vllm_args == ("--tensor-parallel-size=4,--pipeline-parallel-size=2")
+    assert client._build_launch_options().vllm_args is None

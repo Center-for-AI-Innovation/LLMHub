@@ -194,6 +194,53 @@ def _resolve_model_store_dir(model_name: str) -> Optional[Path]:
     return _join_contained(Path(store_root).expanduser(), model_name, "model_name")
 
 
+def _store_root_exposure(root: Path) -> Optional[str]:
+    """Return why ``root`` is reachable by accounts other than root and us, or None.
+
+    Reads the ACL rather than the mode: with an ACL, the mode's group bits are the
+    mask, so a correctly private ``u:<service account>:rwx,g::---`` root would look
+    group-writable. Owner, root and the service account may have access; the
+    ``group::`` entry, ``other::`` and any other named user or group may not.
+    """
+    service_uid = os.geteuid()
+    service_account = pwd.getpwuid(service_uid).pw_name
+    owner_uid = root.stat().st_uid
+    if owner_uid not in (0, service_uid):
+        return f"owned by uid {owner_uid}"
+    try:
+        result = subprocess.run(
+            ["getfacl", "-cpn", str(root)],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        mode = root.stat().st_mode & 0o777
+        return f"mode {mode:o}" if mode & 0o077 else None
+
+    entries = []
+    mask = "rwx"
+    for line in result.stdout.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line or line.startswith("default:"):
+            continue
+        tag, qualifier, perms = line.split(":")
+        if tag == "mask":
+            mask = perms
+        else:
+            entries.append((tag, qualifier, perms))
+
+    for tag, qualifier, perms in entries:
+        if tag == "user" and qualifier in ("", "0", str(service_uid), service_account):
+            continue
+        effective = perms
+        if tag == "group" or (tag == "user" and qualifier):
+            effective = "".join(p if m != "-" else "-" for p, m in zip(perms, mask))
+        if effective != "---":
+            return f"{tag}:{qualifier}:{effective}"
+    return None
+
+
 def _check_store_root_private() -> None:
     """Create ``MODEL_STORE_ROOT`` owner-only if missing; refuse it if it isn't.
 
@@ -207,11 +254,12 @@ def _check_store_root_private() -> None:
         return
     root = Path(store_root).expanduser()
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    mode = root.stat().st_mode & 0o777
-    if mode & 0o077:
+    exposure = _store_root_exposure(root)
+    if exposure:
         raise RuntimeError(
-            f"MODEL_STORE_ROOT {root} is open to group/other (mode {mode:o}); "
-            "gated weights there would be readable by them. chmod it 0700."
+            f"MODEL_STORE_ROOT {root} is open to other accounts ({exposure}); "
+            "gated weights there would be readable by them. Restrict it to the "
+            "service account (chmod 700, or an ACL with group::--- and other::---)."
         )
 
 
@@ -476,6 +524,12 @@ class LLMInferenceDirectClient:
             vllm_parts.append(f"--max-model-len={params['max_model_len']}")
         if params.get("max_num_seqs") is not None:
             vllm_parts.append(f"--max-num-seqs={params['max_num_seqs']}")
+        # Client vllm_args are dropped upstream; vec-inf still needs the parallel
+        # sizes to match an explicit GPU/node request (TP within a node, PP across).
+        if params.get("num_gpus") is not None:
+            vllm_parts.append(f"--tensor-parallel-size={int(params['num_gpus'])}")
+        if params.get("num_nodes") is not None:
+            vllm_parts.append(f"--pipeline-parallel-size={int(params['num_nodes'])}")
         if params.get("vllm_args") is not None:
             vllm_parts.append(params["vllm_args"])
         if vllm_parts:
