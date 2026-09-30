@@ -305,6 +305,24 @@ def test_launch_model_ignores_client_launch_inputs():
     assert "work_dir" not in params
 
 
+def test_launch_model_runs_the_access_checked_model_id():
+    model = AvailableModel(id="Qwen/Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B")
+    db = FakeGatedDbSession(model)
+    service = ModelService()
+    fake_llm_client = FakeLLMClient()
+    service.llm_client = fake_llm_client
+
+    deployment = ModelDeploymentCreate(
+        modelName="Gated-7B",
+        modelId="Qwen/Qwen3-8B",
+        userId="11111111-1111-1111-1111-111111111111",
+    )
+
+    service.launch_model(db=db, deployment=deployment)
+
+    assert fake_llm_client.calls[0]["model_name"] == "Qwen/Qwen3-8B"
+
+
 def test_launch_model_gated_missing_from_store_starts_download(monkeypatch):
     gated_model = AvailableModel(
         id="Gated-7B", huggingfaceId="org/gated", gated="manual"

@@ -330,8 +330,10 @@ class ModelService:
             params.get("num_gpus"),
             params.get("time"),
         )
+        # Launch the access-checked model_id; modelName comes from the client and
+        # would otherwise let a request pass the check on one model and run another.
         result = self.llm_client.launch_model(
-            deployment.modelName,
+            model_id,
             enable_cloudflare_tunnel=enable_cloudflare_tunnel,
             **params,
         )
