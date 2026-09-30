@@ -197,9 +197,7 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     shutil.which("setfacl") is None or shutil.which("getfacl") is None,
     reason="needs real POSIX ACL tools",
 )
-def test_impersonated_payload_file_is_readable_by_cluster_user(
-    monkeypatch, tmp_path
-):
+def test_impersonated_payload_file_is_readable_by_cluster_user(monkeypatch, tmp_path):
     """Regression: the payload file used to be created 0600 inside the
     ACL'd workspace, which set the ACL mask to --- and masked out the
     impersonated user's inherited entry. Nothing is mocked on the filesystem
@@ -233,7 +231,9 @@ def test_impersonated_payload_file_is_readable_by_cluster_user(
     monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
     monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
     monkeypatch.setattr(settings, "VEC_INF_SHARED_WORK_ROOT", str(tmp_path / "work"))
-    monkeypatch.setattr(llm_inference, "_ensure_shared_cache_dir_access", lambda _: None)
+    monkeypatch.setattr(
+        llm_inference, "_ensure_shared_cache_dir_access", lambda _: None
+    )
     monkeypatch.setattr(
         llm_inference,
         "_select_user_slurm_account",
