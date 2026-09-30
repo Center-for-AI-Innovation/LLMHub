@@ -2,13 +2,15 @@ import json
 import os
 import pwd
 import re
+import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import yaml
+from huggingface_hub import snapshot_download
 
 from app.config.config import settings
 from app.config.logging import get_logger
@@ -135,37 +137,11 @@ def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
 
 
 def _get_shared_cache_dirs() -> List[Path]:
-    config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.getenv(
-        "VEC_INF_CONFIG_DIR"
-    )
-    if not isinstance(config_dir, str) or not config_dir.strip():
-        return []
-
-    env_path = Path(config_dir).expanduser() / "environment.yaml"
-    if not env_path.exists():
-        return []
-
-    try:
-        with env_path.open() as file_obj:
-            config = yaml.safe_load(file_obj) or {}
-    except Exception:
-        return []
-
-    bind_value = (((config.get("default_args") or {}).get("bind")) or "").strip()
-    if not bind_value:
-        return []
-
-    host_dirs: List[Path] = []
-    for mount in bind_value.split(","):
-        host_path, _, container_path = mount.strip().partition(":")
-        # A bare path is mounted at the same location inside the container.
-        if Path(container_path or host_path).name not in {
-            "huggingface",
-            "torch_inductor",
-        }:
-            continue
-        host_dirs.append(Path(host_path).expanduser())
-    return host_dirs
+    return [
+        Path(cache_dir).expanduser()
+        for cache_dir in (settings.MODEL_CACHE_DIR, settings.COMPILE_CACHE_DIR)
+        if cache_dir
+    ]
 
 
 def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
@@ -206,6 +182,65 @@ def _resolve_model_store_dir(model_name: str) -> Optional[Path]:
     if not isinstance(store_root, str) or not store_root.strip():
         return None
     return _join_contained(Path(store_root).expanduser(), model_name, "model_name")
+
+
+_gated_downloads_in_progress: set = set()
+_gated_downloads_lock = threading.Lock()
+
+
+def _download_gated_model(store_dir: Path, repo_id: str, hf_token: str) -> None:
+    partial_dir = store_dir.with_name(store_dir.name + ".partial")
+    try:
+        partial_dir.parent.mkdir(parents=True, exist_ok=True)
+        # Reruns resume from partial_dir; original/ holds a duplicate raw checkpoint.
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=partial_dir,
+            token=hf_token,
+            ignore_patterns=["original/*"],
+        )
+        shutil.rmtree(partial_dir / ".cache", ignore_errors=True)
+        # Hard links share these inodes, so the launching user must be able to read them.
+        # The store directory itself stays closed to everyone but the service account.
+        for path in [partial_dir, *partial_dir.rglob("*")]:
+            path.chmod(0o755 if path.is_dir() else 0o644)
+        partial_dir.rename(store_dir)
+        logger.info("Downloaded gated model %s into %s", repo_id, store_dir)
+    except Exception as exc:
+        logger.error("Gated model download failed for %s: %s", repo_id, exc)
+    finally:
+        with _gated_downloads_lock:
+            _gated_downloads_in_progress.discard(str(store_dir))
+
+
+def start_gated_model_download(
+    model_name: str, repo_id: Optional[str], hf_token: Optional[str]
+) -> Optional[str]:
+    """Start a background download of a gated model missing from ``MODEL_STORE_ROOT``.
+
+    Returns a message for the user while weights are downloading, or None when
+    they are already in the store (or no store/repo is configured).
+    """
+    try:
+        store_dir = _resolve_model_store_dir(model_name)
+    except ValueError:
+        return None
+    if store_dir is None or not repo_id or not hf_token or store_dir.is_dir():
+        return None
+
+    with _gated_downloads_lock:
+        already_running = str(store_dir) in _gated_downloads_in_progress
+        _gated_downloads_in_progress.add(str(store_dir))
+    if not already_running:
+        threading.Thread(
+            target=_download_gated_model,
+            args=(store_dir, repo_id, hf_token),
+            daemon=True,
+        ).start()
+    return (
+        f"Downloading gated model weights for {model_name}. "
+        "Launch again in a few minutes."
+    )
 
 
 def _hardlink_tree(src: Path, dst: Path) -> None:

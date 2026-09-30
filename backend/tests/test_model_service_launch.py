@@ -255,3 +255,62 @@ def test_deployment_create_rejects_invalid_cluster_username():
         assert "clusterUsername must be a valid cluster login name" in str(exc)
     else:
         raise AssertionError("Expected invalid clusterUsername to be rejected")
+
+
+def test_launch_model_ignores_client_launch_inputs():
+    model = AvailableModel(id="Qwen/Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B")
+    db = FakeGatedDbSession(model)
+    service = ModelService()
+    fake_llm_client = FakeLLMClient()
+    service.llm_client = fake_llm_client
+
+    deployment = ModelDeploymentCreate(
+        modelName="Qwen/Qwen3-8B",
+        modelId="Qwen/Qwen3-8B",
+        userId="11111111-1111-1111-1111-111111111111",
+        hf_model="attacker/evil-repo",
+        model_weights_parent_dir="/projects/modelcache/restricted",
+        work_dir="/projects/modelcache/public/huggingface",
+    )
+
+    service.launch_model(db=db, deployment=deployment)
+
+    params = fake_llm_client.calls[0]["params"]
+    assert params["hf_model"] == "Qwen/Qwen3-8B"
+    assert "model_weights_parent_dir" not in params
+    assert "work_dir" not in params
+
+
+def test_launch_model_gated_missing_from_store_starts_download(monkeypatch):
+    gated_model = AvailableModel(
+        id="Gated-7B", huggingfaceId="org/gated", gated="manual"
+    )
+    db = FakeGatedDbSession(gated_model)
+    service = ModelService()
+    fake_llm_client = FakeLLMClient()
+    service.llm_client = fake_llm_client
+
+    monkeypatch.setattr(
+        "app.services.model_service.check_model_hf_access",
+        lambda *a, **k: (True, None),
+    )
+    started = []
+    monkeypatch.setattr(
+        "app.services.model_service.start_gated_model_download",
+        lambda *args: started.append(args) or "Downloading gated model weights",
+    )
+
+    deployment = ModelDeploymentCreate(
+        modelName="Gated-7B",
+        modelId="Gated-7B",
+        userId="11111111-1111-1111-1111-111111111111",
+        clusterUsername="alice",
+        hf_token="valid-token",
+    )
+
+    result = service.launch_model(db=db, deployment=deployment)
+
+    assert started == [("Gated-7B", "org/gated", "valid-token")]
+    assert result.status == "failed"
+    assert "Downloading" in result.errorMessage
+    assert fake_llm_client.calls == []

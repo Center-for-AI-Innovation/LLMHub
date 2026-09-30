@@ -453,3 +453,42 @@ def test_resolve_gated_model_store_dir_returns_store_root_when_staged(
     # execution runs as the service account, which already has its own
     # access, so no hard-linking is needed.
     assert weights_parent_dir == store_root
+
+
+def test_shared_cache_dirs_come_from_settings_only(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", "/cache/huggingface")
+    monkeypatch.setattr(settings, "COMPILE_CACHE_DIR", None)
+
+    assert llm_inference._get_shared_cache_dirs() == [Path("/cache/huggingface")]
+
+
+def test_gated_model_downloads_into_store_then_is_found(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path))
+
+    def fake_snapshot_download(repo_id, local_dir, token, ignore_patterns):
+        assert (repo_id, token) == ("org/gated", "user-token")
+        Path(local_dir).mkdir(parents=True, exist_ok=True)
+        (Path(local_dir) / "config.json").write_text("{}")
+
+    class InlineThread:
+        def __init__(self, target, args, daemon):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(llm_inference, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
+
+    message = llm_inference.start_gated_model_download(
+        "Gated-7B", "org/gated", "user-token"
+    )
+
+    assert "Downloading" in message
+    config = tmp_path / "Gated-7B" / "config.json"
+    assert config.stat().st_mode & 0o777 == 0o644
+    assert not (tmp_path / "Gated-7B.partial").exists()
+    assert (
+        llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
+        is None
+    )
