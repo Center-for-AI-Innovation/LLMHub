@@ -425,6 +425,7 @@ def test_ensure_gated_model_weights_for_user_raises_without_workspace_root(
     store_model_dir = tmp_path / "store" / "Qwen/Qwen3-8B"
     store_model_dir.mkdir(parents=True)
     (store_model_dir / "config.json").write_text("{}")
+    (tmp_path / "store").chmod(0o700)
 
     monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(tmp_path / "store"))
     monkeypatch.setattr(
@@ -461,6 +462,7 @@ def test_ensure_gated_model_weights_for_user_links_into_workspace(
     store_model_dir = tmp_path / "store" / "Qwen/Qwen3-8B"
     store_model_dir.mkdir(parents=True)
     (store_model_dir / "config.json").write_text("{}")
+    (tmp_path / "store").chmod(0o700)
 
     workspace_dir = tmp_path / "alice"
     workspace_dir.mkdir()
@@ -518,6 +520,7 @@ def test_resolve_gated_model_store_dir_returns_store_root_when_staged(
     store_model_dir = store_root / "Qwen/Qwen3-8B"
     store_model_dir.mkdir(parents=True)
     (store_model_dir / "config.json").write_text("{}")
+    store_root.chmod(0o700)
 
     monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
 
@@ -527,6 +530,41 @@ def test_resolve_gated_model_store_dir_returns_store_root_when_staged(
     # execution runs as the service account, which already has its own
     # access, so no hard-linking is needed.
     assert weights_parent_dir == store_root
+
+
+def test_gated_store_refuses_a_group_readable_root(monkeypatch, tmp_path):
+    store_root = tmp_path / "store"
+    (store_root / "Gated-7B").mkdir(parents=True)
+    store_root.chmod(0o770)
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+
+    with pytest.raises(RuntimeError, match="open to group/other"):
+        llm_inference.resolve_gated_model_store_dir("Gated-7B")
+    with pytest.raises(RuntimeError, match="open to group/other"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+    message = llm_inference.start_gated_model_download(
+        "Other-7B", "org/other", "user-token"
+    )
+    assert "open to group/other" in message
+
+
+def test_gated_store_root_is_created_owner_only(monkeypatch, tmp_path):
+    store_root = tmp_path / "missing" / "store"
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+    monkeypatch.setattr(llm_inference.threading, "Thread", _NoopThread)
+    monkeypatch.setattr(llm_inference, "_gated_downloads_in_progress", set())
+
+    llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
+
+    assert store_root.stat().st_mode & 0o777 == 0o700
+
+
+class _NoopThread:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def start(self):
+        pass
 
 
 def test_shared_cache_dirs_come_from_settings_only(monkeypatch):

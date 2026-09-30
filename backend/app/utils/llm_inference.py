@@ -194,6 +194,27 @@ def _resolve_model_store_dir(model_name: str) -> Optional[Path]:
     return _join_contained(Path(store_root).expanduser(), model_name, "model_name")
 
 
+def _check_store_root_private() -> None:
+    """Create ``MODEL_STORE_ROOT`` owner-only if missing; refuse it if it isn't.
+
+    Downloaded weights are world-readable (0644) so hard links work for the
+    launching user; only this directory keeps everyone else out. A mkdir under
+    the backend's umask 007 would leave it open to the service account's group,
+    which on Delta is shared by many accounts.
+    """
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    if not isinstance(store_root, str) or not store_root.strip():
+        return
+    root = Path(store_root).expanduser()
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    mode = root.stat().st_mode & 0o777
+    if mode & 0o077:
+        raise RuntimeError(
+            f"MODEL_STORE_ROOT {root} is open to group/other (mode {mode:o}); "
+            "gated weights there would be readable by them. chmod it 0700."
+        )
+
+
 _gated_downloads_in_progress: set = set()
 _gated_downloads_lock = threading.Lock()
 
@@ -235,7 +256,14 @@ def start_gated_model_download(
         store_dir = _resolve_model_store_dir(model_name)
     except ValueError:
         return None
-    if store_dir is None or not repo_id or not hf_token or store_dir.is_dir():
+    if store_dir is None or not repo_id or not hf_token:
+        return None
+    try:
+        _check_store_root_private()
+    except (OSError, RuntimeError) as exc:
+        logger.error("Refusing gated model download: %s", exc)
+        return f"Cannot store gated model weights: {exc}"
+    if store_dir.is_dir():
         return None
 
     with _gated_downloads_lock:
@@ -291,6 +319,8 @@ def resolve_gated_model_store_dir(model_name: str) -> Path:
         source_dir = _resolve_model_store_dir(model_name)
     except ValueError as exc:
         raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
+    if source_dir is not None:
+        _check_store_root_private()
     if source_dir is None or not source_dir.is_dir():
         raise RuntimeError(
             f"Model {model_name!r} not found in the protected model store "
@@ -315,6 +345,8 @@ def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) 
         source_dir = _resolve_model_store_dir(model_name)
     except ValueError as exc:
         raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
+    if source_dir is not None:
+        _check_store_root_private()
     if source_dir is None or not source_dir.is_dir():
         raise RuntimeError(
             f"Model {model_name!r} not found in the shared model store "
