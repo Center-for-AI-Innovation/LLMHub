@@ -1,3 +1,4 @@
+import os
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional
@@ -11,6 +12,23 @@ class VecInfExecutionMode(str, Enum):
 
     DIRECT = "direct"
     IMPERSONATE = "impersonate"
+
+
+def _readable_dotenv_path() -> Optional[str]:
+    """Return ``.env`` only when this process can read it.
+
+    Impersonated launches run as ``svcllmhub*`` with cwd in the backend tree.
+    They must not open the service account's ``.env`` (PermissionError). Values
+    needed for the shim are already in ``os.environ`` via sudo ``--preserve-env``.
+    """
+    candidate = Path(".env")
+    try:
+        if candidate.is_file() and os.access(candidate, os.R_OK):
+            return str(candidate)
+    except OSError:
+        # is_file()/stat can raise PermissionError when the file is inaccessible.
+        return None
+    return None
 
 
 class Settings(BaseSettings):
@@ -87,7 +105,10 @@ class Settings(BaseSettings):
         None  # Support contact shown in the admin-contact line of notification emails when set
     )
 
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    model_config = SettingsConfigDict(
+        env_file=_readable_dotenv_path(),
+        case_sensitive=True,
+    )
 
     @field_validator("VEC_INF_EXECUTION_MODE", mode="before")
     @classmethod
@@ -128,8 +149,6 @@ class Settings(BaseSettings):
         Only fills keys that are not already set in the process environment so
         explicit shell exports still win.
         """
-        import os
-
         account = self.VEC_INF_ACCOUNT or self.SLURM_ACCOUNT
         mapping = {
             "VEC_INF_CONFIG_DIR": self.VEC_INF_CONFIG_DIR,
