@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Deployment kit (`infra/delta/`), found by the first DeltaAI deploy:
+  - The backend's `DATABASE_URL` now names the `psycopg2` driver. SQLAlchemy 2.1 maps a bare `postgresql://` to psycopg 3, which the backend does not install, so a fresh install failed at import with `No module named 'psycopg'`.
+  - DeltaAI single-node inference jobs run with the OFI network plugin off. vec-inf starts them outside `srun`, with no Slingshot VNI, and the plugin's `Failed to find valid default rgroup and vni` warning made vec-inf mark healthy launches FAILED. Multi-node jobs keep the plugin.
+  - `preflight` no longer fails a first deploy because the job-workspace root does not exist yet.
+  - `launch-test` warns when a SLURM job is still running after shutdown, with the command to cancel it, and prints the job-log path correctly.
+
 ## [1.1.0]
 
 ### Added
