@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Resolve a user's Slurm accounts with `sacctmgr` instead of the Delta-local `/sw/user/scripts/accounts` helper, and omit the placeholder `noalloc` account.
 - Derive the cluster username from the signed-in email local-part, using the suffix after `+` for impersonation addresses such as `rohan13+svcllmhubrohan13@ncsa.illinois.edu`.
+- Impersonation cleanup: centralize vec-inf config on `Settings`, type execution mode as `direct` | `impersonate`, consolidate workspace-root resolution (`SHARED_WORK_ROOT` → `WORK_DIR` → `LOG_DIR`), always run the wrapper with `--no-login-shell`, and grant ACLs on `VEC_INF_LOG_DIR` plus `model_weights_parent_dir` instead of `default_args.bind`. ([#58](https://github.com/Center-for-AI-Innovation/LLMHub/issues/58))
 
 ## [1.0.0]
 
