@@ -1,84 +1,52 @@
 # Illinois Campus Cluster GPU partitions for the fit estimator (same schema as
 # infrastructures/delta/hardware.yaml; see its header for field meanings).
 #
-# NOT YET VERIFIED against the cluster. Campus Cluster partitions mix GPU types,
-# so rows are keyed by partition + resource_type, and the gate sizes a launch
-# only when the request names the GPU type. Partitions and GPU types come from
-# this directory's environment.yaml allowed_values; which GPU types each
-# partition really holds, and their exact GRES names, still need checking with
-# `python -m app.services.fit_estimator.discovery` on a Campus Cluster login
-# node. A row for a GPU a partition lacks cannot cause a false accept (Slurm
-# rejects that request), but the fit survey would list it.
+# BEST GUESS -- there is no LLMHub service VM on Campus Cluster yet, so nothing
+# here has been checked against sinfo. Sources:
+# - IllinoisComputes-GPU hardware (4 nodes of 4x A100 80GB, 1 node of 8x H200
+#   141GB) and the secondary queue's 4-hour limit:
+#   https://campuscluster.illinois.edu/access/illinois-computes/
+# - GRES type names V100, TeslaT4 and A40 (as in --gres=gpu:V100:2):
+#   https://docs.ncsa.illinois.edu/systems/icc/en/latest/user_guide/running_jobs.html
+# - A100, H100, RTXA6000 and l40s: this directory's environment.yaml
+#   allowed_values. H200's GRES name is a guess.
+# When a VM exists, regenerate with
+#   python -m app.services.fit_estimator.discovery --probe \
+#       --output config/infrastructures/campus-cluster/hardware.yaml
 #
-# vram_gib_per_gpu: published capacity padded below typical nvidia-smi values;
-#   ambiguous models assume the smaller variant, so errors only ever refuse.
+# Partitions mix GPU types, so rows are keyed by partition + resource_type and
+# the gate sizes a launch only when the request names the GPU type. secondary
+# reaches investor nodes of every GPU type; a row for a GPU it lacks cannot
+# cause a false accept (Slurm rejects that request), but the survey lists it.
+# P100 and older GPUs are left out: vLLM needs compute capability 7.0+.
+#
+# vram_gib_per_gpu: published capacity padded below typical nvidia-smi values.
+#   secondary's A100s are investor nodes of unknown variant, so they assume
+#   40GB; IllinoisComputes-GPU's are documented as 80GB.
+# gpus_per_node: only where documented; elsewhere the gate does not cap tensor
+#   parallelism and Slurm rejects a request wider than the node.
 # compute_capability: V100 (7.0), T4 (7.5), A100 (8.0) and A40/A6000 (8.6) run
 #   FP8/MXFP4 checkpoints dequantized, so the validator refuses to size them.
-# gpus_per_node: omitted until verified, so the gate does not cap tensor
-#   parallelism here; Slurm rejects a request larger than the node.
 # su_per_gpu_hour: omitted -- Campus Cluster does not bill in SUs.
 
 partitions:
   - partition: IllinoisComputes-GPU
-    gpu_type: NVIDIA A40
-    resource_type: A40
-    compute_capability: 8.6
-    vendor: NVIDIA
-    vram_gib_per_gpu: 44.988  # measured on Delta
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
-
-  - partition: IllinoisComputes-GPU
-    gpu_type: NVIDIA A100
+    gpu_type: NVIDIA A100 80GB
     resource_type: A100
     compute_capability: 8.0
     vendor: NVIDIA
-    vram_gib_per_gpu: 40.0  # assumes the 40GB variant; 80GB nodes exist
+    vram_gib_per_gpu: 79.2  # 80GB, typical smi ~79.6 GiB, padded
+    gpus_per_node: 4
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
 
   - partition: IllinoisComputes-GPU
-    gpu_type: NVIDIA H100
-    resource_type: H100
+    gpu_type: NVIDIA H200
+    resource_type: H200
     compute_capability: 9.0
     vendor: NVIDIA
-    vram_gib_per_gpu: 79.0  # 80GB, typical smi ~79.6 GiB, padded
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
-
-  - partition: IllinoisComputes-GPU
-    gpu_type: NVIDIA V100
-    resource_type: V100
-    compute_capability: 7.0
-    vendor: NVIDIA
-    vram_gib_per_gpu: 15.7  # assumes the 16GB variant; 32GB nodes exist
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
-
-  - partition: IllinoisComputes-GPU
-    gpu_type: NVIDIA T4
-    resource_type: TeslaT4
-    compute_capability: 7.5
-    vendor: NVIDIA
-    vram_gib_per_gpu: 14.5  # 16GB, typical smi ~15 GiB, padded
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
-
-  - partition: IllinoisComputes-GPU
-    gpu_type: NVIDIA RTX A6000
-    resource_type: RTXA6000
-    compute_capability: 8.6
-    vendor: NVIDIA
-    vram_gib_per_gpu: 47.5  # 48GB, typical smi ~48 GiB, padded
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
-
-  - partition: IllinoisComputes-GPU
-    gpu_type: NVIDIA L40S
-    resource_type: l40s
-    compute_capability: 8.9
-    vendor: NVIDIA
-    vram_gib_per_gpu: 44.5  # 48GB, typical smi ~45 GiB, padded
+    vram_gib_per_gpu: 140.0  # 141GB, typical smi ~140.4 GiB, padded
+    gpus_per_node: 8
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
 
@@ -90,6 +58,7 @@ partitions:
     vram_gib_per_gpu: 44.988  # measured on Delta
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
+    max_walltime: "4:00:00"
 
   - partition: secondary
     gpu_type: NVIDIA A100
@@ -99,6 +68,7 @@ partitions:
     vram_gib_per_gpu: 40.0  # assumes the 40GB variant; 80GB nodes exist
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
+    max_walltime: "4:00:00"
 
   - partition: secondary
     gpu_type: NVIDIA H100
@@ -108,6 +78,17 @@ partitions:
     vram_gib_per_gpu: 79.0  # 80GB, typical smi ~79.6 GiB, padded
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
+    max_walltime: "4:00:00"
+
+  - partition: secondary
+    gpu_type: NVIDIA H200
+    resource_type: H200
+    compute_capability: 9.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 140.0  # 141GB, typical smi ~140.4 GiB, padded
+    framework_overhead_gib: 0.8
+    tp_communication_buffer_gib: 0.25
+    max_walltime: "4:00:00"
 
   - partition: secondary
     gpu_type: NVIDIA V100
@@ -117,6 +98,7 @@ partitions:
     vram_gib_per_gpu: 15.7  # assumes the 16GB variant; 32GB nodes exist
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
+    max_walltime: "4:00:00"
 
   - partition: secondary
     gpu_type: NVIDIA T4
@@ -126,6 +108,7 @@ partitions:
     vram_gib_per_gpu: 14.5  # 16GB, typical smi ~15 GiB, padded
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
+    max_walltime: "4:00:00"
 
   - partition: secondary
     gpu_type: NVIDIA RTX A6000
@@ -135,6 +118,7 @@ partitions:
     vram_gib_per_gpu: 47.5  # 48GB, typical smi ~48 GiB, padded
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
+    max_walltime: "4:00:00"
 
   - partition: secondary
     gpu_type: NVIDIA L40S
@@ -144,3 +128,4 @@ partitions:
     vram_gib_per_gpu: 44.5  # 48GB, typical smi ~45 GiB, padded
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
+    max_walltime: "4:00:00"
