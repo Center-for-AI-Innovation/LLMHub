@@ -121,7 +121,7 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         llm_inference._get_impersonation_python(),
     ]
     assert captured["command"][5:7] == ["-m", "app.utils.vec_inf_launch_shim"]
-    assert captured["kwargs"]["cwd"] == str(llm_inference.PROJECT_ROOT)
+    assert captured["kwargs"]["cwd"] == str(tmp_path / "alice")
     assert captured["kwargs"]["env"]["VEC_INF_ACCOUNT"] == "bgns-delta-gpu"
     assert captured["kwargs"]["env"]["SLURM_ACCOUNT"] == "bgns-delta-gpu"
     assert captured["kwargs"]["env"]["VEC_INF_LOG_DIR"].endswith("/alice")

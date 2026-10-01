@@ -584,12 +584,15 @@ class LLMInferenceClient:
         if params.get("account"):
             env["VEC_INF_ACCOUNT"] = str(params["account"])
             env["SLURM_ACCOUNT"] = str(params["account"])
+        # Do not use PROJECT_ROOT as cwd: Settings(env_file=".env") would try to
+        # open the service account's unreadable .env as svcllmhub*. Imports come
+        # from VEC_INF_IMPERSONATE_PYTHON's site-packages (or PYTHONPATH).
         result = subprocess.run(
             command,
             text=True,
             capture_output=True,
             env=env,
-            cwd=str(PROJECT_ROOT),
+            cwd=str(workspace_dir or Path.cwd()),
         )
 
         parsed = self._parse_impersonated_response(result.stdout, result.stderr)
@@ -630,11 +633,12 @@ class LLMInferenceClient:
             cluster_username, "scancel", str(slurm_job_id)
         )
 
+        workspace_dir = _resolve_impersonated_workspace_dir(cluster_username)
         result = subprocess.run(
             command,
             text=True,
             capture_output=True,
-            cwd=str(PROJECT_ROOT),
+            cwd=str(workspace_dir or Path.cwd()),
         )
 
         if result.returncode != 0:

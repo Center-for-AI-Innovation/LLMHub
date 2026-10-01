@@ -71,7 +71,7 @@ def _run_wrapper_probe(
         text=True,
         capture_output=True,
         env=_build_wrapper_env(account, workspace_dir),
-        cwd=str(PROJECT_ROOT),
+        cwd=str(workspace_dir),
     )
     return {
         "command": command,
