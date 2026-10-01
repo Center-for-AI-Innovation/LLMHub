@@ -76,6 +76,17 @@ models:
     resource_type: l40s
     vllm_args:
       --max-model-len: 32768
+  Qwen3.5-35B-A3B:
+    model_family: Qwen
+    model_variant: 35B-A3B
+    model_type: VLM
+    gpus_per_node: 1
+    num_nodes: 1
+    vocab_size: 248320
+    time: 08:00:00
+    resource_type: l40s
+    vllm_args:
+      --max-model-len: 131072
   Qwen2.5-0.5B-Instruct:
     model_family: Qwen2.5
     model_variant: 0.5B-Instruct
