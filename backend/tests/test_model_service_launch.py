@@ -52,6 +52,11 @@ class FakeLLMClient:
         )
         return {"success": True, "job_id": "12345", "slurm_job_id": "12345"}
 
+    def get_model_details(self, model_name):
+        # No catalog entry: the memory gate skips, as it does for a model
+        # vec-inf cannot load.
+        return {"success": False, "error": "not in test catalog"}
+
 
 def test_launch_model_persists_cluster_username():
     db = FakeDbSession()
@@ -481,3 +486,162 @@ def test_tunnel_lookup_uses_the_launched_model_id():
 
     assert looked_up == [("Qwen3-8B", "12345", "alice")]
     assert deployment.proxyUrl == "https://example.trycloudflare.com"
+
+
+# --- Memory gate (adapted from Ajay's #46 launch-path tests) ---------------
+
+
+class FakeResourceService:
+    def __init__(self):
+        self.allocated = []
+        self.released = []
+
+    def allocate_resources(self, db, resource_type, resource_name, count):
+        self.allocated.append(count)
+        return {"success": True}
+
+    def release_resources(self, db, resource_type, resource_name, count):
+        self.released.append(count)
+
+
+@pytest.fixture()
+def resources(monkeypatch):
+    fake = FakeResourceService()
+    monkeypatch.setattr("app.services.model_service.ResourceService", lambda: fake)
+    return fake
+
+
+def _gate_service(monkeypatch, gate):
+    service = ModelService()
+    service.llm_client = FakeLLMClient()
+    monkeypatch.setattr(
+        "app.services.model_service.check_launch_memory_gate_for_model", gate
+    )
+    return service
+
+
+def _qwen_deployment(**overrides):
+    payload = {
+        "modelName": "Qwen3-8B",
+        "modelId": "Qwen3-8B",
+        "userId": "11111111-1111-1111-1111-111111111111",
+        "num_gpus": 2,
+        "partition": "gpuA40x4",
+    }
+    payload.update(overrides)
+    return ModelDeploymentCreate(**payload)
+
+
+def test_launch_survives_num_nodes_none(monkeypatch, resources):
+    """model_dump() always emits num_nodes=None, so a dict-get default never
+    fired and num_gpus * None raised TypeError before allocation."""
+    service = _gate_service(monkeypatch, lambda *a, **k: None)
+
+    result = service.launch_model(db=FakeDbSession(), deployment=_qwen_deployment())
+
+    assert resources.allocated == [2]
+    assert result.slurmJobId == "12345"
+
+
+def test_gate_block_fails_before_allocation_or_launch(monkeypatch, resources):
+    from app.services.fit_estimator.validator import (
+        ConfigValidation,
+        _empty_breakdown,
+    )
+
+    verdict = ConfigValidation(
+        valid=False,
+        reason="Config exceeds A40 VRAM",
+        per_gpu_breakdown=_empty_breakdown(),
+    )
+    service = _gate_service(monkeypatch, lambda *a, **k: verdict)
+
+    result = service.launch_model(db=FakeDbSession(), deployment=_qwen_deployment())
+
+    assert resources.allocated == []
+    assert service.llm_client.calls == []
+    assert result.status == "failed"
+    assert result.errorMessage == "Launch blocked: Config exceeds A40 VRAM"
+
+
+def test_gate_block_skips_gated_download(monkeypatch, resources):
+    """A config that cannot boot must not start a gated weights download."""
+    from app.services.fit_estimator.validator import (
+        ConfigValidation,
+        _empty_breakdown,
+    )
+
+    gated_model = AvailableModel(
+        id="Gated-7B", huggingfaceId="org/gated", gated="manual"
+    )
+    monkeypatch.setattr(
+        "app.services.model_service.check_model_hf_access",
+        lambda *a, **k: (True, None),
+    )
+    started = []
+    monkeypatch.setattr(
+        "app.services.model_service.start_gated_model_download",
+        lambda *args: started.append(args),
+    )
+    verdict = ConfigValidation(False, "too big", _empty_breakdown())
+    service = _gate_service(monkeypatch, lambda *a, **k: verdict)
+
+    result = service.launch_model(
+        db=FakeGatedDbSession(gated_model),
+        deployment=_qwen_deployment(
+            modelName="Gated-7B", modelId="Gated-7B", hf_token="valid-token"
+        ),
+    )
+
+    assert started == []
+    assert result.errorMessage == "Launch blocked: too big"
+
+
+def test_gate_crash_fails_open(monkeypatch, resources):
+    """An estimator bug must not take down launches."""
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("estimator bug")
+
+    service = _gate_service(monkeypatch, _boom)
+
+    result = service.launch_model(db=FakeDbSession(), deployment=_qwen_deployment())
+
+    assert len(service.llm_client.calls) == 1
+    assert resources.released == []
+    assert result.slurmJobId == "12345"
+
+
+def test_gate_sizes_the_launched_model_with_the_users_token(monkeypatch, resources):
+    """The gate sees the access-checked modelId, the server's hf_model and the
+    user's own token -- never the client's modelName or hf_model."""
+    seen = {}
+
+    def _gate(model_name, _details, **kwargs):
+        seen.update(kwargs, model_name=model_name)
+        return None
+
+    model = AvailableModel(id="Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B")
+    service = _gate_service(monkeypatch, _gate)
+
+    service.launch_model(
+        db=FakeGatedDbSession(model),
+        deployment=_qwen_deployment(
+            modelName="Gated-7B",
+            hf_model="attacker/tiny-repo",
+            hf_token="user-token",
+            max_model_len=8192,
+            max_num_seqs=16,
+        ),
+    )
+
+    assert seen == {
+        "model_name": "Qwen3-8B",
+        "hf_model": "Qwen/Qwen3-8B",
+        "partition": "gpuA40x4",
+        "max_model_len": 8192,
+        "tensor_parallel_size": 2,
+        "num_nodes": None,
+        "max_num_seqs": 16,
+        "hf_token": "user-token",
+    }

@@ -19,7 +19,7 @@ from app.schemas.fit_estimate import (
 )
 from app.services.fit_estimator import estimate_fit_for_model
 from app.services.fit_estimator.ranking import parse_duration_hours
-from app.utils.huggingface import resolve_hf_model_id
+from app.utils.hf_family_orgs import resolve_request_hf_model
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +38,16 @@ def create_fit_estimate(request: FitEstimateRequest) -> Any:
                 status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
             ) from exc
 
-    try:
-        hf_model_id = resolve_hf_model_id(
-            request.model_id,
-            family=request.model_family,
-            huggingface_id=request.huggingface_id,
+    hf_model_id = resolve_request_hf_model(
+        request.model_id, request.model_family, request.huggingface_id
+    )
+    if hf_model_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot resolve a Hugging Face repo id for {request.model_id!r}",
         )
+
+    try:
         estimate = estimate_fit_for_model(
             hf_model_id,
             dtype=request.dtype,

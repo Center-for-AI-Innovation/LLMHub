@@ -14,6 +14,12 @@ from app.models.model_deployment import ModelDeployment
 from app.models.model_request import ModelRequest
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
+from app.services.fit_estimator.concurrency import (
+    VLLM_DEFAULT_MAX_NUM_SEQS,
+    catalog_max_num_seqs,
+    resolve_max_num_seqs,
+)
+from app.services.fit_estimator.launch_gate import check_launch_memory_gate_for_model
 from app.services.resource_service import ResourceService
 from app.utils.hf_auth import (
     check_model_hf_access,
@@ -201,9 +207,10 @@ class ModelService:
         # Check and allocate resources if needed
         resource_service = ResourceService()
 
-        # Get the number of GPUs requested
+        # Get the number of GPUs requested. model_dump() always emits num_nodes
+        # (default None), so a dict-get default never fires -- `or 1` does.
         num_gpus = params.get("num_gpus")
-        num_nodes = params.get("num_nodes", 1)
+        num_nodes = params.get("num_nodes") or 1
 
         # Early Hugging Face access check (requested "fast exit")
         db_model = (
@@ -227,6 +234,46 @@ class ModelService:
                     "For gated or private models, supply a valid hf_token with Hub access. "
                     f"Details: {hf_err}"
                 ),
+                resourceAllocation=resource_allocation,
+            )
+            db.add(db_deployment)
+            db.commit()
+            db.refresh(db_deployment)
+            return db_deployment
+
+        # Refuse configs that provably cannot boot before downloading weights,
+        # allocating GPUs or touching Slurm. It sizes what will actually launch:
+        # the access-checked model_id and the server's hf_model, with the user's
+        # own token for gated metadata. A gate that cannot size the config
+        # returns None (logged), and a crash in it must not block launches.
+        try:
+            gate = check_launch_memory_gate_for_model(
+                model_id,
+                self.llm_client.get_model_details,
+                hf_model=hf_repo_id,
+                partition=params.get("partition"),
+                max_model_len=params.get("max_model_len"),
+                tensor_parallel_size=num_gpus,
+                num_nodes=params.get("num_nodes"),
+                max_num_seqs=params.get("max_num_seqs"),
+                hf_token=hf_token,
+            )
+        except Exception:
+            logger.exception(
+                "Launch memory gate crashed for model=%s; skipping gate", model_id
+            )
+            gate = None
+        if gate is not None and not gate.valid:
+            logger.warning(
+                "Launch memory gate rejected model=%s: %s", model_id, gate.reason
+            )
+            db_deployment = ModelDeployment(
+                modelId=model_id,
+                modelName=deployment.modelName,
+                userId=deployment.userId,
+                slurmJobId="failed",
+                status="failed",
+                errorMessage=f"Launch blocked: {gate.reason}",
                 resourceAllocation=resource_allocation,
             )
             db.add(db_deployment)
@@ -1054,6 +1101,10 @@ class ModelService:
                             model_dict, model_config
                         )
 
+                    effective_max_num_seqs = resolve_max_num_seqs(
+                        catalog_value=catalog_max_num_seqs(model_dict),
+                    )
+
                     pipeline_parallelism = get_value("pipeline_parallelism")
                     if pipeline_parallelism is None:
                         pipeline_parallelism = self._extract_pipeline_parallelism(
@@ -1070,6 +1121,7 @@ class ModelService:
                         or get_value("num_gpus", 1),
                         "num_nodes": get_value("num_nodes", 1),
                         "max_model_len": max_model_len,
+                        "max_num_seqs": effective_max_num_seqs,
                         "pipeline_parallelism": pipeline_parallelism,
                         "vocab_size": get_value("vocab_size"),
                         "huggingface_id": resolve_hf_model(
@@ -1183,6 +1235,7 @@ class ModelService:
         num_gpus = model_data.get("num_gpus", 1)
         num_nodes = model_data.get("num_nodes", 1)
         max_model_len = model_data.get("max_model_len", 4096)
+        max_num_seqs = model_data.get("max_num_seqs", VLLM_DEFAULT_MAX_NUM_SEQS)
         pipeline_parallelism = model_data.get("pipeline_parallelism", False)
         vocab_size = model_data.get("vocab_size")
         huggingface_id = model_data.get("huggingface_id")
@@ -1208,6 +1261,7 @@ class ModelService:
             "gpus": num_gpus,
             "nodes": num_nodes,
             "contextLength": max_model_len,
+            "maxNumSeqs": max_num_seqs,
             "parallelism": pipeline_parallelism,
         }
 

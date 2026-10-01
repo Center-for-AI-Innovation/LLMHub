@@ -77,6 +77,7 @@ def test_resolve_qwen_32b_uses_tp_from_vllm_args() -> None:
     spec = resolve_catalog_launch_spec(
         "Qwen2.5-32B-Instruct",
         catalog,
+        hf_model="Qwen/Qwen2.5-32B-Instruct",
         partition="gpuA40x4",
     )
     assert spec is not None
@@ -140,6 +141,7 @@ def test_gate_certifies_startup_not_peak_concurrency(
         # concurrency (no catalog/user override here -> the vLLM default).
         assert kwargs["max_num_seqs"] == LAUNCH_GATE_MAX_NUM_SEQS
         assert kwargs["overhead_max_num_seqs"] == DEFAULT_MAX_NUM_SEQS
+        kwargs.pop("hf_token")
         return validate_config(meta, **kwargs)
 
     monkeypatch.setattr(
@@ -265,8 +267,9 @@ def test_check_launch_memory_gate_for_model_load_failure_skips() -> None:
 
 
 def test_spec_resolves_launch_concurrency() -> None:
-    """spec.max_num_seqs follows user vllm_args > explicit param > catalog > 256."""
+    """spec.max_num_seqs follows explicit param > catalog > the vLLM default."""
     catalog = {
+        "model_family": "Llama-3.2",
         "gpus_per_node": 1,
         "vllm_args": {"--max-model-len": 4096, "--max-num-seqs": 64},
     }
@@ -283,32 +286,31 @@ def test_spec_resolves_launch_concurrency() -> None:
     assert from_param is not None
     assert from_param.max_num_seqs == 32
 
-    from_user_args = resolve_catalog_launch_spec(
-        "Llama-3.2-11B-Vision",
-        catalog,
-        partition="gpuA40x4",
-        max_num_seqs=32,
-        vllm_args="--max-num-seqs=16",
-    )
-    assert from_user_args is not None
-    assert from_user_args.max_num_seqs == 16
-
     default = resolve_catalog_launch_spec(
         "Qwen2.5-7B-Instruct",
-        {"gpus_per_node": 1, "vllm_args": {"--max-model-len": 4096}},
+        {
+            "model_family": "Qwen2.5",
+            "gpus_per_node": 1,
+            "vllm_args": {"--max-model-len": 4096},
+        },
         partition="gpuA40x4",
     )
     assert default is not None
     assert default.max_num_seqs == DEFAULT_MAX_NUM_SEQS
 
 
-def test_user_vllm_args_context_overrides_catalog() -> None:
-    """Free-form --max-model-len reaches vLLM last and wins; the gate must see it."""
+def test_request_context_overrides_catalog() -> None:
+    """llm_inference emits --max-model-len from the request param, which beats
+    the catalog's in vec-inf's per-key merge; the gate must see it."""
     spec = resolve_catalog_launch_spec(
         "Qwen2.5-7B-Instruct",
-        {"gpus_per_node": 1, "vllm_args": {"--max-model-len": 4096}},
+        {
+            "model_family": "Qwen2.5",
+            "gpus_per_node": 1,
+            "vllm_args": {"--max-model-len": 4096},
+        },
         partition="gpuA40x4",
-        vllm_args="--max-model-len=131072",
+        max_model_len=131072,
     )
     assert spec is not None
     assert spec.max_model_len == 131072
@@ -320,33 +322,20 @@ def test_spec_context_none_when_unpinned() -> None:
     default smaller than what actually boots."""
     spec = resolve_catalog_launch_spec(
         "medgemma-4b-it",
-        {"gpus_per_node": 1},
+        {"model_family": "google", "gpus_per_node": 1},
         partition="gpuA40x4",
     )
     assert spec is not None
     assert spec.max_model_len is None
 
 
-def test_user_vllm_args_comma_joined_multi_flag_wins() -> None:
-    """Every flag in the comma-joined wire format must be seen, not just the
-    last one (the exact format ModelDeploymentCreate documents)."""
-    spec = resolve_catalog_launch_spec(
-        "Qwen2.5-7B-Instruct",
-        {"gpus_per_node": 1, "vllm_args": {"--max-model-len": 4096}},
-        partition="gpuA40x4",
-        vllm_args="--max-model-len=131072,--max-num-seqs=32",
-    )
-    assert spec is not None
-    assert spec.max_model_len == 131072
-    assert spec.max_num_seqs == 32
-
-
-def test_catalog_tp_flag_beats_num_gpus_param() -> None:
-    """llm_inference never emits --tensor-parallel-size from num_gpus, so the
-    catalog flag is what vLLM boots with; the gate must certify that TP."""
+def test_num_gpus_param_beats_catalog_tp_flag() -> None:
+    """llm_inference emits --tensor-parallel-size from num_gpus, overriding the
+    catalog flag, so the gate must certify the requested TP."""
     spec = resolve_catalog_launch_spec(
         "Qwen2.5-32B-Instruct",
         {
+            "model_family": "Qwen2.5",
             "gpus_per_node": 2,
             "vllm_args": {"--tensor-parallel-size": 2, "--max-model-len": 4096},
         },
@@ -354,29 +343,71 @@ def test_catalog_tp_flag_beats_num_gpus_param() -> None:
         tensor_parallel_size=4,
     )
     assert spec is not None
+    assert spec.tensor_parallel_size == 4
+
+
+def test_catalog_tp_flag_applies_without_num_gpus() -> None:
+    spec = resolve_catalog_launch_spec(
+        "Qwen2.5-32B-Instruct",
+        {
+            "model_family": "Qwen2.5",
+            "gpus_per_node": 4,
+            "vllm_args": {"--tensor-parallel-size": 2, "--max-model-len": 4096},
+        },
+        partition="gpuA40x4",
+    )
+    assert spec is not None
     assert spec.tensor_parallel_size == 2
 
 
-def test_request_hf_model_cannot_steer_sizing_away_from_catalog() -> None:
-    """A request hf_model that disagrees with the catalog-derived identity must
-    not size the gate: vec-inf launches the catalog model's local weights, so a
-    tiny stand-in repo would earn a confident valid=True for a 70B launch."""
+def test_catalog_hf_model_beats_family_org() -> None:
     spec = resolve_catalog_launch_spec(
-        "CodeLlama-70b-Instruct-hf",
+        "Aya-Expanse-8B",
         {
-            "model_family": "CodeLlama",
-            "gpus_per_node": 4,
+            "model_family": "Aya-Expanse",
+            "hf_model": "CohereLabs/aya-expanse-8b",
+            "gpus_per_node": 1,
             "vllm_args": {"--max-model-len": 4096},
         },
         partition="gpuA40x4",
-        hf_model="hf-internal-testing/tiny-random-LlamaForCausalLM",
     )
     assert spec is not None
-    assert spec.hf_model_id == "codellama/CodeLlama-70b-Instruct-hf"
+    assert spec.hf_model_id == "CohereLabs/aya-expanse-8b"
+
+
+def test_unresolvable_repo_id_skips_gate() -> None:
+    spec = resolve_catalog_launch_spec(
+        "homegrown-model",
+        {"model_family": "NoSuchFamily", "gpus_per_node": 1},
+        partition="gpuA40x4",
+    )
+    assert spec is None
+
+
+def test_hf_token_reaches_the_validator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gated repos are sized with the requesting user's own token."""
+    seen = {}
+
+    def _validator(*_a, **kwargs):
+        seen.update(kwargs)
+        return ConfigValidation(True, None, _empty_breakdown())
+
+    monkeypatch.setattr(
+        "app.services.fit_estimator.launch_gate.validate_config_for_model",
+        _validator,
+    )
+    check_launch_memory_gate(
+        "Llama-3.1-8B-Instruct",
+        {"gpus_per_node": 1, "vllm_args": {"--max-model-len": 4096}},
+        hf_model="meta-llama/Llama-3.1-8B-Instruct",
+        partition="gpuA40x4",
+        hf_token="hf_user",
+    )
+    assert seen["hf_token"] == "hf_user"
 
 
 def test_unmodeled_memory_flags_skip_gate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Free-form flags that change vLLM's memory picture (util, dtype, lora...)
+    """Catalog flags that change vLLM's memory picture (util, dtype, lora...)
     make any verdict a guess — the gate must skip loudly, not certify."""
 
     def _must_not_be_called(*_a, **_k):
@@ -388,9 +419,15 @@ def test_unmodeled_memory_flags_skip_gate(monkeypatch: pytest.MonkeyPatch) -> No
     )
     result = check_launch_memory_gate(
         "Qwen2.5-7B-Instruct",
-        {"gpus_per_node": 1, "vllm_args": {"--max-model-len": 4096}},
+        {
+            "gpus_per_node": 1,
+            "vllm_args": {
+                "--max-model-len": 4096,
+                "--gpu-memory-utilization": 0.5,
+            },
+        },
+        hf_model="Qwen/Qwen2.5-7B-Instruct",
         partition="gpuA40x4",
-        vllm_args="--gpu-memory-utilization=0.5,--max-model-len=8192",
     )
     assert result is None
 
@@ -401,6 +438,7 @@ def test_malformed_catalog_values_do_not_crash_resolution() -> None:
     spec = resolve_catalog_launch_spec(
         "weird-model",
         {
+            "hf_model": "org/weird-model",
             "gpus_per_node": "two",
             "max_model_len": "lots",
             "vllm_args": {"--max-model-len": True, "--max-num-seqs": "many"},

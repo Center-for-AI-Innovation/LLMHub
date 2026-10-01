@@ -21,7 +21,8 @@ from app.schemas.validate_config import (
     to_response,
 )
 from app.services.fit_estimator import validate_config_for_model
-from app.utils.huggingface import resolve_hf_model_id
+from app.services.fit_estimator.validator import ConfigValidation, _empty_breakdown
+from app.utils.hf_family_orgs import resolve_request_hf_model
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,24 @@ def validate_launch_config(request: ValidateConfigRequest) -> Any:
       (launch proceeds), so ``valid=false`` + ``unverifiable=true`` does not
       mean the launcher would block it.
     """
+    hf_model_id = resolve_request_hf_model(
+        request.model_id, request.model_family, request.huggingface_id
+    )
+    if hf_model_id is None:
+        return to_response(
+            ConfigValidation(
+                valid=False,
+                reason=(
+                    f"cannot verify {request.model_id!r}: no Hugging Face repo id "
+                    "could be resolved for it."
+                ),
+                per_gpu_breakdown=_empty_breakdown(),
+                unverifiable=True,
+            )
+        )
+
     result = validate_config_for_model(
-        resolve_hf_model_id(
-            request.model_id,
-            family=request.model_family,
-            huggingface_id=request.huggingface_id,
-        ),
+        hf_model_id,
         max_model_len=request.max_model_len,
         tensor_parallel_size=request.tensor_parallel_size,
         partition=request.partition,

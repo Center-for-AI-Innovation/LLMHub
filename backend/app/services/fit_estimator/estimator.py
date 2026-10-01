@@ -402,15 +402,20 @@ def estimate_fit_for_model(
     duration_hours: float | None = None,
     typical_seq_len: int | None = None,
     revision: str = "main",
+    hf_token: str | None = None,
 ) -> FitEstimate:
     """Network-backed convenience wrapper: resolve ``model_id`` then estimate.
+
+    ``hf_token`` is the requesting user's own token (gated repos only).
 
     This is the single seam that performs I/O; keep it thin so
     :func:`estimate_fit` stays pure and unit-testable.
     """
     from .model_metadata import fetch_model_metadata
 
-    meta = fetch_model_metadata(model_id, dtype=dtype, revision=revision)
+    meta = fetch_model_metadata(
+        model_id, dtype=dtype, revision=revision, token=hf_token
+    )
     return estimate_fit(
         meta,
         max_model_len=max_model_len,

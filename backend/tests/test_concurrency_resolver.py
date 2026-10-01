@@ -66,6 +66,7 @@ def test_typical_llm_defaults_to_vllm_default_not_ui_16() -> None:
 
 def test_vision_catalog_preservation_without_ui_override() -> None:
     catalog = {
+        "model_family": "Llama-3.2",
         "gpus_per_node": 2,
         "vllm_args": {
             "--tensor-parallel-size": 2,
@@ -122,6 +123,7 @@ def test_gate_passes_startup_for_qwen_7b_full_context(
 
     def validate_fixture(_model_id, **kwargs):
         assert kwargs["max_num_seqs"] == LAUNCH_GATE_MAX_NUM_SEQS
+        kwargs.pop("hf_token")
         return validate_config(_qwen_7b_meta(), **kwargs)
 
     monkeypatch.setattr(

@@ -346,8 +346,12 @@ def validate_config_for_model(
     overhead_max_num_seqs: int | None = None,
     dtype: str | None = None,
     revision: str = "main",
+    hf_token: str | None = None,
 ) -> ConfigValidation:
     """Network-backed wrapper: resolve ``model_id`` then validate the config.
+
+    ``hf_token`` is the requesting user's own token, needed to size gated
+    repos; without one they come back unverifiable.
 
     A metadata fetch failure is turned into a "cannot verify" verdict rather
     than an exception, so the gate never passes by default on network errors.
@@ -360,7 +364,9 @@ def validate_config_for_model(
     from .model_metadata import fetch_model_metadata
 
     try:
-        meta = fetch_model_metadata(model_id, dtype=dtype, revision=revision)
+        meta = fetch_model_metadata(
+            model_id, dtype=dtype, revision=revision, token=hf_token
+        )
     except Exception as exc:  # network / missing config / parse failure
         return ConfigValidation(
             valid=False,

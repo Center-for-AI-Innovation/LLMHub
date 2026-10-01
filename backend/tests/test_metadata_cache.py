@@ -192,3 +192,53 @@ def test_oversized_safetensors_header_rejected() -> None:
     _Client.second_request = False
     assert _fetch_safetensors_header_total(_Client(), "org/m", "main") is None
     assert _Client.second_request is False  # bailed before fetching the body
+
+
+class _GatedClient(_FakeClient):
+    """A gated repo: config.json only with an Authorization header."""
+
+    seen_headers: list[dict[str, str]] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.headers = dict(kwargs.get("headers") or {})
+        type(self).seen_headers.append(self.headers)
+
+    def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+        type(self).calls += 1
+        if url.endswith("config.json"):
+            if "Authorization" not in self.headers:
+                return _FakeResponse(401)
+            return _FakeResponse(200, dict(_TINY_CONFIG))
+        return _FakeResponse(404)
+
+
+def test_metadata_cache_never_serves_token_result_to_anonymous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Metadata a user fetched with their own token for a gated repo must not
+    be handed to a later caller without one."""
+    import httpx
+
+    monkeypatch.setattr(httpx, "Client", _GatedClient)
+    _GatedClient.calls = 0
+    _GatedClient.seen_headers = []
+    clear_metadata_cache()
+
+    fetch_model_metadata("org/gated", token="hf_user_a")
+    with pytest.raises(ValueError, match="401"):
+        fetch_model_metadata("org/gated")
+
+
+def test_metadata_fetch_has_no_server_token_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import httpx
+
+    monkeypatch.setenv("HF_TOKEN", "hf_server")
+    monkeypatch.setattr(httpx, "Client", _GatedClient)
+    _GatedClient.seen_headers = []
+    clear_metadata_cache()
+
+    with pytest.raises(ValueError):
+        fetch_model_metadata("org/gated")
+    assert _GatedClient.seen_headers == [{}]

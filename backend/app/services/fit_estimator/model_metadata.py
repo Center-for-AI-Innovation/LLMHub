@@ -21,6 +21,7 @@ the estimator can surface "unknown" instead of a fabricated number.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import struct
 import threading
@@ -38,10 +39,14 @@ _DEFAULT_TIMEOUT_S = 20.0
 # launch at once). config.json / safetensors layout for a pinned revision
 # changes rarely, so a short TTL loses nothing. Failures are NEVER cached — a
 # transient outage must not stick for the TTL. The entry bound exists because
-# /api/fit-estimate accepts arbitrary model ids.
+# /api/fit-estimate accepts arbitrary model ids. Keys carry a digest of the
+# caller's HF token (None when anonymous), so metadata fetched with one user's
+# token for a gated repo is never served to another caller.
 _METADATA_CACHE_TTL_S = 600.0
 _METADATA_CACHE_MAX_ENTRIES = 256
-_metadata_cache: dict[tuple[str, str, str | None], tuple[float, "ModelMetadata"]] = {}
+_metadata_cache: dict[
+    tuple[str, str, str | None, str | None], tuple[float, "ModelMetadata"]
+] = {}
 _metadata_cache_lock = threading.Lock()
 
 # Upper bound on a plausible safetensors JSON header. Real headers are tens of
@@ -337,13 +342,13 @@ def _fetch_json(client: Any, url: str) -> dict[str, Any] | None:
     if resp.status_code == 401:
         raise ValueError(
             "Hugging Face returned 401 Unauthorized for "
-            f"{url}. Gated models require HF_TOKEN (or HUGGING_FACE_HUB_TOKEN) "
-            "in the backend environment."
+            f"{url}. Gated models are sized only with the requesting user's "
+            "own Hugging Face token."
         )
     if resp.status_code == 403:
         raise ValueError(
             "Hugging Face returned 403 Forbidden for "
-            f"{url}. The backend token cannot access this repo — for gated "
+            f"{url}. The supplied token cannot access this repo — for gated "
             "models the token's account must accept the model license on "
             "huggingface.co first."
         )
@@ -441,22 +446,24 @@ def fetch_model_metadata(
     """Fetch config + weight metadata for ``model_id`` (metadata only).
 
     Successful results are cached for ``_METADATA_CACHE_TTL_S`` keyed on
-    ``(model_id, revision, dtype)`` — the explicit ``token`` override is not
-    part of the key (production always uses the server-level token).
+    ``(model_id, revision, dtype, token digest)``.
+
+    ``token`` is the requesting user's Hugging Face token. There is deliberately
+    no server-wide fallback: a shared credential would let any caller size (and
+    learn the layout of) gated repos it has no access to. Without a token,
+    gated repos fail with an auth error, which callers treat as unverifiable.
     """
     import httpx
 
-    from app.config.config import settings
-
-    cache_key = (model_id, revision, dtype)
+    token_digest = hashlib.sha256(token.encode()).hexdigest() if token else None
+    cache_key = (model_id, revision, dtype, token_digest)
     now = time.monotonic()
     with _metadata_cache_lock:
         hit = _metadata_cache.get(cache_key)
         if hit is not None and now - hit[0] < _METADATA_CACHE_TTL_S:
             return hit[1]
 
-    resolved_token = token or settings.HF_TOKEN
-    headers = {"Authorization": f"Bearer {resolved_token}"} if resolved_token else {}
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     with httpx.Client(
         follow_redirects=True, timeout=timeout_s, headers=headers
     ) as client:
