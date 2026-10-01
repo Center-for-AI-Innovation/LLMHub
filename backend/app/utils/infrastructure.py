@@ -24,9 +24,7 @@ INFRASTRUCTURE_ENV_VAR = "INFRASTRUCTURE"
 
 def get_vec_inf_log_base_dir(infrastructure: Optional[str] = None) -> Optional[str]:
     """Return vec-inf's configured base log directory from environment.yaml."""
-    env_override = getattr(settings, "VEC_INF_LOG_DIR", None) or os.environ.get(
-        "VEC_INF_LOG_DIR"
-    )
+    env_override = settings.VEC_INF_LOG_DIR
     if isinstance(env_override, str) and env_override.strip():
         return str(Path(env_override).expanduser())
 
@@ -59,10 +57,8 @@ def get_vec_inf_user_workspace_dir(
         )
         return None
 
-    raw_root = (
-        getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
-        or os.environ.get("VEC_INF_SHARED_WORK_ROOT")
-        or get_vec_inf_log_base_dir(infrastructure)
+    raw_root = settings.resolve_workspace_root() or get_vec_inf_log_base_dir(
+        infrastructure
     )
     if not isinstance(raw_root, str) or not raw_root.strip():
         return None
@@ -116,7 +112,7 @@ class InfrastructureManager:
         Returns:
             Valid infrastructure id if env is set and valid, else None.
         """
-        raw = os.environ.get(INFRASTRUCTURE_ENV_VAR)
+        raw = settings.INFRASTRUCTURE or os.environ.get(INFRASTRUCTURE_ENV_VAR)
         if not raw or not raw.strip():
             return None
         value = raw.strip()
@@ -209,9 +205,7 @@ class InfrastructureManager:
         Returns:
             Path to infrastructure config directory.
         """
-        override = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.environ.get(
-            "VEC_INF_CONFIG_DIR"
-        )
+        override = settings.VEC_INF_CONFIG_DIR
         if isinstance(override, str) and override.strip():
             return Path(override.strip()).expanduser().resolve()
 
