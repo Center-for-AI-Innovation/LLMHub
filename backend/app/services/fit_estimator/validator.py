@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
 from .constants import DEFAULT_GPU_MEMORY_UTILIZATION, DEFAULT_MAX_NUM_SEQS
-from .hardware import GpuPartition, load_partitions
+from .hardware import GpuPartition, find_partition, load_partitions
 from .memory_model import (
     evaluate_fit,
     kv_heads_replicated,
@@ -97,35 +97,36 @@ class ConfigValidation:
     advisory_only: Optional[bool] = None
 
 
-def _find_partition(
-    name: str, partitions: Sequence[GpuPartition]
-) -> GpuPartition | None:
-    for p in partitions:
-        if p.partition == name:
-            return p
-    return None
-
-
 def _short_gpu(gpu_type: str) -> str:
     return gpu_type.replace("NVIDIA ", "").strip() or gpu_type
 
 
-# Quantized formats whose native kernels need Hopper/Ada-class GPUs. On Ampere
-# (A40/A100) vLLM dequantizes such checkpoints to bf16 (or refuses), so the
-# on-disk safetensors size we measure is NOT what loads into VRAM — sizing from
-# it would under-count weights 2-4x (e.g. MXFP4 gpt-oss-120b "fits" on A40 at
-# disk size and OOMs at load). We refuse to certify instead of guessing.
-_HOPPER_PLUS_ONLY_QUANT_MARKERS = ("mxfp4", "fp8", "fbgemm_fp8", "modelopt")
-_AMPERE_GPU_MARKERS = ("A40", "A100")
+# Quantized formats whose native kernels need newer GPUs, with the minimum
+# compute capability: FP8 needs Ada (8.9), MXFP4 Hopper (9.0). On older GPUs
+# vLLM dequantizes such checkpoints to bf16 (or refuses), so the on-disk
+# safetensors size we measure is NOT what loads into VRAM — sizing from it
+# would under-count weights 2-4x (e.g. MXFP4 gpt-oss-120b "fits" on A40 at disk
+# size and OOMs at load). We refuse to certify instead of guessing.
+_NATIVE_QUANT_MIN_CC = (
+    ("mxfp4", 9.0),
+    ("fbgemm_fp8", 8.9),
+    ("fp8", 8.9),
+    ("modelopt", 8.9),
+)
+# For hardware rows without compute_capability: GPUs older than Ada.
+_PRE_ADA_GPU_MARKERS = ("A40", "A100", "A6000", "V100", "T4")
 
 
-def _quant_may_dequantize(quantization: str | None, gpu_type: str) -> bool:
+def _quant_may_dequantize(quantization: str | None, gpu: GpuPartition) -> bool:
     if not quantization:
         return False
     q = quantization.lower()
-    if not any(marker in q for marker in _HOPPER_PLUS_ONLY_QUANT_MARKERS):
+    min_cc = next((cc for marker, cc in _NATIVE_QUANT_MIN_CC if marker in q), None)
+    if min_cc is None:
         return False
-    return any(marker in gpu_type for marker in _AMPERE_GPU_MARKERS)
+    if gpu.compute_capability is not None:
+        return gpu.compute_capability < min_cc
+    return any(marker in gpu.gpu_type for marker in _PRE_ADA_GPU_MARKERS)
 
 
 def _collect_warnings(meta: ModelMetadata, tp_size: int) -> list[str]:
@@ -161,12 +162,16 @@ def validate_config(
     max_model_len: int,
     tensor_parallel_size: int,
     partition: str,
+    resource_type: str | None = None,
     num_nodes: int = 1,
     partitions: Sequence[GpuPartition] | None = None,
     max_num_seqs: int = DEFAULT_MAX_NUM_SEQS,
     overhead_max_num_seqs: int | None = None,
 ) -> ConfigValidation:
-    """Certify a concrete launch config against a partition.
+    """Certify a concrete launch config against a partition's GPU.
+
+    ``resource_type`` (the GRES type) picks the GPU in a partition that mixes
+    types; see :func:`.hardware.find_partition`.
 
     ``max_num_seqs`` controls the KV token budget:
 
@@ -192,14 +197,14 @@ def validate_config(
             per_gpu_breakdown=_empty_breakdown(),
         )
 
-    gpu = _find_partition(partition, parts)
+    gpu, lookup_error = find_partition(partition, resource_type, parts)
     if gpu is None:
-        known = ", ".join(p.partition for p in parts)
+        known = ", ".join(sorted({p.partition for p in parts})) or "none"
         # unverifiable: the launch gate pre-filters unsupported partitions, but
         # if that pre-check ever moved, this must stay a skip there, not a block.
         return ConfigValidation(
             valid=False,
-            reason=f"Unknown partition {partition!r}. Known partitions: {known}.",
+            reason=f"cannot verify: {lookup_error}. Known partitions: {known}.",
             per_gpu_breakdown=_empty_breakdown(),
             unverifiable=True,
         )
@@ -242,7 +247,7 @@ def validate_config(
             unverifiable=True,
         )
 
-    if _quant_may_dequantize(meta.quantization, gpu.gpu_type):
+    if _quant_may_dequantize(meta.quantization, gpu):
         return ConfigValidation(
             valid=False,
             reason=(
@@ -341,6 +346,7 @@ def validate_config_for_model(
     max_model_len: int | None,
     tensor_parallel_size: int,
     partition: str,
+    resource_type: str | None = None,
     num_nodes: int = 1,
     max_num_seqs: int = DEFAULT_MAX_NUM_SEQS,
     overhead_max_num_seqs: int | None = None,
@@ -397,6 +403,7 @@ def validate_config_for_model(
         max_model_len=max_model_len,
         tensor_parallel_size=tensor_parallel_size,
         partition=partition,
+        resource_type=resource_type,
         num_nodes=num_nodes,
         max_num_seqs=max_num_seqs,
         overhead_max_num_seqs=overhead_max_num_seqs,

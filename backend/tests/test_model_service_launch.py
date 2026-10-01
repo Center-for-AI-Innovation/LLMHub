@@ -639,6 +639,7 @@ def test_gate_sizes_the_launched_model_with_the_users_token(monkeypatch, resourc
         "model_name": "Qwen3-8B",
         "hf_model": "Qwen/Qwen3-8B",
         "partition": "gpuA40x4",
+        "resource_type": None,
         "max_model_len": 8192,
         "tensor_parallel_size": 2,
         "num_nodes": None,

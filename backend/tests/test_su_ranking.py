@@ -14,7 +14,6 @@ from app.services.fit_estimator.ranking import (
     effective_su_per_hour,
     estimate_job_su,
     parse_duration_hours,
-    su_per_gpu_hour_for,
 )
 
 GQA_CONFIG = {
@@ -71,9 +70,17 @@ def test_fit_estimate_scales_su_with_gpu_count() -> None:
     assert a40_4.effective_su_per_hour == 2000
 
 
+def _delta_rate(partition: str) -> int | None:
+    from app.services.fit_estimator.hardware import load_partitions
+
+    return next(
+        p for p in load_partitions() if p.partition == partition
+    ).su_per_gpu_hour
+
+
 def test_su_rate_is_per_gpu_not_partition_node_size() -> None:
-    a100_4 = su_per_gpu_hour_for("gpuA100x4", "NVIDIA A100-SXM4-40GB")
-    a100_8 = su_per_gpu_hour_for("gpuA100x8", "NVIDIA A100-SXM4-40GB")
+    a100_4 = _delta_rate("gpuA100x4")
+    a100_8 = _delta_rate("gpuA100x8")
     assert a100_4 == 1000
     assert a100_8 == 1000
     # 4 GPUs × 1 hr should cost 4× single GPU, not a flat partition fee.
@@ -82,7 +89,7 @@ def test_su_rate_is_per_gpu_not_partition_node_size() -> None:
 
 
 def test_preempt_queue_halves_per_gpu_rate() -> None:
-    assert su_per_gpu_hour_for("gpuA40x4-preempt", "NVIDIA A40") == 250
+    assert _delta_rate("gpuA40x4-preempt") == _delta_rate("gpuA40x4") // 2 == 250
 
 
 def test_fit_estimate_attaches_job_su_and_cheapest() -> None:

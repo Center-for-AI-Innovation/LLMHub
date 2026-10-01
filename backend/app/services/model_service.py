@@ -252,6 +252,7 @@ class ModelService:
                 self.llm_client.get_model_details,
                 hf_model=hf_repo_id,
                 partition=params.get("partition"),
+                resource_type=params.get("resource_type"),
                 max_model_len=params.get("max_model_len"),
                 tensor_parallel_size=num_gpus,
                 num_nodes=params.get("num_nodes"),

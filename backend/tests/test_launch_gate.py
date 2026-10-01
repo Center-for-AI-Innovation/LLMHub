@@ -13,7 +13,6 @@ from app.services.fit_estimator.constants import (
 from app.services.fit_estimator.launch_gate import (
     check_launch_memory_gate,
     check_launch_memory_gate_for_model,
-    max_gpus_for_partition,
     resolve_catalog_launch_spec,
 )
 from app.services.fit_estimator.model_metadata import (
@@ -232,13 +231,6 @@ def test_multi_node_launch_skips_gate(monkeypatch: pytest.MonkeyPatch) -> None:
         partition="gpuA40x4",
     )
     assert result is None
-
-
-def test_max_gpus_for_partition() -> None:
-    assert max_gpus_for_partition("gpuA40x4") == 4
-    assert max_gpus_for_partition("gpuA40x4-preempt") == 4
-    assert max_gpus_for_partition("gpuA100x8") == 8
-    assert max_gpus_for_partition("gpuH200x8-interactive") == 8
 
 
 def test_launch_gate_rejects_tp_above_partition_capacity() -> None:

@@ -67,7 +67,7 @@ def test_build_table_excludes_unknown_gpus_never_guesses() -> None:
 
 def test_probed_vram_takes_precedence() -> None:
     parts = parse_sinfo_output("gpuA40x4|gpu:nvidia_a40:4|2-00:00:00\n")
-    table, _ = build_hardware_table(parts, probed_vram={"gpuA40x4": 44.98})
+    table, _ = build_hardware_table(parts, probed_vram={"nvidia_a40": 44.98})
     row = table["partitions"][0]
     assert row["vram_gib_per_gpu"] == pytest.approx(44.98)
     assert "probed" in row["_vram_provenance"]
@@ -93,6 +93,7 @@ def test_hardware_yaml_env_override(tmp_path, monkeypatch: pytest.MonkeyPatch) -
     path.write_text(render_yaml(table, "test cluster"))
 
     monkeypatch.setenv(HARDWARE_YAML_ENV, str(path))
+    monkeypatch.setattr("app.config.config.settings.FIT_ESTIMATOR_HARDWARE_YAML", None)
     load_partitions.cache_clear()
     try:
         loaded = load_partitions()
@@ -101,10 +102,10 @@ def test_hardware_yaml_env_override(tmp_path, monkeypatch: pytest.MonkeyPatch) -
         load_partitions.cache_clear()
 
 
-def test_heterogeneous_partition_is_skipped_never_collapsed() -> None:
-    """A catch-all partition mixing GPU types (Delta's `full`) must be skipped:
-    budgeting the whole partition at whichever GPU a row-ordering accident
-    picked could overstate VRAM by 100 GiB (H200 row winning over A40)."""
+def test_mixed_partition_gets_one_row_per_gpu_type() -> None:
+    """A catch-all partition mixing GPU types (Delta's `full`) yields a row per
+    GRES type, never one budgeted at whichever GPU a row-ordering accident
+    picked (an H200 row winning over A40 would overstate VRAM by 100 GiB)."""
     text = (
         "full|gpu:nvidia_a100:8(S:1,3,5,7)|1-00:00:00\n"
         "full|gpu:mi100:8(S:1,3,5,7),gpu:mi210:1(S:5)|1-00:00:00\n"
@@ -112,16 +113,37 @@ def test_heterogeneous_partition_is_skipped_never_collapsed() -> None:
         "full|gpu:nvidia_a40:4(S:0-3)|1-00:00:00\n"
     )
     parts = parse_sinfo_output(text)
-    assert len(parts) == 1
-    assert parts[0].heterogeneous is True
+    assert {p.gres_name for p in parts} == {
+        "nvidia_a100",
+        "mi100",
+        "mi210",
+        "h200",
+        "nvidia_a40",
+    }
     table, skipped = build_hardware_table(parts)
-    assert table["partitions"] == []
-    assert any("mixes multiple GPU types" in entry for entry in skipped)
+    rows = {row["resource_type"]: row for row in table["partitions"]}
+    assert rows["nvidia_a40"]["vram_gib_per_gpu"] == pytest.approx(44.988)
+    assert rows["nvidia_a40"]["gpus_per_node"] == 4
+    assert rows["h200"]["vram_gib_per_gpu"] == pytest.approx(140.0)
+    assert any("mi210" in entry for entry in skipped)  # unknown GPU: never guessed
+    # The generated table loads, and the gate can tell its rows apart.
+    loaded = parse_partitions(yaml.safe_load(render_yaml(table, "test")))
+    assert {p.resource_type for p in loaded} == set(rows)
+
+
+def test_gres_name_keeps_sinfo_spelling() -> None:
+    """A launch must send the GRES type exactly as Slurm spells it."""
+    parts = parse_sinfo_output("secondary|gpu:TeslaT4:2|4:00:00\n")
+    table, _ = build_hardware_table(parts)
+    row = table["partitions"][0]
+    assert row["resource_type"] == "TeslaT4"
+    assert row["compute_capability"] == 7.5
+    assert row["vram_gib_per_gpu"] == pytest.approx(14.5)
 
 
 def test_gh200_never_matches_h200_vram() -> None:
     """GH200's 96GB GPU must not inherit the discrete H200's 140 GiB."""
-    vram, vendor, _label = lookup_gpu("gh200")
+    vram, vendor, _label, _cc = lookup_gpu("gh200")
     assert vram == pytest.approx(95.0)
     assert vendor == "NVIDIA"
     assert lookup_gpu("h200")[0] == pytest.approx(140.0)

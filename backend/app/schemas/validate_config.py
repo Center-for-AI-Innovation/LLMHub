@@ -37,7 +37,11 @@ class ValidateConfigRequest(BaseModel):
     tensor_parallel_size: int = Field(
         ..., ge=1, description="Number of GPUs the model is sharded across (TP)"
     )
-    partition: str = Field(..., description="Delta partition name, e.g. gpuA40x4")
+    partition: str = Field(..., description="Slurm partition name, e.g. gpuA40x4")
+    resource_type: Optional[str] = Field(
+        default=None,
+        description="Slurm GRES type; required when the partition mixes GPU types",
+    )
     num_nodes: int = Field(1, ge=1, description="Node count; >1 is not yet supported")
     dtype: Optional[str] = Field(
         None, description="Override compute dtype (e.g. float16, bfloat16, fp8)"

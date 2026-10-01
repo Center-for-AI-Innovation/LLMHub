@@ -22,8 +22,9 @@ the fit estimator (see :mod:`.capacity`), not a launch blocker.
 The gate is skipped (returns ``None``) rather than blocking when it cannot give
 an honest verdict about a *supported* configuration:
 
-* the target partition is absent from the bundled Delta hardware table (non-
-  Delta infrastructures are unaffected),
+* the target partition is absent from this cluster's hardware table, or it
+  mixes GPU types and the request does not say which one (see
+  :func:`.hardware.find_partition`),
 * ``num_nodes > 1`` — multi-node splitting (pipeline vs tensor parallel across
   nodes) is not modeled, and curated multi-node catalog entries must not be
   blocked by math we do not have,
@@ -51,7 +52,6 @@ catalog's per key: request param > catalog entry for ``--max-model-len``,
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -61,18 +61,10 @@ from app.utils.infrastructure import InfrastructureManager
 
 from .concurrency import resolve_max_num_seqs, vllm_arg_int
 from .constants import LAUNCH_GATE_MAX_NUM_SEQS
-from .hardware import load_partitions
+from .hardware import find_partition, load_partitions
 from .validator import ConfigValidation, _empty_breakdown, validate_config_for_model
 
 logger = get_logger("fit_estimator.launch_gate")
-
-_PARTITION_GPU_CAP_RE = re.compile(r"x(\d+)(?:-|$)")
-
-
-def max_gpus_for_partition(partition: str) -> int:
-    """Max tensor-parallel size for a Delta partition (GPUs per node)."""
-    match = _PARTITION_GPU_CAP_RE.search(partition)
-    return int(match.group(1)) if match else 4
 
 
 @dataclass(frozen=True)
@@ -91,6 +83,7 @@ class CatalogLaunchSpec:
     model_name: str
     hf_model_id: str
     partition: str
+    resource_type: str | None
     max_model_len: int | None
     tensor_parallel_size: int
     num_nodes: int
@@ -150,16 +143,20 @@ def _unmodeled_memory_flags(catalog_args: Any) -> list[str]:
     return [p for p in _UNMODELED_MEMORY_FLAG_PREFIXES if p in flags]
 
 
-def _default_partition() -> str | None:
+def _default_arg(name: str) -> str | None:
     mgr = InfrastructureManager()
     default_args = (mgr.get_environment_config() or {}).get("default_args") or {}
-    partition = default_args.get("partition")
-    return str(partition) if partition else None
+    value = default_args.get(name)
+    return str(value) if value else None
 
 
-def partition_supported(partition: str) -> bool:
-    """True when ``partition`` exists in the bundled hardware table."""
-    return any(p.partition == partition for p in load_partitions())
+def _default_partition() -> str | None:
+    return _default_arg("partition")
+
+
+def _default_resource_type() -> str | None:
+    """vec-inf fills an omitted resource_type from the same default."""
+    return _default_arg("resource_type")
 
 
 def resolve_catalog_launch_spec(
@@ -168,6 +165,7 @@ def resolve_catalog_launch_spec(
     *,
     hf_model: str | None = None,
     partition: str | None = None,
+    resource_type: str | None = None,
     max_model_len: int | None = None,
     tensor_parallel_size: int | None = None,
     num_nodes: int | None = None,
@@ -187,13 +185,12 @@ def resolve_catalog_launch_spec(
         )
         return None
 
-    if not partition_supported(resolved_partition):
-        logger.info(
-            "Skipping launch memory gate for %s on %s (partition not in hardware "
-            "table)",
-            model_name,
-            resolved_partition,
-        )
+    resolved_resource_type = resource_type or _default_resource_type()
+    gpu, lookup_error = find_partition(
+        resolved_partition, resolved_resource_type, load_partitions()
+    )
+    if gpu is None:
+        logger.info("Skipping launch memory gate for %s: %s", model_name, lookup_error)
         return None
 
     resolved_hf = hf_model or resolve_hf_model(
@@ -244,6 +241,7 @@ def resolve_catalog_launch_spec(
         model_name=model_name,
         hf_model_id=str(resolved_hf),
         partition=resolved_partition,
+        resource_type=resolved_resource_type,
         max_model_len=None if resolved_max_len is None else int(resolved_max_len),
         tensor_parallel_size=int(resolved_tp),
         num_nodes=int(resolved_nodes),
@@ -257,6 +255,7 @@ def check_launch_memory_gate(
     *,
     hf_model: str | None = None,
     partition: str | None = None,
+    resource_type: str | None = None,
     max_model_len: int | None = None,
     tensor_parallel_size: int | None = None,
     num_nodes: int | None = None,
@@ -275,6 +274,7 @@ def check_launch_memory_gate(
         model_config,
         hf_model=hf_model,
         partition=partition,
+        resource_type=resource_type,
         max_model_len=max_model_len,
         tensor_parallel_size=tensor_parallel_size,
         num_nodes=num_nodes,
@@ -303,24 +303,29 @@ def check_launch_memory_gate(
         )
         return None
 
-    partition_cap = max_gpus_for_partition(spec.partition)
-    if spec.tensor_parallel_size > partition_cap:
+    gpu, _ = find_partition(spec.partition, spec.resource_type, load_partitions())
+    if (
+        gpu is not None
+        and gpu.gpus_per_node is not None
+        and spec.tensor_parallel_size > gpu.gpus_per_node
+    ):
         return ConfigValidation(
             valid=False,
             reason=(
                 f"tensor_parallel_size ({spec.tensor_parallel_size}) exceeds "
-                f"{spec.partition} capacity ({partition_cap} GPUs per node)."
+                f"{spec.partition} capacity ({gpu.gpus_per_node} GPUs per node)."
             ),
             per_gpu_breakdown=_empty_breakdown(),
         )
 
     logger.info(
-        "Launch startup gate: model=%s hf=%s partition=%s max_model_len=%s "
-        "tp=%s nodes=%s mns=%s (boot contract: KV pool at overhead(mns) must "
-        "hold 1 full-context seq)",
+        "Launch startup gate: model=%s hf=%s partition=%s resource_type=%s "
+        "max_model_len=%s tp=%s nodes=%s mns=%s (boot contract: KV pool at "
+        "overhead(mns) must hold 1 full-context seq)",
         spec.model_name,
         spec.hf_model_id,
         spec.partition,
+        spec.resource_type,
         spec.max_model_len,
         spec.tensor_parallel_size,
         spec.num_nodes,
@@ -332,6 +337,7 @@ def check_launch_memory_gate(
         max_model_len=spec.max_model_len,
         tensor_parallel_size=spec.tensor_parallel_size,
         partition=spec.partition,
+        resource_type=spec.resource_type,
         num_nodes=spec.num_nodes,
         max_num_seqs=LAUNCH_GATE_MAX_NUM_SEQS,
         overhead_max_num_seqs=spec.max_num_seqs,
@@ -377,6 +383,7 @@ def check_launch_memory_gate_for_model(
         model_config,
         hf_model=launch_overrides.get("hf_model"),
         partition=launch_overrides.get("partition"),
+        resource_type=launch_overrides.get("resource_type"),
         max_model_len=launch_overrides.get("max_model_len"),
         tensor_parallel_size=launch_overrides.get("tensor_parallel_size"),
         num_nodes=launch_overrides.get("num_nodes"),

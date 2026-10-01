@@ -2,10 +2,10 @@
 
 Total job SU is billed per GPU, not per partition:
 
-    job_SU = su_per_gpu_hour(gpu_type, queue) × num_gpus × duration_hours
+    job_SU = su_per_gpu_hour × num_gpus × duration_hours
 
-``su_per_gpu_hour`` is keyed by GPU model (A40/A100/H200). Partition name only
-applies a queue modifier (preempt = half, interactive = double), not node size.
+``su_per_gpu_hour`` comes only from the cluster's hardware table, since billing
+is site policy; clusters that don't bill leave it out and get no cost figures.
 """
 
 from __future__ import annotations
@@ -15,34 +15,6 @@ import re
 _SLURM_TIME_RE = re.compile(
     r"^(?:(?P<days>\d+)-)?(?P<hours>\d{1,2}):(?P<minutes>\d{2}):(?P<seconds>\d{2})$"
 )
-
-# Canonical Delta SU/GPU-hour by GPU model (batch / normal queue).
-_BASE_SU_PER_GPU_HOUR: tuple[tuple[str, int], ...] = (
-    ("A40", 500),
-    ("A100", 1000),
-    ("H200", 3000),
-)
-
-
-def base_su_per_gpu_hour(gpu_type: str) -> int | None:
-    """SU/GPU-hour for a GPU model, independent of partition node size."""
-    gpu_upper = gpu_type.upper()
-    for needle, rate in _BASE_SU_PER_GPU_HOUR:
-        if needle in gpu_upper:
-            return rate
-    return None
-
-
-def su_per_gpu_hour_for(partition_name: str, gpu_type: str) -> int | None:
-    """SU/GPU-hour after optional preempt/interactive queue modifiers."""
-    base = base_su_per_gpu_hour(gpu_type)
-    if base is None:
-        return None
-    if "-preempt" in partition_name:
-        return base // 2
-    if "-interactive" in partition_name:
-        return base * 2
-    return base
 
 
 def parse_duration_hours(time_str: str) -> float:

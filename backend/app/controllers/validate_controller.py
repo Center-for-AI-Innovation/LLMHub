@@ -65,6 +65,7 @@ def validate_launch_config(request: ValidateConfigRequest) -> Any:
         max_model_len=request.max_model_len,
         tensor_parallel_size=request.tensor_parallel_size,
         partition=request.partition,
+        resource_type=request.resource_type,
         num_nodes=request.num_nodes,
         dtype=request.dtype,
         revision=request.revision,

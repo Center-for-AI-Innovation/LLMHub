@@ -39,7 +39,6 @@ from .ranking import (
     effective_su_per_hour,
     estimate_job_su,
     partition_job_su_sort_key,
-    su_per_gpu_hour_for,
 )
 from .workload import ArchetypeTable, WorkloadArchetype, load_archetypes
 
@@ -83,6 +82,8 @@ class PartitionFit:
     kv_pool_tokens: int | None = None
     concurrent_at_full_context: int | None = None
     concurrent_at_typical: int | None = None
+    # GRES type: tells apart the rows of a partition that mixes GPU types.
+    resource_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -147,19 +148,6 @@ def _partition_overhead_gib(
     )
 
 
-def _su_rate(partition: GpuPartition) -> int | None:
-    if partition.su_per_gpu_hour is not None:
-        return partition.su_per_gpu_hour
-    # The ranking fallback encodes DELTA's billing (rates + the -preempt /
-    # -interactive naming modifiers). A site-override table must not have
-    # Delta's prices invented for it: no explicit rate -> no cost figures.
-    from .hardware import hardware_override_path
-
-    if hardware_override_path():
-        return None
-    return su_per_gpu_hour_for(partition.partition, partition.gpu_type)
-
-
 def _evaluate_partition(
     partition: GpuPartition,
     *,
@@ -179,7 +167,9 @@ def _evaluate_partition(
         tp_size=tensor_parallel_size,
         max_num_seqs=max_num_seqs,
     )
-    su_rate = _su_rate(partition)
+    # Billing is site policy: only the table's own rate, never one inferred
+    # from another cluster's prices. No rate -> no cost figures.
+    su_rate = partition.su_per_gpu_hour
 
     capacity: KvCapacity | None = None
     if partition.is_nvidia and weights_gib is not None and per_token_bytes is not None:
@@ -193,7 +183,18 @@ def _evaluate_partition(
             max_num_seqs=max_num_seqs,
         )
 
+    skipped_reason = None
     if not partition.is_nvidia:
+        skipped_reason = "non-NVIDIA GPU (ROCm) not supported by this estimator"
+    elif (
+        partition.gpus_per_node is not None
+        and tensor_parallel_size > partition.gpus_per_node
+    ):
+        skipped_reason = (
+            f"tensor_parallel_size {tensor_parallel_size} exceeds "
+            f"{partition.gpus_per_node} GPUs per node"
+        )
+    if skipped_reason:
         empty = Breakdown(weights_gib, None, overhead_gib)
         both = {
             name: AssumptionResult(name, token_counts[name], None, None, empty)
@@ -205,13 +206,14 @@ def _evaluate_partition(
             vendor=partition.vendor,
             vram_gib=partition.vram_gib_per_gpu,
             supported=False,
-            skipped_reason="non-NVIDIA GPU (ROCm) not supported by this estimator",
+            skipped_reason=skipped_reason,
             fits=None,
             headroom_gib=None,
             breakdown=empty,
             kv_assumption_used=kv_assumption,
             both_assumptions=both,
             su_per_gpu_hour=su_rate,
+            resource_type=partition.resource_type,
         )
 
     both: dict[str, AssumptionResult] = {}
@@ -260,6 +262,7 @@ def _evaluate_partition(
             capacity.concurrent_at_full_context if capacity else None
         ),
         concurrent_at_typical=(capacity.concurrent_at_typical if capacity else None),
+        resource_type=partition.resource_type,
     )
 
 

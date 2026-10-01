@@ -104,8 +104,16 @@ Ops notes:
 - Gated models are sized only with the requesting user's own HF token; there is
   no server-wide token. The survey endpoints are anonymous, so they report
   gated models as unverifiable.
-- The bundled hardware table covers Delta. For another Slurm cluster, generate
-  one with `python -m app.services.fit_estimator.discovery --output
-  hardware.yaml` and set `FIT_ESTIMATOR_HARDWARE_YAML=/path/to/hardware.yaml`
-  (see the module docstring for what transfers and what needs hand-editing).
-  Per-cluster tables are tracked in #106.
+- Each cluster has its own hardware table, `hardware.yaml`, next to
+  `environment.yaml` in the active config directory: `VEC_INF_CONFIG_DIR` when
+  set (the Delta kit copies the right one there), otherwise
+  `config/infrastructures/<infra>/`. Rows are keyed by partition, plus the GRES
+  type (`resource_type`) where a partition mixes GPU types; a launch on such a
+  partition that names no GPU type is not gated. Tables exist for Delta,
+  DeltaAI and Campus Cluster (the last two still unverified; see their
+  headers). A cluster without one is not gated at all.
+- Generate a table on a login node with `python -m
+  app.services.fit_estimator.discovery --output
+  config/infrastructures/<infra>/hardware.yaml` (`--probe` measures VRAM with a
+  short `srun` per GPU type). `FIT_ESTIMATOR_HARDWARE_YAML` points at a
+  specific file instead.

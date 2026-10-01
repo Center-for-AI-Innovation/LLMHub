@@ -124,6 +124,7 @@ is sourced before `delta.env`'s defaults and holds only what differs:
 | dev image pin | `vllm-v0.19.1-slingshot-v3.sif` | `vllm-v0.28.0-slingshot-deltaai.sif` |
 | torch-inductor cache (service user) | `…/public/torch_inductor` | `…/public/torch_inductor-deltaai` |
 | job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=single_node_vni,disable_rdzv_get` |
+| fit-estimator hardware table (`LLMHUB_HARDWARE_TABLE`) | `delta` | `delta-ai-ncsa` |
 | VM | `dt-svc-llmaas01` | `dtai-svc-llmaas01` |
 
 **The `/projects` roots carry the cluster.** `/projects` is the one filesystem

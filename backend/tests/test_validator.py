@@ -120,7 +120,8 @@ def test_unknown_partition_rejected() -> None:
         _meta(), max_model_len=4096, tensor_parallel_size=1, partition="gpuNope"
     )
     assert res.valid is False
-    assert "Unknown partition" in res.reason
+    assert res.unverifiable is True
+    assert "not in the hardware table" in res.reason
 
 
 def test_amd_partition_rejected() -> None:

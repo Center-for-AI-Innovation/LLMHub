@@ -87,6 +87,10 @@ class AssumptionResultSchema(BaseModel):
 
 class PartitionFitSchema(BaseModel):
     partition: str
+    resource_type: Optional[str] = Field(
+        default=None,
+        description="Slurm GRES type; distinguishes GPU types within one partition",
+    )
     gpu_type: str
     vendor: str
     vram_gib: float
@@ -168,6 +172,7 @@ def _breakdown(fit_breakdown) -> BreakdownSchema:
 def _partition(fit: PartitionFit) -> PartitionFitSchema:
     return PartitionFitSchema(
         partition=fit.partition,
+        resource_type=fit.resource_type,
         gpu_type=fit.gpu_type,
         vendor=fit.vendor,
         vram_gib=fit.vram_gib,
