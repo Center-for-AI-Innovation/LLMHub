@@ -56,7 +56,11 @@ for RUN in {runs}; do
     TP=${{RUN%%:*}}; MNS=${{RUN##*:}}
     LOG="$OUT/run.tp${{TP}}.mns${{MNS}}.log"
     echo "=== tp=$TP mns=$MNS $(date -Is)" >&2
-    apptainer exec --nv --containall --env "$ENVS" {image} \\
+    # CUDA_VISIBLE_DEVICES gets its own --env, as LLMHub's launches pass it:
+    # without it --containall leaves vLLM 0.11 reading "none" as a device id,
+    # and a comma-joined value would be split by Apptainer's --env parser.
+    apptainer exec --nv --containall --env "$ENVS" \\
+        --env "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" {image} \\
         vllm serve {model} --host 127.0.0.1 --port "$PORT" \\
             --max-model-len {max_model_len} \\
             --tensor-parallel-size "$TP" --max-num-seqs "$MNS" > "$LOG" 2>&1 &
