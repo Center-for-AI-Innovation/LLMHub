@@ -43,7 +43,7 @@ JOB_TEMPLATE = """#!/bin/bash
 #SBATCH --time={time}
 #SBATCH --output={out}/job.%j.out
 #SBATCH --error={out}/job.%j.err
-
+{exclude}
 {load_cmd}
 set -u
 OUT={out}
@@ -109,6 +109,7 @@ def cmd_submit(args):
         model=shlex.quote(args.model),
         max_model_len=args.max_model_len,
         boot_timeout=args.boot_timeout,
+        exclude=f"#SBATCH --exclude={args.exclude}\n" if args.exclude else "",
     )
     meta = {
         "image": args.image,
@@ -200,6 +201,7 @@ def main(argv=None):
     submit.add_argument(
         "--load-cmd", help="shell line run first, e.g. DeltaAI's SLURM_NETWORK"
     )
+    submit.add_argument("--exclude", help="nodes to avoid, e.g. a node with a bad GPU")
     submit.add_argument("--dry-run", action="store_true", help="print, don't submit")
     submit.set_defaults(func=cmd_submit)
 
