@@ -295,6 +295,7 @@ def validate_config(
         tp,
         overhead_max_num_seqs if overhead_max_num_seqs is not None else max_num_seqs,
         gpu.overhead_per_seq_gib,
+        gpu.overhead_floor_gib,
     )
 
     vram = gpu.vram_gib_per_gpu

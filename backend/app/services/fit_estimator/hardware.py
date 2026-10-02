@@ -51,8 +51,8 @@ class GpuPartition:
     ``resource_type`` is the Slurm GRES type (``gpu:<resource_type>:N``), as a
     launch request sends it; required only to tell apart the rows of a
     partition that mixes GPU types. ``gpus_per_node`` caps tensor parallelism;
-    None skips that check. ``gpu_memory_utilization`` and
-    ``overhead_per_seq_gib`` are properties of the vLLM image the cluster runs
+    None skips that check. ``gpu_memory_utilization``,
+    ``overhead_per_seq_gib`` and ``overhead_floor_gib`` are properties of the vLLM image the cluster runs
     (its default utilization and fitted batch-width overhead), so they live
     with the cluster's table. ``compute_capability`` (e.g. 8.0 for A100)
     decides which quantized formats run natively. ``su_per_gpu_hour`` is site
@@ -72,6 +72,7 @@ class GpuPartition:
     gpus_per_node: int | None = None
     gpu_memory_utilization: float = DEFAULT_GPU_MEMORY_UTILIZATION
     overhead_per_seq_gib: float = OVERHEAD_PER_SEQ_GIB
+    overhead_floor_gib: float = 0.0
 
     @property
     def is_nvidia(self) -> bool:
@@ -85,6 +86,7 @@ def _parse_entry(raw: dict[str, Any]) -> GpuPartition:
     raw_gpus = raw.get("gpus_per_node")
     raw_util = raw.get("gpu_memory_utilization")
     raw_per_seq = raw.get("overhead_per_seq_gib")
+    raw_floor = raw.get("overhead_floor_gib")
     return GpuPartition(
         partition=str(raw["partition"]),
         gpu_type=str(raw["gpu_type"]),
@@ -107,6 +109,7 @@ def _parse_entry(raw: dict[str, Any]) -> GpuPartition:
         overhead_per_seq_gib=(
             float(raw_per_seq) if raw_per_seq is not None else OVERHEAD_PER_SEQ_GIB
         ),
+        overhead_floor_gib=float(raw_floor) if raw_floor is not None else 0.0,
     )
 
 

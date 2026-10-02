@@ -137,6 +137,7 @@ def _partition_overhead_gib(
             partition.framework_overhead_gib,
             max_num_seqs,
             partition.overhead_per_seq_gib,
+            partition.overhead_floor_gib,
         )
     return total_overhead_per_gpu_gib(
         partition.vram_gib_per_gpu,
@@ -146,6 +147,7 @@ def _partition_overhead_gib(
         tp_size,
         max_num_seqs,
         partition.overhead_per_seq_gib,
+        partition.overhead_floor_gib,
     )
 
 

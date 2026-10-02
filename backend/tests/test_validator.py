@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.fit_estimator.hardware import load_partitions
 from app.services.fit_estimator.model_metadata import (
     WEIGHTS_FROM_INDEX,
     map_config,
@@ -57,9 +58,17 @@ def test_weights_shard_kv_shards_overhead_constant_per_gpu(tp) -> None:
     # Weights divide by TP.
     assert b.weights_gib == pytest.approx(14.185 / tp, rel=1e-3)
     # Overhead is paid in full per GPU and never divided by TP: the utilization
-    # reserve (0.1 * 140 GiB on H200, padded educated guess) + calibrated
-    # internal(mns=256) = 0.8 + 0.002*256, plus the TP comm buffer (0.25) at TP > 1.
-    expected_overhead = 140.0 * 0.1 + 0.8 + 0.002 * 256 + (0.25 if tp > 1 else 0.0)
+    # reserve + internal(mns=256) from the H200 row, plus its TP buffer at TP > 1.
+    h200 = next(p for p in load_partitions() if p.partition == "gpuH200x8")
+    internal = max(
+        h200.overhead_floor_gib,
+        h200.framework_overhead_gib + h200.overhead_per_seq_gib * 256,
+    )
+    expected_overhead = (
+        h200.vram_gib_per_gpu * (1 - h200.gpu_memory_utilization)
+        + internal
+        + (h200.tp_communication_buffer_gib if tp > 1 else 0.0)
+    )
     assert b.overhead_gib == pytest.approx(expected_overhead)
 
 
@@ -197,18 +206,17 @@ LLAMA_70B_WEIGHTS = 141_107_412_992  # safetensors index total_size (~131.4 GiB)
 def test_overhead_at_launch_concurrency_closes_boot_false_accept_window() -> None:
     """The gate must charge overhead at the mns the job boots with, not 1.
 
-    Llama-3.3-70B on gpuA100x4 (TP=4): with overhead at mns=1 the certified
-    pool holds ~27.4k tokens, but a job booting at mns=256 (the then-assumed default)
-    where the calibrated pool holds only ~20.8k. A context in that window
-    (24102 here) used to pass the gate and then die at boot; with
-    ``overhead_max_num_seqs`` it must be rejected, while contexts below the
-    real boot limit still pass.
+    Llama-3.3-70B on gpuA100x4 (TP=4), vLLM 0.19.1 calibration: with overhead
+    at mns=1 the pool holds ~10.4k tokens, but a job booting at mns=768 has
+    only ~3.4k. A context in that window (8000 here) would pass a check that
+    charged overhead at 1 and then die at boot; with ``overhead_max_num_seqs``
+    it must be rejected, while contexts below the real boot limit still pass.
     """
     meta = _meta(LLAMA_70B_CONFIG, LLAMA_70B_WEIGHTS, "meta-llama/Llama-3.3-70B")
 
     legacy_contract = validate_config(
         meta,
-        max_model_len=24102,
+        max_model_len=8000,
         tensor_parallel_size=4,
         partition="gpuA100x4",
         max_num_seqs=1,
@@ -217,21 +225,21 @@ def test_overhead_at_launch_concurrency_closes_boot_false_accept_window() -> Non
 
     fixed_contract = validate_config(
         meta,
-        max_model_len=24102,
+        max_model_len=8000,
         tensor_parallel_size=4,
         partition="gpuA100x4",
         max_num_seqs=1,
-        overhead_max_num_seqs=256,
+        overhead_max_num_seqs=768,
     )
     assert fixed_contract.valid is False
 
     below_boot_limit = validate_config(
         meta,
-        max_model_len=20000,
+        max_model_len=3000,
         tensor_parallel_size=4,
         partition="gpuA100x4",
         max_num_seqs=1,
-        overhead_max_num_seqs=256,
+        overhead_max_num_seqs=768,
     )
     assert below_boot_limit.valid is True
 

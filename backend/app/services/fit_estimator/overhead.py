@@ -61,11 +61,18 @@ def internal_overhead_gib(
     max_num_seqs: int,
     framework_overhead_gib: float | None = None,
     per_seq_gib: float = OVERHEAD_PER_SEQ_GIB,
+    floor_gib: float = 0.0,
 ) -> float:
-    """Non-weight/non-KV reservation within the util pool (GiB)."""
-    return framework_base_gib(framework_overhead_gib) + batch_width_overhead_gib(
+    """Non-weight/non-KV reservation within the util pool (GiB).
+
+    ``max(floor_gib, base + per_seq_gib * max_num_seqs)``. vLLM 0.19.1 probes
+    use MORE memory at 32 sequences than at 256 (CUDA-graph sizing), so a line
+    fitted to large batches is optimistic for small ones; the floor covers it.
+    """
+    linear = framework_base_gib(framework_overhead_gib) + batch_width_overhead_gib(
         max_num_seqs, per_seq_gib
     )
+    return max(floor_gib, linear)
 
 
 def utilization_reserve_gib(vram_gib: float, gpu_memory_utilization: float) -> float:
@@ -86,6 +93,7 @@ def total_overhead_per_gpu_gib(
     tp_size: int,
     max_num_seqs: int,
     per_seq_gib: float = OVERHEAD_PER_SEQ_GIB,
+    floor_gib: float = 0.0,
 ) -> float:
     """Per-GPU overhead under tensor parallelism.
 
@@ -95,7 +103,9 @@ def total_overhead_per_gpu_gib(
     """
     overhead = utilization_reserve_gib(
         vram_gib, gpu_memory_utilization
-    ) + internal_overhead_gib(max_num_seqs, framework_internal_gib, per_seq_gib)
+    ) + internal_overhead_gib(
+        max_num_seqs, framework_internal_gib, per_seq_gib, floor_gib
+    )
     if tp_size > 1:
         overhead += tp_communication_buffer_gib
     return overhead
@@ -107,6 +117,7 @@ def total_overhead_gib(
     framework_internal_gib: float,
     max_num_seqs: int,
     per_seq_gib: float = OVERHEAD_PER_SEQ_GIB,
+    floor_gib: float = 0.0,
 ) -> float:
     """Single-GPU overhead (survey path): reserve + internal(mns).
 
@@ -121,4 +132,5 @@ def total_overhead_gib(
         1,
         max_num_seqs,
         per_seq_gib,
+        floor_gib,
     )

@@ -6,30 +6,22 @@
 # tensor-parallel sharding; pipeline parallelism and multi-node layouts remain
 # outside the estimator's scope.
 #
-# framework_overhead_gib: the per-rank BASE of the calibrated internal overhead
-#   (CUDA context + framework floor). Batch-width growth is NOT stored here --
-#   code adds OVERHEAD_PER_SEQ_GIB * max_num_seqs (see overhead.py /
-#   constants.py). Together:
-#     internal(mns) = framework_overhead_gib + 0.002 * max_num_seqs
-#   This is AFTER the utilization reserve (see overhead.py: the dominant
-#   (1 - gpu_memory_utilization) * VRAM term is applied in code, not here).
-#   CALIBRATED BASE = 0.8 GiB from Delta vLLM 0.11.0 probes. See
-#   memory-estimator/calibration/ for the probe logs.
-# tp_communication_buffer_gib: per-GPU reservation for tensor-parallel comm
-#   buffers (NCCL / all-reduce workspace), added per rank only when tp_size > 1.
-#   CALIBRATED as ~0 at TP<=4 (no measurable growth in per-GPU overhead); kept at
-#   a small conservative 0.25 GiB as a margin for higher TP.
-#   TODO(high-tp-probe): calibrate at TP=8/16.
+# Overhead: vLLM's own memory beyond weights and KV, inside its utilization
+#   budget (the (1 - gpu_memory_utilization) * VRAM reserve is applied in code):
+#     internal(mns) = max(overhead_floor_gib,
+#                         framework_overhead_gib + overhead_per_seq_gib * mns)
+#   plus tp_communication_buffer_gib per rank when tp_size > 1.
+#   CALIBRATED for vLLM 0.19.1 (the dev/production image) on driver 595.71.05,
+#   2026-10-02: tests/fixtures/vllm_probes/delta-v0.19.1.json, captured with
+#   backend/scripts/probe_vllm_overhead.py. Each value sits above every probe
+#   plus a 0.25 GiB margin for drift (the 2026-08-12 driver update alone cost
+#   ~0.6 GiB of KV on an unchanged image). A40/A100: ~1.6 GiB at 32 sequences
+#   (more than at 256), +0.002 GiB/seq above that, ~0.4 GiB more at TP=4.
+#   H200 runs ~0.7 GiB higher; its floor and TP buffer are extrapolated from
+#   A100 (no 32-sequence or multi-GPU H200 probe yet). gpu_memory_utilization
+#   is vLLM 0.19.1's default, 0.9. Re-probe after any image or driver change.
 # vram_gib_per_gpu: REAL usable memory (nvidia-smi memory.total), not the
-#   marketing capacity. A40 reports 46068 MiB = 44.988 GiB (not 48); A100-40
-#   reports 40960 MiB = 40.0 GiB. Using the marketing number would make the gate
-#   optimistic (it feeds both the usable budget and the utilization reserve).
-#   A40/A100 are probe-measured. H200 is NOT probed: the marketing 141 GiB was
-#   optimistic (H200-SXM units typically report ~143771 MiB = 140.4 GiB in
-#   nvidia-smi), so the table carries an educated-guess 140.0 GiB — padded a
-#   further ~0.4 GiB below the typical reported value because neither the VRAM
-#   nor the internal-overhead line has been validated on this GPU.
-#   TODO(h200-probe): replace with a measured value + overhead probe.
+#   marketing capacity: A40 44.988, A100-40 40.0, H200 140.4 GiB, all measured.
 # vendor: NVIDIA partitions are evaluated; AMD (ROCm/MI100) is out of scope and
 #   reported as skipped rather than silently dropped.
 # resource_type: the Slurm GRES type (sinfo -o "%G"), as launch requests send
@@ -37,10 +29,8 @@
 # gpus_per_node: caps tensor parallelism for a single-node launch.
 # compute_capability: decides which quantized formats run natively (FP8 needs
 #   8.9+, MXFP4 9.0+); A40 8.6, A100 8.0, H200 9.0.
-# su_per_gpu_hour: SU billed per GPU-hour for this GPU model on Delta (batch
-#   queue). Node size (x4 vs x8) does not change the per-GPU rate; job_SU scales
-#   with num_gpus × duration. Queue modifiers (preempt/interactive) are derived
-#   in ranking.su_per_gpu_hour_for(), not stored per partition row.
+# su_per_gpu_hour: SU billed per GPU-hour on this partition (interactive
+#   queues bill double, preempt half). job_SU = rate × num_gpus × duration.
 
 partitions:
   - partition: gpuA40x4
@@ -50,8 +40,10 @@ partitions:
     compute_capability: 8.6
     vendor: NVIDIA
     vram_gib_per_gpu: 44.988
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 500
     max_walltime: "2-00:00:00"
 
@@ -62,8 +54,10 @@ partitions:
     compute_capability: 8.6
     vendor: NVIDIA
     vram_gib_per_gpu: 44.988
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 1000
     max_walltime: "1:00:00"
 
@@ -74,8 +68,10 @@ partitions:
     compute_capability: 8.6
     vendor: NVIDIA
     vram_gib_per_gpu: 44.988
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 250
     max_walltime: "2-00:00:00"
 
@@ -86,8 +82,10 @@ partitions:
     compute_capability: 8.0
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 1000
     max_walltime: "2-00:00:00"
 
@@ -98,8 +96,10 @@ partitions:
     compute_capability: 8.0
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 2000
     max_walltime: "1:00:00"
 
@@ -110,8 +110,10 @@ partitions:
     compute_capability: 8.0
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 500
     max_walltime: "2-00:00:00"
 
@@ -122,8 +124,10 @@ partitions:
     compute_capability: 8.0
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 1000
     max_walltime: "2-00:00:00"
 
@@ -134,8 +138,10 @@ partitions:
     compute_capability: 8.0
     vendor: NVIDIA
     vram_gib_per_gpu: 40
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
     # KNOWN-OPEN QUESTION: every other interactive queue is exactly 2x its
     # batch rate (which would give 2000 here). 3000 is what the original
     # source table carried; confirm against Delta billing before changing.
@@ -148,10 +154,12 @@ partitions:
     resource_type: h200
     compute_capability: 9.0
     vendor: NVIDIA
-    # Educated guess, padded conservative (see header). TODO(h200-probe).
-    vram_gib_per_gpu: 140.0
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    # Measured: nvidia-smi memory.total on a gpuH200x8 node, 2026-10-02.
+    vram_gib_per_gpu: 140.4
+    framework_overhead_gib: 1.65
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 2.65
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 3000
     max_walltime: "2-00:00:00"
 
@@ -161,10 +169,12 @@ partitions:
     resource_type: h200
     compute_capability: 9.0
     vendor: NVIDIA
-    # Educated guess, padded conservative (see header). TODO(h200-probe).
-    vram_gib_per_gpu: 140.0
-    framework_overhead_gib: 0.8
-    tp_communication_buffer_gib: 0.25
+    # Measured: nvidia-smi memory.total on a gpuH200x8 node, 2026-10-02.
+    vram_gib_per_gpu: 140.4
+    framework_overhead_gib: 1.65
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 2.65
+    tp_communication_buffer_gib: 0.4
     su_per_gpu_hour: 6000
     max_walltime: "1:00:00"
 
