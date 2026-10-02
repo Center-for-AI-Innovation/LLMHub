@@ -49,7 +49,11 @@ set -u
 OUT={out}
 nvidia-smi --query-gpu=name,memory.total,driver_version \\
     --format=csv,noheader,nounits > "$OUT/gpus.csv"
-export APPTAINER_BINDPATH="${{APPTAINER_BINDPATH:-}},/dev,/tmp,{hf_cache}:/root/.cache/huggingface"
+# vLLM writes compile caches under $HOME/.cache, one per TP rank; a quota'd
+# home fills up and multi-GPU starts die with ENOSPC. vec-inf binds a
+# project-space dir there too.
+mkdir -p "$OUT/.cache"
+export APPTAINER_BINDPATH="${{APPTAINER_BINDPATH:-}},/dev,/tmp,$OUT/.cache:$HOME/.cache,{hf_cache}:/root/.cache/huggingface"
 ENVS="HF_HOME=/root/.cache/huggingface,HF_HUB_CACHE=/root/.cache/huggingface,HF_HUB_OFFLINE=1,TRANSFORMERS_OFFLINE=1,FI_LOG_PROV=none,TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor-$SLURM_JOB_ID"
 PORT=$((20000 + SLURM_JOB_ID % 20000))
 
