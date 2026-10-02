@@ -110,8 +110,8 @@ Ops notes:
   `config/infrastructures/<infra>/`. Rows are keyed by partition, plus the GRES
   type (`resource_type`) where a partition mixes GPU types; a launch on such a
   partition that names no GPU type is not gated. Tables exist for Delta,
-  DeltaAI and Campus Cluster (the last two still unverified; see their
-  headers). A cluster without one is not gated at all.
+  DeltaAI and Campus Cluster (Campus Cluster's is a best guess until LLMHub
+  has a VM there; see its header). A cluster without one is not gated at all.
 - Generate a table on a login node with `python -m
   app.services.fit_estimator.discovery --output
   config/infrastructures/<infra>/hardware.yaml` (`--probe` measures VRAM with a

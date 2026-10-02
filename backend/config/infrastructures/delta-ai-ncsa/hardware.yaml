@@ -1,18 +1,16 @@
 # NCSA DeltaAI GPU partitions for the fit estimator (same schema as
 # infrastructures/delta/hardware.yaml; see its header for field meanings).
 #
-# NOT YET VERIFIED against the cluster. Partition and GRES names come from the
-# deployment kit (infra/delta/config/cluster-deltaai.env: ghx4-interactive,
-# gpu:nvidia_gh200_120gb:4), which launch-tests against DeltaAI, as do the
-# walltimes (ghx4-interactive: MaxTime 2h; ghx4: 2 days). Confirm the partition
-# list with `sinfo -h -o "%R|%G|%l"` on dtai-svc-llmaas01.
+# Partitions, GRES and walltimes: `sinfo -h -o "%R|%G|%l"` on dtai-svc-llmaas01,
+# 2026-10-02. Every partition has one GPU type (gpu:nvidia_gh200_120gb:4).
 #
-# vram_gib_per_gpu: 95.0 is the 96 GB GH200 variant, padded. The GRES name says
-#   120gb, so the real value may be higher; until it is measured
-#   (`python -m app.services.fit_estimator.discovery --probe`, or nvidia-smi
-#   memory.total on a node) the gate errs toward refusing, never accepting.
+# vram_gib_per_gpu: 95.08 GiB measured -- vLLM's "Free memory on device
+#   (93.57/95.08 GiB)" in job 3279399 (vLLM 0.28, 2026-09-30). Despite the GRES
+#   name, these are the 96 GB GH200s.
 # framework_overhead_gib: Delta's vLLM 0.11 calibration. DeltaAI runs the
-#   aarch64 vLLM 0.28 image and has not been probed (#106).
+#   aarch64 vLLM 0.28 image, which has not been probed (#106). The one data
+#   point so far (job 3279399, Qwen2.5-7B, TP=4) used ~1.6 GiB/GPU outside
+#   weights and KV, below the ~3.1 GiB this table budgets, so it errs safe.
 # su_per_gpu_hour: omitted until DeltaAI's billing rates are confirmed; the
 #   survey then shows no cost.
 
@@ -23,7 +21,7 @@ partitions:
     resource_type: nvidia_gh200_120gb
     compute_capability: 9.0
     vendor: NVIDIA
-    vram_gib_per_gpu: 95.0
+    vram_gib_per_gpu: 95.08
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
     max_walltime: "2-00:00:00"
@@ -34,7 +32,29 @@ partitions:
     resource_type: nvidia_gh200_120gb
     compute_capability: 9.0
     vendor: NVIDIA
-    vram_gib_per_gpu: 95.0
+    vram_gib_per_gpu: 95.08
+    framework_overhead_gib: 0.8
+    tp_communication_buffer_gib: 0.25
+    max_walltime: "2:00:00"
+
+  - partition: full
+    gpus_per_node: 4
+    gpu_type: NVIDIA GH200
+    resource_type: nvidia_gh200_120gb
+    compute_capability: 9.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 95.08
+    framework_overhead_gib: 0.8
+    tp_communication_buffer_gib: 0.25
+    max_walltime: "1-00:00:00"
+
+  - partition: test
+    gpus_per_node: 4
+    gpu_type: NVIDIA GH200
+    resource_type: nvidia_gh200_120gb
+    compute_capability: 9.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 95.08
     framework_overhead_gib: 0.8
     tp_communication_buffer_gib: 0.25
     max_walltime: "2:00:00"
