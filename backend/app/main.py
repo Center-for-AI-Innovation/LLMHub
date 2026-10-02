@@ -42,6 +42,13 @@ if not os.getenv("VEC_INF_MODEL_CONFIG"):
             _shared_models_path,
         )
 
+# Fail fast on a broken fit-estimator hardware table. If this raised lazily
+# inside the launch path instead, the gate's fail-open wrap would swallow it
+# and EVERY launch would silently skip memory validation.
+from app.services.fit_estimator.hardware import load_partitions  # noqa: E402
+
+load_partitions()
+
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 

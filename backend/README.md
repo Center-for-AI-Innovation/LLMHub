@@ -86,3 +86,36 @@ isort .
 - [Pydantic](https://pydantic-docs.helpmanual.io/)
 - [llm-inference](https://github.com/VectorInstitute/vector-inference)
 - [uv](https://github.com/astral-sh/uv) - Fast Python package installer and resolver 
+
+## GPU fit estimator & launch gate
+
+`app/services/fit_estimator/` sizes vLLM deployments before they reach Slurm.
+When `launch_model` estimates that a config's KV pool cannot hold one
+full-context sequence, it still launches but stores the reason on the
+deployment (`resourceAllocation.fitWarning`), and appends it to the error if
+the job fails. The estimate is calibrated, not exact, so it never blocks.
+`POST /api/fit-estimate` surveys every partition (fit, bootability, sustainable
+concurrency, SU cost), and `POST /api/validate-config` gives a strict verdict.
+Configs the model cannot size (unknown partition, multi-node, non-NVIDIA,
+unresolvable metadata, unmodeled catalog vLLM flags) skip the gate with a
+logged warning instead of blocking. Derivation, calibration data and caveats:
+`docs/memory-estimator-writeup.tex` (PDF alongside) and
+`docs/concurrency-kv-findings.md`.
+
+Ops notes:
+- Gated models are sized only with the requesting user's own HF token; there is
+  no server-wide token. The survey endpoints are anonymous, so they report
+  gated models as unverifiable.
+- Each cluster has its own hardware table, `hardware.yaml`, next to
+  `environment.yaml` in the active config directory: `VEC_INF_CONFIG_DIR` when
+  set (the Delta kit copies the right one there), otherwise
+  `config/infrastructures/<infra>/`. Rows are keyed by partition, plus the GRES
+  type (`resource_type`) where a partition mixes GPU types; a launch on such a
+  partition that names no GPU type is not gated. Tables exist for Delta,
+  DeltaAI and Campus Cluster (Campus Cluster's is a best guess until LLMHub
+  has a VM there; see its header). A cluster without one is not gated at all.
+- Generate a table on a login node with `python -m
+  app.services.fit_estimator.discovery --output
+  config/infrastructures/<infra>/hardware.yaml` (`--probe` measures VRAM with a
+  short `srun` per GPU type). `FIT_ESTIMATOR_HARDWARE_YAML` points at a
+  specific file instead.
