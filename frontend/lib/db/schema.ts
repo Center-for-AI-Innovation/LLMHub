@@ -244,6 +244,7 @@ export const availableModel = pgTable('AvailableModel', {
   specs: json('specs').notNull(),
   vocabSize: integer('vocabSize'),
   huggingfaceId: varchar('huggingfaceId', { length: 255 }),
+  gated: varchar('gated', { length: 50 }),
   createdAt: timestamp('createdAt').notNull().defaultNow(),
   updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 });

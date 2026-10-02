@@ -2,12 +2,15 @@ import json
 import os
 import pwd
 import re
+import shutil
 import subprocess
 import sys
+import threading
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import yaml
+from huggingface_hub import snapshot_download
 
 from app.config.config import settings
 from app.config.logging import get_logger
@@ -74,6 +77,40 @@ def _grant_acl_access(path: Path, usernames: List[str], failure_context: str) ->
                 ) from exc
 
 
+def _restrict_acl_to_cluster_user(
+    path: Path, cluster_username: str, directory: bool = False
+) -> None:
+    """Make ``path`` readable by the owner and ``cluster_username`` only.
+
+    A file created inside the workspace inherits its default ACL, and the mode
+    passed to open() becomes the ACL mask. 0600 masks the inherited
+    ``user:<cluster_username>`` entry down to nothing, so the impersonated user
+    can't read the file. Widening the mask alone would also expose the file to
+    the inherited ``group::`` entry (a primary group shared by many accounts on
+    Delta), so replace the whole ACL instead.
+    """
+    command = [
+        "setfacl",
+        "--set",
+        (
+            f"u::rwx,u:{cluster_username}:r-x,g::---,m::r-x,o::---"
+            if directory
+            else f"u::rw-,u:{cluster_username}:r--,g::---,m::r--,o::---"
+        ),
+        str(path),
+    ]
+    try:
+        subprocess.run(command, text=True, capture_output=True, check=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Required ACL command not found: {command[0]}") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        raise RuntimeError(
+            f"Failed to grant {cluster_username} access to launch payload: "
+            f"{stderr or exc}"
+        ) from exc
+
+
 def _resolve_impersonated_workspace_root() -> Optional[Path]:
     raw_root = (
         getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
@@ -110,39 +147,11 @@ def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
 
 
 def _get_shared_cache_dirs() -> List[Path]:
-    config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None) or os.getenv(
-        "VEC_INF_CONFIG_DIR"
-    )
-    if not isinstance(config_dir, str) or not config_dir.strip():
-        return []
-
-    env_path = Path(config_dir).expanduser() / "environment.yaml"
-    if not env_path.exists():
-        return []
-
-    try:
-        with env_path.open() as file_obj:
-            config = yaml.safe_load(file_obj) or {}
-    except Exception:
-        return []
-
-    bind_value = (((config.get("default_args") or {}).get("bind")) or "").strip()
-    if not bind_value:
-        return []
-
-    host_dirs: List[Path] = []
-    for mount in bind_value.split(","):
-        parts = mount.split(":", 1)
-        if len(parts) != 2:
-            continue
-        host_path, container_path = parts
-        if container_path not in {
-            "/root/.cache/huggingface",
-            "/root/.cache/torch_inductor",
-        }:
-            continue
-        host_dirs.append(Path(host_path).expanduser())
-    return host_dirs
+    return [
+        Path(cache_dir).expanduser()
+        for cache_dir in (settings.MODEL_CACHE_DIR, settings.COMPILE_CACHE_DIR)
+        if cache_dir
+    ]
 
 
 def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
@@ -157,6 +166,258 @@ def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
             [cluster_username, service_account],
             f"shared cache dir {cache_dir} for {cluster_username}",
         )
+
+
+def _join_contained(base: Path, relative: str, description: str) -> Path:
+    """Join ``relative`` under ``base``, raising if it would escape ``base``.
+
+    ``model_name`` is user-controlled (HF repo ids like ``org/model`` are
+    expected and legitimately contain ``/``), so a character-class allowlist
+    would either break normal names or still miss ``..`` traversal / a
+    leading ``/`` (which pathlib's join treats as replacing ``base``
+    entirely). Resolving and checking containment catches both.
+    """
+    base_resolved = base.resolve()
+    candidate = (base / relative).resolve()
+    if candidate != base_resolved and base_resolved not in candidate.parents:
+        raise ValueError(
+            f"{description} {relative!r} resolves outside {base} (got {candidate})"
+        )
+    return candidate
+
+
+def _resolve_model_store_dir(model_name: str) -> Optional[Path]:
+    """Return the shared store's directory for ``model_name``, if configured."""
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    if not isinstance(store_root, str) or not store_root.strip():
+        return None
+    return _join_contained(Path(store_root).expanduser(), model_name, "model_name")
+
+
+def _store_root_exposure(root: Path) -> Optional[str]:
+    """Return why ``root`` is reachable by accounts other than root and us, or None.
+
+    Reads the ACL rather than the mode: with an ACL, the mode's group bits are the
+    mask, so a correctly private ``u:<service account>:rwx,g::---`` root would look
+    group-writable. Owner, root and the service account may have access; the
+    ``group::`` entry, ``other::`` and any other named user or group may not.
+    """
+    service_uid = os.geteuid()
+    service_account = pwd.getpwuid(service_uid).pw_name
+    owner_uid = root.stat().st_uid
+    if owner_uid not in (0, service_uid):
+        return f"owned by uid {owner_uid}"
+    try:
+        result = subprocess.run(
+            ["getfacl", "-cpn", str(root)],
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        mode = root.stat().st_mode & 0o777
+        return f"mode {mode:o}" if mode & 0o077 else None
+
+    entries = []
+    mask = "rwx"
+    for line in result.stdout.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line or line.startswith("default:"):
+            continue
+        tag, qualifier, perms = line.split(":")
+        if tag == "mask":
+            mask = perms
+        else:
+            entries.append((tag, qualifier, perms))
+
+    for tag, qualifier, perms in entries:
+        if tag == "user" and qualifier in ("", "0", str(service_uid), service_account):
+            continue
+        effective = perms
+        if tag == "group" or (tag == "user" and qualifier):
+            effective = "".join(p if m != "-" else "-" for p, m in zip(perms, mask))
+        if effective != "---":
+            return f"{tag}:{qualifier}:{effective}"
+    return None
+
+
+def _check_store_root_private() -> None:
+    """Create ``MODEL_STORE_ROOT`` owner-only if missing; refuse it if it isn't.
+
+    Downloaded weights are world-readable (0644) so hard links work for the
+    launching user; only this directory keeps everyone else out. A mkdir under
+    the backend's umask 007 would leave it open to the service account's group,
+    which on Delta is shared by many accounts.
+    """
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    if not isinstance(store_root, str) or not store_root.strip():
+        return
+    root = Path(store_root).expanduser()
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    exposure = _store_root_exposure(root)
+    if exposure:
+        raise RuntimeError(
+            f"MODEL_STORE_ROOT {root} is open to other accounts ({exposure}); "
+            "gated weights there would be readable by them. Restrict it to the "
+            "service account (chmod 700, or an ACL with group::--- and other::---)."
+        )
+
+
+_gated_downloads_in_progress: set = set()
+_gated_downloads_lock = threading.Lock()
+
+
+def _download_gated_model(store_dir: Path, repo_id: str, hf_token: str) -> None:
+    partial_dir = store_dir.with_name(store_dir.name + ".partial")
+    try:
+        partial_dir.parent.mkdir(parents=True, exist_ok=True)
+        # Reruns resume from partial_dir; original/ holds a duplicate raw checkpoint.
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=partial_dir,
+            token=hf_token,
+            ignore_patterns=["original/*"],
+        )
+        shutil.rmtree(partial_dir / ".cache", ignore_errors=True)
+        # Hard links share these inodes, so the launching user must be able to read them.
+        # Access is limited by the store and each user's model-weights directory.
+        for path in [partial_dir, *partial_dir.rglob("*")]:
+            path.chmod(0o755 if path.is_dir() else 0o644)
+        partial_dir.rename(store_dir)
+        logger.info("Downloaded gated model %s into %s", repo_id, store_dir)
+    except Exception as exc:
+        logger.error("Gated model download failed for %s: %s", repo_id, exc)
+    finally:
+        with _gated_downloads_lock:
+            _gated_downloads_in_progress.discard(str(store_dir))
+
+
+def start_gated_model_download(
+    model_name: str, repo_id: Optional[str], hf_token: Optional[str]
+) -> Optional[str]:
+    """Start a background download of a gated model missing from ``MODEL_STORE_ROOT``.
+
+    Returns a message for the user while weights are downloading, or None when
+    they are already in the store (or no store/repo is configured).
+    """
+    try:
+        store_dir = _resolve_model_store_dir(model_name)
+    except ValueError:
+        return None
+    if store_dir is None or not repo_id or not hf_token:
+        return None
+    try:
+        _check_store_root_private()
+    except (OSError, RuntimeError) as exc:
+        logger.error("Refusing gated model download: %s", exc)
+        return f"Cannot store gated model weights: {exc}"
+    if store_dir.is_dir():
+        return None
+
+    with _gated_downloads_lock:
+        already_running = str(store_dir) in _gated_downloads_in_progress
+        _gated_downloads_in_progress.add(str(store_dir))
+    if not already_running:
+        threading.Thread(
+            target=_download_gated_model,
+            args=(store_dir, repo_id, hf_token),
+            daemon=True,
+        ).start()
+    return (
+        f"Downloading gated model weights for {model_name}. "
+        "Launch again in a few minutes."
+    )
+
+
+def _hardlink_tree(src: Path, dst: Path) -> None:
+    """Recreate ``src`` under ``dst``, hard-linking each file.
+
+    Hard links are per-file (POSIX has no directory hard link), so this walks
+    the source tree and links files individually, creating directories as
+    needed. Existing destination files are left as-is, so this is safe to
+    call repeatedly (e.g. once per launch) without redoing finished work.
+    """
+    for root, _dirnames, filenames in os.walk(src):
+        rel_dir = Path(root).relative_to(src)
+        dest_dir = dst / rel_dir
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for filename in filenames:
+            dest_file = dest_dir / filename
+            if dest_file.exists():
+                continue
+            try:
+                os.link(Path(root) / filename, dest_file)
+            except FileExistsError:
+                pass
+
+
+def resolve_gated_model_store_dir(model_name: str) -> Path:
+    """Return ``MODEL_STORE_ROOT`` to launch a direct-mode gated model from.
+
+    Direct (non-impersonated) execution always runs as the service account,
+    which already has its own access to the protected ``MODEL_STORE_ROOT``
+    (e.g. via ACL) -- unlike impersonated launches, no per-user hard-linked
+    copy is needed here. Requires the model to already be staged in the
+    store; callers must not fall back to the infrastructure-wide default
+    ``model_weights_parent_dir``, which is typically world-readable and would
+    defeat gating for anyone with plain filesystem access.
+    """
+    store_root = getattr(settings, "MODEL_STORE_ROOT", None)
+    try:
+        source_dir = _resolve_model_store_dir(model_name)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
+    if source_dir is not None:
+        _check_store_root_private()
+    if source_dir is None or not source_dir.is_dir():
+        raise RuntimeError(
+            f"Model {model_name!r} not found in the protected model store "
+            f"(MODEL_STORE_ROOT={store_root!r}); direct-mode gated launches "
+            "require pre-staged weights rather than falling back to the "
+            "shared/world-readable default cache."
+        )
+    return Path(store_root).expanduser()
+
+
+def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) -> Path:
+    """Hard-link ``model_name`` from the shared store into ``cluster_username``'s
+    workspace and return the per-user ``model_weights_parent_dir`` to launch with.
+
+    Hard links share the underlying inode with the store copy, so this costs no
+    extra storage quota. Only meaningful for impersonated (per-user) launches --
+    for direct/shared execution, use ``resolve_gated_model_store_dir`` instead,
+    since the service account can read the protected store directly. Expects an
+    already-validated username.
+    """
+    try:
+        source_dir = _resolve_model_store_dir(model_name)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
+    if source_dir is not None:
+        _check_store_root_private()
+    if source_dir is None or not source_dir.is_dir():
+        raise RuntimeError(
+            f"Model {model_name!r} not found in the shared model store "
+            f"(MODEL_STORE_ROOT={getattr(settings, 'MODEL_STORE_ROOT', None)!r})"
+        )
+
+    workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
+    if workspace_dir is None:
+        raise RuntimeError(
+            "Cannot prepare user-scoped model weights: no impersonated workspace "
+            "root configured (VEC_INF_SHARED_WORK_ROOT / vec-inf log dir)"
+        )
+
+    weights_parent_dir = workspace_dir / "model-weights"
+    # The workspace's owning group is shared by many accounts; keep it out of the links.
+    weights_parent_dir.mkdir(exist_ok=True)
+    _restrict_acl_to_cluster_user(weights_parent_dir, cluster_username, directory=True)
+    try:
+        dest_dir = _join_contained(weights_parent_dir, model_name, "model_name")
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid model name for user workspace: {exc}") from exc
+    _hardlink_tree(source_dir, dest_dir)
+    return weights_parent_dir
 
 
 def _get_impersonation_python() -> str:
@@ -263,6 +524,12 @@ class LLMInferenceDirectClient:
             vllm_parts.append(f"--max-model-len={params['max_model_len']}")
         if params.get("max_num_seqs") is not None:
             vllm_parts.append(f"--max-num-seqs={params['max_num_seqs']}")
+        # Client vllm_args are dropped upstream; vec-inf still needs the parallel
+        # sizes to match an explicit GPU/node request (TP within a node, PP across).
+        if params.get("num_gpus") is not None:
+            vllm_parts.append(f"--tensor-parallel-size={int(params['num_gpus'])}")
+        if params.get("num_nodes") is not None:
+            vllm_parts.append(f"--pipeline-parallel-size={int(params['num_nodes'])}")
         if params.get("vllm_args") is not None:
             vllm_parts.append(params["vllm_args"])
         if vllm_parts:
@@ -575,41 +842,67 @@ class LLMInferenceClient:
         except RuntimeError as exc:
             return {"success": False, "error": str(exc)}
 
+        if workspace_dir is None:
+            return {
+                "success": False,
+                "error": (
+                    "Cannot prepare impersonated launch: no workspace directory "
+                    "configured (VEC_INF_SHARED_WORK_ROOT / vec-inf log dir)"
+                ),
+            }
+
+        # The payload can carry a secret (hf_token, via params["env"]). Command-line
+        # arguments are visible to any user on the host via `ps`/`/proc/<pid>/cmdline`
+        # for the process's lifetime, so write it to a file instead and pass only the
+        # path. The file lands in the impersonated user's workspace.
         payload = self._build_launch_payload(
             model_name, enable_cloudflare_tunnel, params
         )
-        command = [str(wrapper_path)]
-        if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
-            command.append("--no-login-shell")
-        command.extend(
-            [
-                cluster_username,
-                "--",
-                _get_impersonation_python(),
-                "-m",
-                "app.utils.vec_inf_launch_shim",
-                payload,
-            ]
-        )
+        payload_path = workspace_dir / f".launch-payload-{uuid.uuid4().hex}.json"
+        fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            _restrict_acl_to_cluster_user(payload_path, cluster_username)
+        except RuntimeError as exc:
+            os.close(fd)
+            payload_path.unlink(missing_ok=True)
+            return {"success": False, "error": str(exc)}
+        with os.fdopen(fd, "w") as f:
+            f.write(payload)
 
-        env = os.environ.copy()
-        if _should_inject_project_pythonpath():
-            env = self._prepend_pythonpath(env)
-        if getattr(settings, "VEC_INF_ENV", None):
-            env["VEC_INF_ENV"] = str(settings.VEC_INF_ENV)
-        if workspace_dir is not None:
+        try:
+            command = [str(wrapper_path)]
+            if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
+                command.append("--no-login-shell")
+            command.extend(
+                [
+                    cluster_username,
+                    "--",
+                    _get_impersonation_python(),
+                    "-m",
+                    "app.utils.vec_inf_launch_shim",
+                    str(payload_path),
+                ]
+            )
+
+            env = os.environ.copy()
+            if _should_inject_project_pythonpath():
+                env = self._prepend_pythonpath(env)
+            if getattr(settings, "VEC_INF_ENV", None):
+                env["VEC_INF_ENV"] = str(settings.VEC_INF_ENV)
             env["VEC_INF_LOG_DIR"] = str(workspace_dir)
             env["VEC_INF_WORK_DIR"] = str(params.get("work_dir") or workspace_dir)
-        if params.get("account"):
-            env["VEC_INF_ACCOUNT"] = str(params["account"])
-            env["SLURM_ACCOUNT"] = str(params["account"])
-        result = subprocess.run(
-            command,
-            text=True,
-            capture_output=True,
-            env=env,
-            cwd=str(PROJECT_ROOT),
-        )
+            if params.get("account"):
+                env["VEC_INF_ACCOUNT"] = str(params["account"])
+                env["SLURM_ACCOUNT"] = str(params["account"])
+            result = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                env=env,
+                cwd=str(PROJECT_ROOT),
+            )
+        finally:
+            payload_path.unlink(missing_ok=True)
 
         parsed = self._parse_impersonated_response(result.stdout, result.stderr)
         if result.returncode != 0 and parsed.get("success", True):

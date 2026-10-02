@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 
 from app.utils.llm_inference import LLMInferenceDirectClient
@@ -10,14 +11,34 @@ def main() -> int:
             json.dumps(
                 {
                     "success": False,
-                    "error": "Expected a single JSON payload argument",
+                    "error": "Expected a single payload-file-path argument",
                 }
             )
         )
         return 1
 
+    # The payload arrives as a file path, not inline, because it can carry a
+    # secret (hf_token) and command-line arguments are visible to any user on
+    # the host via ps/`/proc/<pid>/cmdline`.
+    payload_path = sys.argv[1]
     try:
-        payload = json.loads(sys.argv[1])
+        with open(payload_path, "r") as f:
+            raw_payload = f.read()
+    except OSError as exc:
+        print(
+            json.dumps(
+                {"success": False, "error": f"Could not read payload file: {exc}"}
+            )
+        )
+        return 1
+    finally:
+        try:
+            os.remove(payload_path)
+        except OSError:
+            pass
+
+    try:
+        payload = json.loads(raw_payload)
     except json.JSONDecodeError as exc:
         print(json.dumps({"success": False, "error": f"Invalid JSON payload: {exc}"}))
         return 1

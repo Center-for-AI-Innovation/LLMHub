@@ -97,6 +97,7 @@ function ModelLibraryPageInner() {
     family?: string,
     time?: string,
     account?: string,
+    hfToken?: string,
   ) {
     if (!launchDefaults) {
       const message = launchDefaultsError instanceof Error
@@ -116,6 +117,7 @@ function ModelLibraryPageInner() {
         partition: launchDefaults.partition,
         resource_type: launchDefaults.resource_type,
         account,
+        hfToken,
       });
       setLaunchError(null);
       if (deployment?.id) {

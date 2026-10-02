@@ -27,7 +27,9 @@ interface LaunchModelDialogProps {
   onOpenChange: (open: boolean) => void;
   modelName: string;
   isLaunching: boolean;
-  onLaunch: (time: string, account?: string) => void;
+  onLaunch: (time: string, account?: string, hfToken?: string) => void;
+  /** HF gating status: null/undefined means public, any other value is gated. */
+  gated?: string | null;
 }
 
 const skipAccountPicker = SKIP_SLURM_ACCOUNT_PICKER;
@@ -42,6 +44,7 @@ export function LaunchModelDialog({
   modelName,
   isLaunching,
   onLaunch,
+  gated,
 }: LaunchModelDialogProps) {
   const [hours, setHours] = React.useState<string>('0');
   const [minutes, setMinutes] = React.useState<string>('30');
@@ -60,6 +63,17 @@ export function LaunchModelDialog({
 
   const selectedAccount =
     accountOverride ?? slurmAccounts?.defaultAccount ?? '';
+  // Deliberately component state only -- never sessionStorage/localStorage,
+  // never sent anywhere except the one launch request below. Cleared
+  // whenever the dialog closes so it doesn't linger even in memory.
+  const [hfToken, setHfToken] = React.useState<string>('');
+  const isGated = Boolean(gated);
+
+  React.useEffect(() => {
+    if (!open) {
+      setHfToken('');
+    }
+  }, [open]);
 
   function handleHoursChange(e: React.ChangeEvent<HTMLInputElement>) {
     const val = e.target.value;
@@ -82,8 +96,13 @@ export function LaunchModelDialog({
     const m = parseInt(minutes, 10);
     if (h === 0 && m === 0) return;
     if (!skipAccountPicker && !selectedAccount) return;
+    if (isGated && hfToken.trim() === '') return;
     const formatted = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
-    onLaunch(formatted, selectedAccount || undefined);
+    onLaunch(
+      formatted,
+      selectedAccount || undefined,
+      isGated ? hfToken.trim() : undefined,
+    );
   }
 
   const h = parseInt(hours || '0', 10);
@@ -107,7 +126,9 @@ export function LaunchModelDialog({
               ? 'No Slurm accounts are associated with your cluster user.'
               : !skipAccountPicker && !isLoadingAccounts && !selectedAccount
                 ? 'Select a Slurm account.'
-                : null;
+                : isGated && hfToken.trim() === ''
+                  ? 'This model requires a Hugging Face access token.'
+                  : null;
 
   const isInvalid = validationErrorMessage !== null;
 
@@ -216,6 +237,24 @@ export function LaunchModelDialog({
                   {isFetchingAccounts ? 'Retrying…' : 'Retry loading accounts'}
                 </button>
               ) : null}
+            </div>
+          )}
+
+          {isGated && (
+            <div className="space-y-1.5 pb-4">
+              <Label htmlFor="launch-hf-token">Hugging Face access token</Label>
+              <Input
+                id="launch-hf-token"
+                type="password"
+                autoComplete="off"
+                value={hfToken}
+                onChange={(e) => setHfToken(e.target.value)}
+                placeholder="hf_..."
+              />
+              <p className="text-xs text-muted-foreground">
+                This model is gated on Hugging Face. Your token is used only for
+                this launch request and is never stored.
+              </p>
             </div>
           )}
 

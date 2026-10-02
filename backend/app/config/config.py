@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     )
     # Deprecated: accounts are resolved via sacctmgr. Kept so existing .env files still load.
     VEC_INF_ACCOUNTS_SCRIPT: Optional[str] = None
+    # Shared caches cleaned by scripts/evict_unused_models.py
+    MODEL_CACHE_DIR: Optional[str] = os.getenv("MODEL_CACHE_DIR")
+    COMPILE_CACHE_DIR: Optional[str] = os.getenv("COMPILE_CACHE_DIR")
+    MODEL_STORE_ROOT: Optional[str] = os.getenv(
+        "MODEL_STORE_ROOT"
+    )  # Shared store of all model weights, keyed by model name; gated models are
+    # hard-linked from here into the launching user's workspace (VEC_INF_SHARED_WORK_ROOT)
 
     # Background service settings
     SYNC_INTERVAL: int = int(

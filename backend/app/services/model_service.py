@@ -15,11 +15,21 @@ from app.models.model_request import ModelRequest
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.services.resource_service import ResourceService
+from app.utils.hf_auth import (
+    check_model_hf_access,
+    fetch_model_gating_status,
+)
+from app.utils.hf_family_orgs import resolve_hf_model
 from app.utils.infrastructure import (
     get_vec_inf_log_base_dir,
     get_vec_inf_user_workspace_dir,
 )
-from app.utils.llm_inference import LLMInferenceClient
+from app.utils.llm_inference import (
+    LLMInferenceClient,
+    ensure_gated_model_weights_for_user,
+    resolve_gated_model_store_dir,
+    start_gated_model_download,
+)
 
 logger = get_logger("model_service")
 
@@ -159,8 +169,26 @@ class ModelService:
         self, db: Session, deployment: ModelDeploymentCreate
     ) -> ModelDeployment:
         """Launch a model and create a deployment record."""
-        # Extract parameters for the launch command
-        params = deployment.model_dump(exclude={"modelName", "modelId", "userId"})
+        # Extract parameters for the launch command (never persist hf_token on the deployment row).
+        # Fields that pick the repo, weights or write location come from the server only.
+        # vllm_args too: vec-inf writes them unquoted into the job script, and flags
+        # like --tokenizer or --lora-modules could load weights the gate never checked.
+        params = deployment.model_dump(
+            exclude={
+                "modelName",
+                "modelId",
+                "userId",
+                "hf_token",
+                "hf_model",
+                "model_weights_parent_dir",
+                "work_dir",
+                "vllm_args",
+            }
+        )
+        # Only the requesting user's own token authorizes a gated launch --
+        # never fall back to a shared/service credential (that would let any
+        # user inherit whatever gated repos the service account can see).
+        hf_token = deployment.hf_token
         model_id = deployment.modelId or deployment.modelName
 
         # Get the enable_cloudflare_tunnel parameter
@@ -176,6 +204,82 @@ class ModelService:
         # Get the number of GPUs requested
         num_gpus = params.get("num_gpus")
         num_nodes = params.get("num_nodes", 1)
+
+        # Early Hugging Face access check (requested "fast exit")
+        db_model = (
+            db.query(AvailableModel).filter(AvailableModel.id == model_id).first()
+        )
+        hf_repo_id = db_model.huggingfaceId if db_model else None
+        cached_gated = db_model.gated if db_model else None
+        if hf_repo_id:
+            params["hf_model"] = hf_repo_id
+
+        has_access, hf_err = check_model_hf_access(cached_gated, hf_repo_id, hf_token)
+        if not has_access:
+            db_deployment = ModelDeployment(
+                modelId=model_id,
+                modelName=deployment.modelName,
+                userId=deployment.userId,
+                slurmJobId="failed",
+                status="failed",
+                errorMessage=(
+                    "Hugging Face model access denied or unavailable. "
+                    "For gated or private models, supply a valid hf_token with Hub access. "
+                    f"Details: {hf_err}"
+                ),
+                resourceAllocation=resource_allocation,
+            )
+            db.add(db_deployment)
+            db.commit()
+            db.refresh(db_deployment)
+            return db_deployment
+
+        # A gated model must never fall back to the infrastructure-wide default
+        # model_weights_parent_dir, which is typically world-readable -- anyone
+        # with plain filesystem access could bypass this gate entirely otherwise.
+        # Impersonated launches get a per-user hard-linked copy (the launched
+        # process runs as that user); direct launches run as the service
+        # account, which already has its own access to the protected store.
+        if cached_gated:
+            download_message = start_gated_model_download(
+                model_id, hf_repo_id, hf_token
+            )
+            if download_message:
+                db_deployment = ModelDeployment(
+                    modelId=model_id,
+                    modelName=deployment.modelName,
+                    userId=deployment.userId,
+                    slurmJobId="failed",
+                    status="failed",
+                    errorMessage=download_message,
+                    resourceAllocation=resource_allocation,
+                )
+                db.add(db_deployment)
+                db.commit()
+                db.refresh(db_deployment)
+                return db_deployment
+            try:
+                if deployment.cluster_username:
+                    weights_parent_dir = ensure_gated_model_weights_for_user(
+                        deployment.cluster_username, model_id
+                    )
+                else:
+                    weights_parent_dir = resolve_gated_model_store_dir(model_id)
+            except RuntimeError as exc:
+                db_deployment = ModelDeployment(
+                    modelId=model_id,
+                    modelName=deployment.modelName,
+                    userId=deployment.userId,
+                    slurmJobId="failed",
+                    status="failed",
+                    errorMessage=f"Failed to prepare gated model weights: {exc}",
+                    resourceAllocation=resource_allocation,
+                )
+                db.add(db_deployment)
+                db.commit()
+                db.refresh(db_deployment)
+                return db_deployment
+            params["model_weights_parent_dir"] = str(weights_parent_dir)
 
         # If GPU resources are requested, check availability and allocate
         if num_gpus:
@@ -222,8 +326,10 @@ class ModelService:
             params.get("num_gpus"),
             params.get("time"),
         )
+        # Launch the access-checked model_id; modelName comes from the client and
+        # would otherwise let a request pass the check on one model and run another.
         result = self.llm_client.launch_model(
-            deployment.modelName,
+            model_id,
             enable_cloudflare_tunnel=enable_cloudflare_tunnel,
             **params,
         )
@@ -522,7 +628,10 @@ class ModelService:
             and db_deployment.resourceAllocation
             and db_deployment.resourceAllocation.get("enable_cloudflare_tunnel")
         ):
-            job_name = db_deployment.modelName.replace("/", "-")
+            # Jobs are launched (and so named) by modelId.
+            job_name = (db_deployment.modelId or db_deployment.modelName).replace(
+                "/", "-"
+            )
             cluster_username = db_deployment.resourceAllocation.get("cluster_username")
             tunnel_url = self.llm_client.get_tunnel_url(
                 job_name,
@@ -919,7 +1028,7 @@ class ModelService:
                             "num_gpus",
                             "num_nodes",
                             "vocab_size",
-                            "huggingface_id",
+                            "hf_model",
                             "vllm_args",
                             "max_model_len",
                             "pipeline_parallelism",
@@ -951,9 +1060,10 @@ class ModelService:
                             model_dict, model_config
                         )
 
+                    model_family_value = get_value("model_family", "")
                     model_data = {
                         "model_name": model_name,
-                        "model_family": get_value("model_family", ""),
+                        "model_family": model_family_value,
                         "model_variant": get_value("model_variant", ""),
                         "model_type": get_value("model_type", "LLM"),
                         "num_gpus": get_value("gpus_per_node")
@@ -962,7 +1072,9 @@ class ModelService:
                         "max_model_len": max_model_len,
                         "pipeline_parallelism": pipeline_parallelism,
                         "vocab_size": get_value("vocab_size"),
-                        "huggingface_id": get_value("huggingface_id"),
+                        "huggingface_id": resolve_hf_model(
+                            model_family_value, model_name, get_value("hf_model")
+                        ),
                     }
                     detailed_models.append(model_data)
                 else:
@@ -1075,6 +1187,22 @@ class ModelService:
         vocab_size = model_data.get("vocab_size")
         huggingface_id = model_data.get("huggingface_id")
 
+        # Refresh gating status from HF Hub. On failure, keep the cached DB
+        # value for a model we've seen before; for a brand-new model with no
+        # cache to fall back to, fail closed ("unknown" is truthy, so launches
+        # require a token and get a real per-user Hub check) rather than
+        # silently treating an unverified model as public.
+        if huggingface_id:
+            try:
+                gated = fetch_model_gating_status(huggingface_id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to fetch gating status for %s: %s", huggingface_id, exc
+                )
+                gated = existing_model.gated if existing_model else "unknown"
+        else:
+            gated = existing_model.gated if existing_model else None
+
         # Create model specs
         specs = {
             "gpus": num_gpus,
@@ -1101,6 +1229,7 @@ class ModelService:
             "specs": specs,
             "vocabSize": vocab_size,
             "huggingfaceId": huggingface_id,
+            "gated": gated,
         }
 
         # Check if model exists and needs update
@@ -1114,6 +1243,7 @@ class ModelService:
                 or existing_model.vocabSize != vocab_size
                 or existing_model.huggingfaceId != huggingface_id
                 or existing_model.specs != specs
+                or existing_model.gated != gated
             )
 
             if needs_update:
