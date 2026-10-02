@@ -90,8 +90,10 @@ isort .
 ## GPU fit estimator & launch gate
 
 `app/services/fit_estimator/` sizes vLLM deployments before they reach Slurm.
-`launch_model` refuses a config whose KV pool cannot hold one full-context
-sequence, before it downloads gated weights, allocates GPUs or submits a job.
+When `launch_model` estimates that a config's KV pool cannot hold one
+full-context sequence, it still launches but stores the reason on the
+deployment (`resourceAllocation.fitWarning`), and appends it to the error if
+the job fails. The estimate is calibrated, not exact, so it never blocks.
 `POST /api/fit-estimate` surveys every partition (fit, bootability, sustainable
 concurrency, SU cost), and `POST /api/validate-config` gives a strict verdict.
 Configs the model cannot size (unknown partition, multi-node, non-NVIDIA,

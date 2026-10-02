@@ -543,7 +543,9 @@ def test_launch_survives_num_nodes_none(monkeypatch, resources):
     assert result.slurmJobId == "12345"
 
 
-def test_gate_block_fails_before_allocation_or_launch(monkeypatch, resources):
+def test_gate_warning_does_not_block_the_launch(monkeypatch, resources):
+    """A config the memory check thinks won't fit still launches: the
+    estimate is calibrated, not exact. The warning rides on the deployment."""
     from app.services.fit_estimator.validator import (
         ConfigValidation,
         _empty_breakdown,
@@ -551,50 +553,35 @@ def test_gate_block_fails_before_allocation_or_launch(monkeypatch, resources):
 
     verdict = ConfigValidation(
         valid=False,
-        reason="Config exceeds A40 VRAM",
+        reason="Config exceeds A40 VRAM (over by 3.0 GiB)",
         per_gpu_breakdown=_empty_breakdown(),
     )
     service = _gate_service(monkeypatch, lambda *a, **k: verdict)
 
     result = service.launch_model(db=FakeDbSession(), deployment=_qwen_deployment())
 
-    assert resources.allocated == []
-    assert service.llm_client.calls == []
-    assert result.status == "failed"
-    assert result.errorMessage == "Launch blocked: Config exceeds A40 VRAM"
+    assert resources.allocated == [2]
+    assert len(service.llm_client.calls) == 1
+    assert result.slurmJobId == "12345"
+    assert result.errorMessage is None
+    assert result.resourceAllocation["fitWarning"] == verdict.reason
 
 
-def test_gate_block_skips_gated_download(monkeypatch, resources):
-    """A config that cannot boot must not start a gated weights download."""
-    from app.services.fit_estimator.validator import (
-        ConfigValidation,
-        _empty_breakdown,
-    )
+def test_fit_warning_explains_a_later_job_failure():
+    from types import SimpleNamespace
 
-    gated_model = AvailableModel(
-        id="Gated-7B", huggingfaceId="org/gated", gated="manual"
-    )
-    monkeypatch.setattr(
-        "app.services.model_service.check_model_hf_access",
-        lambda *a, **k: (True, None),
-    )
-    started = []
-    monkeypatch.setattr(
-        "app.services.model_service.start_gated_model_download",
-        lambda *args: started.append(args),
-    )
-    verdict = ConfigValidation(False, "too big", _empty_breakdown())
-    service = _gate_service(monkeypatch, lambda *a, **k: verdict)
+    from app.services.model_service import _job_failure_message
 
-    result = service.launch_model(
-        db=FakeGatedDbSession(gated_model),
-        deployment=_qwen_deployment(
-            modelName="Gated-7B", modelId="Gated-7B", hf_token="valid-token"
-        ),
+    warned = SimpleNamespace(
+        resourceAllocation={"fitWarning": "Config exceeds A40 VRAM (over by 3.0 GiB)"}
     )
+    message = _job_failure_message(warned, "Slurm job failed")
+    assert message.startswith("Slurm job failed. This may be why:")
+    assert message.endswith("Config exceeds A40 VRAM (over by 3.0 GiB)")
 
-    assert started == []
-    assert result.errorMessage == "Launch blocked: too big"
+    for allocation in ({}, None, {"fitWarning": None}):
+        quiet = SimpleNamespace(resourceAllocation=allocation)
+        assert _job_failure_message(quiet, "Slurm job failed") == "Slurm job failed"
 
 
 def test_gate_crash_fails_open(monkeypatch, resources):

@@ -18,7 +18,6 @@ from typing import Mapping, Sequence
 
 from .capacity import KvCapacity, kv_pool_capacity
 from .constants import (
-    DEFAULT_GPU_MEMORY_UTILIZATION,
     DEFAULT_KV_ASSUMPTION,
     DEFAULT_MAX_NUM_SEQS,
     DEFAULT_TYPICAL_SEQ_LEN,
@@ -134,17 +133,19 @@ def _partition_overhead_gib(
     if tp_size <= 1:
         return total_overhead_gib(
             partition.vram_gib_per_gpu,
-            DEFAULT_GPU_MEMORY_UTILIZATION,
+            partition.gpu_memory_utilization,
             partition.framework_overhead_gib,
             max_num_seqs,
+            partition.overhead_per_seq_gib,
         )
     return total_overhead_per_gpu_gib(
         partition.vram_gib_per_gpu,
-        DEFAULT_GPU_MEMORY_UTILIZATION,
+        partition.gpu_memory_utilization,
         partition.framework_overhead_gib,
         partition.tp_communication_buffer_gib,
         tp_size,
         max_num_seqs,
+        partition.overhead_per_seq_gib,
     )
 
 

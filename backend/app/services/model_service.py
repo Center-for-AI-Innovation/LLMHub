@@ -39,6 +39,22 @@ from app.utils.llm_inference import (
 
 logger = get_logger("model_service")
 
+# resourceAllocation key holding the memory check's warning for a launch it
+# thinks won't fit; appended to the error if the job then fails.
+FIT_WARNING_KEY = "fitWarning"
+
+
+def _job_failure_message(deployment: ModelDeployment, message: str) -> str:
+    """``message``, plus the launch's memory warning if it had one."""
+    allocation = deployment.resourceAllocation
+    warning = allocation.get(FIT_WARNING_KEY) if isinstance(allocation, dict) else None
+    if not warning:
+        return message
+    return (
+        f"{message}. This may be why: the memory check at launch estimated "
+        f"the config would not fit. {warning}"
+    )
+
 
 def _infer_model_family_from_model_name(model_name: str) -> str:
     """Legacy heuristic when ``models.yaml`` lookup is unavailable."""
@@ -241,11 +257,13 @@ class ModelService:
             db.refresh(db_deployment)
             return db_deployment
 
-        # Refuse configs that provably cannot boot before downloading weights,
-        # allocating GPUs or touching Slurm. It sizes what will actually launch:
-        # the access-checked model_id and the server's hf_model, with the user's
-        # own token for gated metadata. A gate that cannot size the config
-        # returns None (logged), and a crash in it must not block launches.
+        # Memory check: warn, never block. The estimate is calibrated, not
+        # exact, so a config it thinks won't fit still launches; the warning is
+        # kept on the deployment and attached to the failure if the job dies.
+        # It sizes what will actually launch: the access-checked model_id and
+        # the server's hf_model, with the user's own token for gated metadata.
+        # A check that cannot size the config returns None (logged), and a
+        # crash in it must not affect the launch.
         try:
             gate = check_launch_memory_gate_for_model(
                 model_id,
@@ -266,21 +284,9 @@ class ModelService:
             gate = None
         if gate is not None and not gate.valid:
             logger.warning(
-                "Launch memory gate rejected model=%s: %s", model_id, gate.reason
+                "Launch memory check warns for model=%s: %s", model_id, gate.reason
             )
-            db_deployment = ModelDeployment(
-                modelId=model_id,
-                modelName=deployment.modelName,
-                userId=deployment.userId,
-                slurmJobId="failed",
-                status="failed",
-                errorMessage=f"Launch blocked: {gate.reason}",
-                resourceAllocation=resource_allocation,
-            )
-            db.add(db_deployment)
-            db.commit()
-            db.refresh(db_deployment)
-            return db_deployment
+            resource_allocation[FIT_WARNING_KEY] = gate.reason
 
         # A gated model must never fall back to the infrastructure-wide default
         # model_weights_parent_dir, which is typically world-readable -- anyone
@@ -597,7 +603,9 @@ class ModelService:
                         db_deployment.errorMessage = None
                     elif normalized_state in SLURM_FAILED_JOB_STATES:
                         db_deployment.status = "failed"
-                        db_deployment.errorMessage = f"Slurm job {slurm_state.lower()}"
+                        db_deployment.errorMessage = _job_failure_message(
+                            db_deployment, f"Slurm job {slurm_state.lower()}"
+                        )
                     elif normalized_state == "PENDING":
                         db_deployment.status = "pending"
                     elif normalized_state == "RUNNING":
@@ -654,7 +662,9 @@ class ModelService:
             db_deployment.status = "running"
         elif status == "FAILED":
             db_deployment.status = "failed"
-            db_deployment.errorMessage = result.get("failed_reason") or "Job failed"
+            db_deployment.errorMessage = _job_failure_message(
+                db_deployment, result.get("failed_reason") or "Job failed"
+            )
         elif status == "SHUTDOWN":
             db_deployment.status = "shutdown"
 
@@ -665,9 +675,10 @@ class ModelService:
             db_deployment.errorMessage = None
         elif normalized_job_state in SLURM_FAILED_JOB_STATES:
             db_deployment.status = "failed"
-            db_deployment.errorMessage = (
+            db_deployment.errorMessage = _job_failure_message(
+                db_deployment,
                 result.get("failed_reason")
-                or f"Slurm job {normalized_job_state.lower()}"
+                or f"Slurm job {normalized_job_state.lower()}",
             )
 
         # Try to get the tunnel URL if Cloudflare tunnel was enabled

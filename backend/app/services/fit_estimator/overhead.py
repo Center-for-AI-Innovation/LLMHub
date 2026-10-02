@@ -42,25 +42,29 @@ def framework_base_gib(framework_overhead_gib: float | None = None) -> float:
     return max(0.0, float(framework_overhead_gib))
 
 
-def batch_width_overhead_gib(max_num_seqs: int) -> float:
+def batch_width_overhead_gib(
+    max_num_seqs: int, per_seq_gib: float = OVERHEAD_PER_SEQ_GIB
+) -> float:
     """Activation + CUDA-graph capture growth with scheduler batch width.
 
-    Calibrated: ``OVERHEAD_PER_SEQ_GIB * max_num_seqs``. Not a structural
+    Calibrated: ``per_seq_gib * max_num_seqs``, with ``per_seq_gib`` fitted
+    per vLLM version (the hardware table's ``overhead_per_seq_gib``). Not a structural
     ``k * hidden * layers`` model -- probes showed the reservation tracks batch
     width, not model size, under the vLLM 0.11.0 envelope we measured.
     """
     if max_num_seqs < 1:
         raise ValueError(f"max_num_seqs must be >= 1, got {max_num_seqs}")
-    return OVERHEAD_PER_SEQ_GIB * int(max_num_seqs)
+    return per_seq_gib * int(max_num_seqs)
 
 
 def internal_overhead_gib(
     max_num_seqs: int,
     framework_overhead_gib: float | None = None,
+    per_seq_gib: float = OVERHEAD_PER_SEQ_GIB,
 ) -> float:
     """Non-weight/non-KV reservation within the util pool (GiB)."""
     return framework_base_gib(framework_overhead_gib) + batch_width_overhead_gib(
-        max_num_seqs
+        max_num_seqs, per_seq_gib
     )
 
 
@@ -81,6 +85,7 @@ def total_overhead_per_gpu_gib(
     tp_communication_buffer_gib: float,
     tp_size: int,
     max_num_seqs: int,
+    per_seq_gib: float = OVERHEAD_PER_SEQ_GIB,
 ) -> float:
     """Per-GPU overhead under tensor parallelism.
 
@@ -90,7 +95,7 @@ def total_overhead_per_gpu_gib(
     """
     overhead = utilization_reserve_gib(
         vram_gib, gpu_memory_utilization
-    ) + internal_overhead_gib(max_num_seqs, framework_internal_gib)
+    ) + internal_overhead_gib(max_num_seqs, framework_internal_gib, per_seq_gib)
     if tp_size > 1:
         overhead += tp_communication_buffer_gib
     return overhead
@@ -101,6 +106,7 @@ def total_overhead_gib(
     gpu_memory_utilization: float,
     framework_internal_gib: float,
     max_num_seqs: int,
+    per_seq_gib: float = OVERHEAD_PER_SEQ_GIB,
 ) -> float:
     """Single-GPU overhead (survey path): reserve + internal(mns).
 
@@ -114,4 +120,5 @@ def total_overhead_gib(
         0.0,
         1,
         max_num_seqs,
+        per_seq_gib,
     )

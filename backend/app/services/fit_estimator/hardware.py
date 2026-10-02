@@ -27,7 +27,12 @@ import yaml
 
 from app.config.logging import get_logger
 
-from .constants import DEFAULT_FRAMEWORK_OVERHEAD_GIB, DEFAULT_TP_COMM_BUFFER_GIB
+from .constants import (
+    DEFAULT_FRAMEWORK_OVERHEAD_GIB,
+    DEFAULT_GPU_MEMORY_UTILIZATION,
+    DEFAULT_TP_COMM_BUFFER_GIB,
+    OVERHEAD_PER_SEQ_GIB,
+)
 
 logger = get_logger("fit_estimator.hardware")
 
@@ -46,7 +51,10 @@ class GpuPartition:
     ``resource_type`` is the Slurm GRES type (``gpu:<resource_type>:N``), as a
     launch request sends it; required only to tell apart the rows of a
     partition that mixes GPU types. ``gpus_per_node`` caps tensor parallelism;
-    None skips that check. ``compute_capability`` (e.g. 8.0 for A100)
+    None skips that check. ``gpu_memory_utilization`` and
+    ``overhead_per_seq_gib`` are properties of the vLLM image the cluster runs
+    (its default utilization and fitted batch-width overhead), so they live
+    with the cluster's table. ``compute_capability`` (e.g. 8.0 for A100)
     decides which quantized formats run natively. ``su_per_gpu_hour`` is site
     billing and stays None on clusters that don't bill.
     """
@@ -62,6 +70,8 @@ class GpuPartition:
     resource_type: str | None = None
     compute_capability: float | None = None
     gpus_per_node: int | None = None
+    gpu_memory_utilization: float = DEFAULT_GPU_MEMORY_UTILIZATION
+    overhead_per_seq_gib: float = OVERHEAD_PER_SEQ_GIB
 
     @property
     def is_nvidia(self) -> bool:
@@ -73,6 +83,8 @@ def _parse_entry(raw: dict[str, Any]) -> GpuPartition:
     raw_cc = raw.get("compute_capability")
     raw_resource_type = raw.get("resource_type")
     raw_gpus = raw.get("gpus_per_node")
+    raw_util = raw.get("gpu_memory_utilization")
+    raw_per_seq = raw.get("overhead_per_seq_gib")
     return GpuPartition(
         partition=str(raw["partition"]),
         gpu_type=str(raw["gpu_type"]),
@@ -89,6 +101,12 @@ def _parse_entry(raw: dict[str, Any]) -> GpuPartition:
         resource_type=str(raw_resource_type) if raw_resource_type else None,
         compute_capability=float(raw_cc) if raw_cc is not None else None,
         gpus_per_node=int(raw_gpus) if raw_gpus is not None else None,
+        gpu_memory_utilization=(
+            float(raw_util) if raw_util is not None else DEFAULT_GPU_MEMORY_UTILIZATION
+        ),
+        overhead_per_seq_gib=(
+            float(raw_per_seq) if raw_per_seq is not None else OVERHEAD_PER_SEQ_GIB
+        ),
     )
 
 

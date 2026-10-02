@@ -37,8 +37,10 @@ an honest verdict about a *supported* configuration:
   clearer error if the model is truly unknown).
 
 All skips are logged at WARNING/INFO so unvalidated launches are auditable.
-When the validator *can* size the config, its verdict blocks hard — the
-fail-closed posture applies to real sizing results, and the explicit
+When the validator *can* size the config, a failing verdict is a warning,
+not a refusal: ``launch_model`` launches anyway and attaches the verdict's
+reason to the deployment, and to its error if the job fails. The estimate is
+calibrated, not exact, and drifts with vLLM and driver versions. The explicit
 ``/api/validate-config`` endpoint stays fail-closed in every case.
 
 Flag precedence mirrors the launch path. Clients cannot send free-form

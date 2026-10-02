@@ -44,7 +44,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
-from .constants import DEFAULT_GPU_MEMORY_UTILIZATION, DEFAULT_MAX_NUM_SEQS
+from .constants import DEFAULT_MAX_NUM_SEQS, GIB
 from .hardware import GpuPartition, find_partition, load_partitions
 from .memory_model import (
     evaluate_fit,
@@ -289,11 +289,12 @@ def validate_config(
 
     overhead_gib = total_overhead_per_gpu_gib(
         gpu.vram_gib_per_gpu,
-        DEFAULT_GPU_MEMORY_UTILIZATION,
+        gpu.gpu_memory_utilization,
         gpu.framework_overhead_gib,
         gpu.tp_communication_buffer_gib,
         tp,
         overhead_max_num_seqs if overhead_max_num_seqs is not None else max_num_seqs,
+        gpu.overhead_per_seq_gib,
     )
 
     vram = gpu.vram_gib_per_gpu
@@ -330,12 +331,16 @@ def validate_config(
             f"context {max_model_len}."
         )
     else:
+        # The context that would fit in what's left after weights and overhead.
+        free_bytes = (vram - weights_gib - overhead_gib) * GIB
+        fitting_context = int(free_bytes / (per_token_gpu * max_num_seqs))
         reason = (
             f"Config exceeds {short} VRAM ({vram:.0f} GiB){tp_paren} at context "
             f"{max_model_len}: weights {weights_gib:.1f} + KV {kv_gib:.1f} + "
             f"overhead {overhead_gib:.1f} = {fit.total_gib:.1f} GiB/GPU "
-            f"(over by {-fit.headroom_gib:.1f} GiB). Reduce context, raise "
-            f"tensor_parallel_size, or choose a larger-VRAM partition."
+            f"(over by {-fit.headroom_gib:.1f} GiB). A context of about "
+            f"{fitting_context} would fit; otherwise raise tensor_parallel_size "
+            f"or choose a larger-VRAM partition."
         )
     return ConfigValidation(False, reason, breakdown, warnings)
 

@@ -320,3 +320,23 @@ def test_survey_skips_rows_narrower_than_the_requested_tp():
     a40 = next(p for p in est.partitions if p.partition == "gpuA40x4")
     assert a40.supported is False
     assert "exceeds 4 GPUs per node" in a40.skipped_reason
+
+
+def test_over_budget_reason_suggests_a_context_that_fits():
+    """The warning's suggested context must itself pass the check."""
+    import re
+
+    meta = _qwen_7b_meta()
+    kwargs = dict(
+        tensor_parallel_size=1,
+        partition="secondary",
+        resource_type="A100",
+        partitions=MIXED,
+        max_num_seqs=1,
+    )
+    over = validate_config(meta, max_model_len=400_000, **kwargs)
+    assert not over.valid
+    suggested = int(re.search(r"context of about (\d+) would fit", over.reason)[1])
+    assert 0 < suggested < 400_000
+    assert validate_config(meta, max_model_len=suggested, **kwargs).valid
+    assert not validate_config(meta, max_model_len=suggested + 64, **kwargs).valid
