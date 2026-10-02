@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Brain, Cpu, Hash, Calendar, type LucideIcon } from 'lucide-react';
+import { Brain, Cpu, Hash, Calendar, Lock, type LucideIcon } from 'lucide-react';
 import type { ModelInfo } from '@/hooks/use-models';
 
 export type ScaleColor = {
@@ -82,10 +82,44 @@ export function ModelMetadataChip({
   );
 }
 
-/** Renders the standard Type / GPUs / Context chips for any model. */
+/**
+ * What the Gated chip says for a model's Hugging Face gating status, or null
+ * for a public model. The backend stores "auto"/"manual" for gated repos and
+ * "unknown" when it couldn't check; "unknown" launches the same way (a token
+ * is required), so it is labelled too.
+ */
+export function gatedChipInfo(
+  gated: string | null | undefined,
+): { label: string; description: string } | null {
+  if (!gated) return null;
+  const description =
+    gated === 'unknown'
+      ? "Hugging Face gating status couldn't be confirmed. Launching requires your own Hugging Face token."
+      : 'Gated on Hugging Face. Launching requires your own Hugging Face token with access to this model.';
+  return { label: 'Gated', description };
+}
+
+/** Chip marking a model whose weights are gated on Hugging Face. */
+export function GatedChip({ gated }: { gated: string | null | undefined }) {
+  const info = gatedChipInfo(gated);
+  if (!info) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-status-info/15 text-status-info"
+      title={info.description}
+      aria-label={`${info.label}: ${info.description}`}
+    >
+      <Lock className="size-3 shrink-0 text-status-info" aria-hidden />
+      <span className="font-bold">{info.label}</span>
+    </span>
+  );
+}
+
+/** Renders the standard Type / GPUs / Context chips, plus Gated when it applies. */
 export function ModelSpecChips({ model }: { model: ModelInfo }) {
   return (
     <>
+      <GatedChip gated={model.gated} />
       <ModelMetadataChip
         icon={Brain}
         label="Type"
