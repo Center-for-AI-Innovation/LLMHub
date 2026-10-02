@@ -47,7 +47,8 @@ JOB_TEMPLATE = """#!/bin/bash
 {load_cmd}
 set -u
 OUT={out}
-nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits > "$OUT/gpus.csv"
+nvidia-smi --query-gpu=name,memory.total,driver_version \\
+    --format=csv,noheader,nounits > "$OUT/gpus.csv"
 export APPTAINER_BINDPATH="${{APPTAINER_BINDPATH:-}},/dev,/tmp,{hf_cache}:/root/.cache/huggingface"
 ENVS="HF_HOME=/root/.cache/huggingface,HF_HUB_CACHE=/root/.cache/huggingface,HF_HUB_OFFLINE=1,TRANSFORMERS_OFFLINE=1,FI_LOG_PROV=none,TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor-$SLURM_JOB_ID"
 PORT=$((20000 + SLURM_JOB_ID % 20000))
@@ -150,12 +151,13 @@ def _parse_run(log_text):
 def cmd_parse(args):
     out = Path(args.dir)
     meta = json.loads((out / "probe.json").read_text())
-    gpu_name, vram_smi = None, None
+    gpu_name, vram_smi, driver = None, None, None
     gpus_csv = out / "gpus.csv"
     if gpus_csv.exists():
-        first = gpus_csv.read_text().splitlines()[0]
-        gpu_name, mib = [part.strip() for part in first.split(",")]
-        vram_smi = round(float(mib) / 1024, 3)
+        fields = [f.strip() for f in gpus_csv.read_text().splitlines()[0].split(",")]
+        gpu_name, vram_smi = fields[0], round(float(fields[1]) / 1024, 3)
+        # Overhead drifts with the driver too (CUDA context size), not just vLLM.
+        driver = fields[2] if len(fields) > 2 else None
     runs = []
     for log in sorted(out.glob("run.tp*.mns*.log")):
         match = _RUN_NAME.search(log.name)
@@ -170,6 +172,7 @@ def cmd_parse(args):
                 "tp": tp,
                 "max_num_seqs": mns,
                 "image": os.path.basename(meta["image"]),
+                "driver_version": driver,
                 **parsed,
             }
         )
