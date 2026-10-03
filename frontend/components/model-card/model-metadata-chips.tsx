@@ -105,11 +105,11 @@ export function GatedChip({ gated }: { gated: string | null | undefined }) {
   if (!info) return null;
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-status-info/15 text-status-info"
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium bg-destructive/15 text-destructive-accessible"
       title={info.description}
       aria-label={`${info.label}: ${info.description}`}
     >
-      <Lock className="size-3 shrink-0 text-status-info" aria-hidden />
+      <Lock className="size-3 shrink-0 text-destructive-accessible" aria-hidden />
       <span className="font-bold">{info.label}</span>
     </span>
   );
