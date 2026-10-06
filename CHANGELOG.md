@@ -11,6 +11,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Multi-GPU container launches failed on Apptainer: vec-inf 0.9.0 rendered a single comma-joined `--env K1=V1,K2=V2` flag, and Apptainer's pflag CSV parsing rejected the expanded `CUDA_VISIBLE_DEVICES=0,1,2,3` value (`1 must be formatted as key=value`). Slurm script generation now emits one `--env` flag per environment variable so values containing commas survive. ([#56](https://github.com/Center-for-AI-Innovation/LLMHub/issues/56))
 - `_ensure_cuda_visible_devices_env()` now drops any pre-existing `CUDA_VISIBLE_DEVICES` field from the incoming environment string — including the stale shell-quoted workaround — and appends exactly one canonical unquoted field, so deployments pre-seeding the quoted `VEC_INF_ENV` workaround are self-healing.
 - Added regression tests covering the `CUDA_VISIBLE_DEVICES` field handling and the rendered container launch command (one `--env` per variable, unquoted CUDA field).
+### Added
+- Qwen3.5-35B-A3B model config for the Magic Castle (Radiant) infrastructure, added by user request. ([#96](https://github.com/Center-for-AI-Innovation/LLMHub/pull/96))
+
+## [1.1.0]
+
+### Added
+
+- Launch-time Slurm account picker: users choose which allocation to charge before a model starts. ([#51](https://github.com/Center-for-AI-Innovation/LLMHub/issues/51))
+- Backend `GET /api/models/slurm-accounts` and frontend `/api/slurm-accounts` routes that list the signed-in user's Slurm accounts.
+
+### Changed
+
+- Resolve a user's Slurm accounts with `sacctmgr` instead of the Delta-local `/sw/user/scripts/accounts` helper, and omit the placeholder `noalloc` account.
+- Derive the cluster username from the signed-in email local-part, using the suffix after `+` for impersonation addresses such as `rohan13+svcllmhubrohan13@ncsa.illinois.edu`.
 
 ## [1.0.0]
 
@@ -28,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - UIUC design-system semantic tokens (status-*, secondary-accessible, destructive-accessible) and design-system docs; components now use theme tokens instead of hardcoded hex/zinc colors.
 - Playwright + axe contrast checks: CI job, manual pre-commit hook (frontend-contrast-check), and a dev-only contrast harness page.
 - CI job that fails a PR to `main` if `CHANGELOG.md` is not updated.
+- Delta deployment kit (`infra/delta/`): one CLI (`llmhub`) that deploys and operates the full stack on the NCSA Delta service VM from a tag, branch or commit — fetches its own runtimes, supports `direct` and `impersonate` execution modes, and includes preflight, smoke and launch tests. ([#57](https://github.com/Center-for-AI-Innovation/LLMHub/pull/57))
 
 ### Changed
 
@@ -37,8 +52,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- `background_service.py`: `shutdown_deployment()`’s return value was not being captured in `_check_expired_deployments()`, leaving `updated`undefined for every expired deployment (shutdown-completion emails were never sent). Fixed by assigning the call’s result to `updated`.
+- `background_service.py`: `shutdown_deployment()`’s return value was not being captured in `_check_expired_deployments()`, leaving `updated` undefined for every expired deployment (shutdown-completion emails were never sent). Fixed by assigning the call’s result to `updated`.
 - Added `default_language_version: python3.11` so pre-commit’s Black env uses Python ≥3.10 (Black 26.5.1 requirement).
-- Improved contrast and accessibility for status/chip colors, sidebar headings, and the model library search input (visible label via sr-only)
-- Fixed several WCAG AA contrast failures  in swvweal components by switching bare `text-destructive`/`text-secondary` usages to their `-accessible` variants and tightening a few tokens’ lightness.
+- Improved contrast and accessibility for status/chip colors, sidebar headings, and the model library search input (visible label via sr-only).
+- Fixed several WCAG AA contrast failures in components by switching bare `text-destructive`/`text-secondary` usages to their `-accessible` variants and tightening a few tokens’ lightness.
 - Expanded contrast-harness/CI coverage (buttons, dialogs, diff view, home/login pages) so regressions like these are caught automatically going forward.
