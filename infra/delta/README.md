@@ -30,14 +30,15 @@ ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois
 cd /path/to/LLMHub/infra/delta
 
 # A personal staging stack (ports 5533/8100/3100), tracking a branch:
-./llmhub preflight --profile dev --ref main
-./llmhub deploy    --profile staging --ref port/backend-pr-32           # dry run: prints the plan
-./llmhub deploy    --profile staging --ref port/backend-pr-32 --apply   # ~10 min first time
+./llmhub preflight --profile staging --ref main
+./llmhub deploy    --profile staging --ref main           # dry run: prints the plan
+./llmhub deploy    --profile staging --ref main --apply   # ~10 min first time
 ./llmhub smoke     --profile staging
 
-# Production (ports 5433/8000/3000) runs as the service user and pins a tag:
+# Production (ports 5433/8000/3000) runs as the service user, on its own VM,
+# and pins a release tag -- read "Deploying production" first:
 /sw/admin/scripts/impersonate svcdeltallmhub
-./llmhub deploy --apply --ref v0.1.1
+./llmhub deploy --apply --ref <release tag>
 ```
 
 Then from your workstation:
@@ -105,6 +106,72 @@ and serves from it, so `node_modules`, `.next` and the frontend `.env` never
 touch `/projects` (pnpm refuses a symlinked `node_modules`). Both
 survive a VM reboot; after one, run `./llmhub start`. After a VM *rebuild* the
 local root is gone and `deploy --apply` recreates it.
+
+## Deploying production
+
+`production` is the default profile, and it has the same shape as `dev`. But it
+has not yet been deployed anywhere, and the kit's other defaults still point at
+the dev VM. On a new VM:
+
+**The VM needs what the dev VM has.** `/data` must be a local xfs volume owned by
+`svcdeltallmhub:delta_bfmz`, mode 0770. The VM must also have:
+
+- `/sw` mounted read-write (deploy writes `/sw/llmhub/llmhub-production`)
+- `/projects` and `/work`
+- Apptainer
+- a Slurm client that can submit jobs
+- outbound HTTPS to PyPI, nodejs.org, npm, GitHub and Docker Hub
+- the sudoers rule that impersonation uses: `svcdeltallmhub` → the per-user
+  accounts, NOPASSWD. Delta sudo has `requiretty`, which the backend satisfies
+  by running sudo under a PTY.
+
+**Write `local.env` before the first deploy.** Create the deploy root as
+`svcdeltallmhub`:
+
+```bash
+R=/projects/bfmz/svcdeltallmhub/llmhub-production; mkdir -p $R
+cat > $R/local.env <<'EOF'
+LLMHUB_VM_HOST=<production VM>.delta.ncsa.illinois.edu
+LLMHUB_EXECUTION_MODE=impersonate
+LLMHUB_TEST_CLUSTER_USER=svcllmhub<netid>
+EOF
+```
+
+- **`LLMHUB_VM_HOST`:** the default is `dt-svc-llmaas01`, and `deploy` refuses
+  to run on any other host.
+- **`LLMHUB_EXECUTION_MODE`:** without it the stack starts in direct mode with no
+  error, and every job runs as `svcdeltallmhub` on `LLMHUB_SLURM_ACCOUNT`.
+- **`LLMHUB_CLUSTER`:** the cluster is detected *before* `local.env` is read. On a
+  VM with no Slurm client and a host name that does not start with `dt-`, export
+  `LLMHUB_CLUSTER=delta` on the command line.
+
+**Always pass `--ref` with a release tag.** The built-in default, `v0.1.1`, comes
+from before impersonation: the backend at that tag defines none of the
+`VEC_INF_*` impersonation settings, so they are dropped. The tag must also include
+`frontend/lib/cluster-username.ts`, which is how the frontend sends
+`clusterUsername`. `v1.0.0` has the backend half but not this.
+
+```bash
+./llmhub preflight --ref <tag>
+./llmhub deploy    --ref <tag>            # dry run
+./llmhub deploy    --ref <tag> --apply
+./llmhub check-impersonation svcllmhub<netid>   # real sudo probe, no GPU -- must pass first
+./llmhub launch-test                     # before enabling CILogon -- see below
+```
+
+**Who a web user can launch as.** The frontend takes the part of the signed-in
+email before the `@` as the cluster username. If that part contains a `+`, it uses
+what follows the `+` (so `netid+svcllmhubnetid@…` launches as `svcllmhubnetid`).
+It does not check the email's domain. The sudoers rule is therefore the only
+limit on which accounts the service can launch as. Set its scope deliberately,
+and restrict the CILogon client to the Illinois identity provider.
+
+**Nothing restarts the stack after a reboot.** Ordinary users cannot use
+`crontab`, and their services do not linger. On a VM you administer, a systemd
+unit that runs `./llmhub start` as `svcdeltallmhub` closes this gap.
+
+**Production follows the `/sw/llmhub/vllm.sif` symlink**, so re-pointing it
+changes production at once. Dev's image is pinned, so dev does not move.
 
 ## DeltaAI
 
@@ -201,7 +268,8 @@ and the same Python 3.9.
 - **The backend's `Settings` forbids unknown keys** — a key the deployed
   version does not define aborts startup (`Extra inputs are not permitted`).
   `deploy` writes only keys present in that checkout's `config.py`, so one
-  config serves v0.1.1 and the impersonation branch alike.
+  config serves every release. It also means a key that release lacks is
+  dropped without warning.
 - **The schema belongs to the frontend.** Drizzle migrations create the tables
   the backend reads; `pnpm build` runs them, which is why PostgreSQL is
   started before the build and why the build is part of `deploy`.
@@ -297,19 +365,21 @@ one stack per profile per VM):
 ```bash
 ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu   # ON THE VM — deploy refuses elsewhere
 /sw/admin/scripts/impersonate svcdeltallmhub
-cd <checkout of this branch>/infra/delta      # svcdeltallmhub must be able to read it (it is in delta_bfmz)
+cd <checkout of main>/infra/delta      # svcdeltallmhub must be able to read it (it is in delta_bfmz)
 R=/projects/bfmz/svcdeltallmhub/llmhub-dev; mkdir -p $R
-printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhubdadams\n' > $R/local.env
-# no LLMHUB_VLLM_SIF override: the default /sw/llmhub/vllm.sif is world-readable,
-# so the image is used in place and no copy is made under the shared root.
-./llmhub preflight --profile staging --ref port/backend-pr-32
+printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhub<netid>\n' > $R/local.env
+# no LLMHUB_VLLM_SIF override: the image is readable by everyone,
+# so it is used in place and no copy is made under the shared root.
+./llmhub preflight --profile dev --ref main
 ./llmhub deploy --apply --profile dev --ref main    # + shim env and shared config under /sw/llmhub
-./llmhub check-impersonation svcllmhubdadams --profile dev          # no GPU; must pass first
-./llmhub launch-test --profile dev                                   # job runs as svcllmhubdadams
+./llmhub check-impersonation svcllmhub<netid> --profile dev         # no GPU; must pass first
+./llmhub launch-test --profile dev                                   # job runs as svcllmhub<netid>
 ```
 
-The frontend does not yet send `clusterUsername`; `launch-test` exercises the
-API path. Impersonated job logs are under `/projects/llmhub/<user>/`.
+`launch-test` calls the backend API directly with `LLMHUB_TEST_CLUSTER_USER`.
+The frontend derives `clusterUsername` from the signed-in email; see
+[Deploying production](#deploying-production) for how. Impersonated job logs
+are under `/projects/llmhub/<user>/`.
 
 ## Secrets
 
@@ -325,17 +395,26 @@ user API key.
 
 Local accounts are the default. CILogon needs four things, in this order:
 
-1. A TLS front on the VM at the public name — `httpd` is installed, `mod_ssl`
-   is not; the cert/key for `llmhub-dev.delta.ncsa.illinois.edu` are in `/data`
-   (check the expiry). Ports below 1024 need root, so this is an admin step:
-   proxy `/` → `127.0.0.1:<frontend port>`; the backend stays internal.
+1. A TLS front on the VM at the public name. Ports below 1024 need root, so
+   this is an admin step: proxy `/` → `127.0.0.1:<frontend port>`, and keep the
+   backend internal. On `dt-svc-llmaas01`, `httpd` is installed but `mod_ssl`
+   is not. The cert/key in `/data` there are for
+   `llmhub-dev.delta.ncsa.illinois.edu` and expired 2026-09-30. A production
+   name needs its own.
 2. A CILogon OIDC client registered for the redirect URI
    `<public origin>/api/auth/oauth2/callback/cilogon`.
 3. `LLMHUB_PUBLIC_URL=https://<public name>` in `local.env` — one origin only;
    CILogon will not redirect to `localhost`, so the tunnel and CILogon are
    mutually exclusive.
 4. `CILOGON_CLIENT_ID`, `CILOGON_CLIENT_SECRET` (and the discovery URL / skin
-   if not the defaults) in `secrets.env`, then `./llmhub render`.
+   if not the defaults) in `secrets.env`, then `./llmhub deploy --apply`.
+   Use `deploy`, not `render`: `LLMHUB_PUBLIC_URL` is baked into the frontend
+   build. After that, `render` is enough for a change to secrets only.
+
+Run `launch-test` at least once **before** step 4. It signs up a local test
+user (stored in `$LLMHUB_DEPLOY_ROOT/test-user.env`), and turning CILogon on
+turns local sign-up off. Once the user exists, later runs find it in the
+database.
 
 ## Inference jobs and the vLLM image
 
