@@ -9,10 +9,7 @@ import { toast } from 'sonner';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useChatModels } from '@/hooks/use-models';
 import { useNewChat } from '@/hooks/use-new-chat';
-import {
-  resolveChatModelSelection,
-  type ChatModelSelectionState,
-} from '@/lib/chat-model-selection';
+import { pickChatModel } from '@/lib/chat-model-selection';
 import { getLoginPath } from '@/lib/auth/paths';
 import { navigateToLogin } from '@/lib/auth/navigation';
 
@@ -23,11 +20,12 @@ export default function ChatPage() {
   const { setSelectedModel } = useModelSelector();
   const resetVersion = useNewChat((state) => state.resetVersion);
   const [activeChatId, setActiveChatId] = useState('new');
-  const { data: chatModelOptions = [], isFetchedAfterMount } = useChatModels();
-  const selectionStateRef = useRef<ChatModelSelectionState>({
-    handledDeploymentId: null,
-    initialized: false,
-  });
+  const {
+    data: chatModelOptions = [],
+    isFetchedAfterMount,
+    isSuccess,
+  } = useChatModels();
+  const hasSelectedModelRef = useRef(false);
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
@@ -39,17 +37,33 @@ export default function ChatPage() {
   };
 
   useEffect(() => {
-    const { modelId, state } = resolveChatModelSelection({
+    // Select once, from this mount's successful fetch: a cached list may not yet
+    // include a deployment that just became ready, and later refetches must not
+    // override a model the user picked by hand.
+    if (hasSelectedModelRef.current || !isFetchedAfterMount || !isSuccess) {
+      return;
+    }
+    hasSelectedModelRef.current = true;
+
+    const { modelId, deploymentUnavailable } = pickChatModel(
       chatModelOptions,
       deploymentIdFromUrl,
-      isFetchedAfterMount,
-      state: selectionStateRef.current,
-    });
-    selectionStateRef.current = state;
+    );
     if (modelId) {
       setSelectedModel(modelId);
     }
-  }, [chatModelOptions, deploymentIdFromUrl, isFetchedAfterMount, setSelectedModel]);
+    if (deploymentUnavailable) {
+      toast.info(
+        "That deployment isn't available. It may have stopped, or you may not have access.",
+      );
+    }
+  }, [
+    chatModelOptions,
+    deploymentIdFromUrl,
+    isFetchedAfterMount,
+    isSuccess,
+    setSelectedModel,
+  ]);
 
   // Check authentication
   if (isLoading) {
