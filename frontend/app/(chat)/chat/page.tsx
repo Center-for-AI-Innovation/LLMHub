@@ -8,20 +8,26 @@ import { useSession } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useChatModels } from '@/hooks/use-models';
-import { consumePreferredChatModel } from '@/lib/chat-navigation';
 import { useNewChat } from '@/hooks/use-new-chat';
+import {
+  resolveChatModelSelection,
+  type ChatModelSelectionState,
+} from '@/lib/chat-model-selection';
 import { getLoginPath } from '@/lib/auth/paths';
 import { navigateToLogin } from '@/lib/auth/navigation';
 
 export default function ChatPage() {
   const searchParams = useSearchParams();
   const query = searchParams?.get('query');
+  const deploymentIdFromUrl = searchParams?.get('deployment') ?? null;
   const { setSelectedModel } = useModelSelector();
   const resetVersion = useNewChat((state) => state.resetVersion);
   const [activeChatId, setActiveChatId] = useState('new');
-  const { data: chatModelOptions = [] } = useChatModels();
-  const preferredModelRef = useRef<string | null>(null);
-  const hasInitializedSelectedModelRef = useRef(false);
+  const { data: chatModelOptions = [], isFetchedAfterMount } = useChatModels();
+  const selectionStateRef = useRef<ChatModelSelectionState>({
+    handledDeploymentId: null,
+    initialized: false,
+  });
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
@@ -33,37 +39,17 @@ export default function ChatPage() {
   };
 
   useEffect(() => {
-    if (chatModelOptions.length === 0) {
-      return;
+    const { modelId, state } = resolveChatModelSelection({
+      chatModelOptions,
+      deploymentIdFromUrl,
+      isFetchedAfterMount,
+      state: selectionStateRef.current,
+    });
+    selectionStateRef.current = state;
+    if (modelId) {
+      setSelectedModel(modelId);
     }
-
-    if (preferredModelRef.current === null) {
-      preferredModelRef.current = consumePreferredChatModel();
-    }
-    const preferredModel = preferredModelRef.current;
-    if (preferredModel) {
-      const modelExists = chatModelOptions.some(
-        (chatModel) => chatModel.id === preferredModel,
-      );
-      if (modelExists) {
-        setSelectedModel(preferredModel);
-        preferredModelRef.current = null;
-        hasInitializedSelectedModelRef.current = true;
-        return;
-      }
-
-      preferredModelRef.current = null;
-    }
-
-    if (hasInitializedSelectedModelRef.current) {
-      return;
-    }
-
-    // Default to the first option, which is already prioritized by /api/chat/models:
-    // recent deployment -> always-on -> dev model.
-    setSelectedModel(chatModelOptions[0].id);
-    hasInitializedSelectedModelRef.current = true;
-  }, [chatModelOptions, setSelectedModel]);
+  }, [chatModelOptions, deploymentIdFromUrl, isFetchedAfterMount, setSelectedModel]);
 
   // Check authentication
   if (isLoading) {
