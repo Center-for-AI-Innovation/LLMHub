@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Qwen3.5-35B-A3B model config for the Magic Castle (Radiant) infrastructure, added by user request. ([#96](https://github.com/Center-for-AI-Innovation/LLMHub/pull/96))
+
 ### Fixed
 
 - Deployment kit (`infra/delta/`), found by the first DeltaAI deploy:
