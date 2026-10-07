@@ -21,6 +21,7 @@ import { getDeploymentStatusInfo } from '@/lib/models/deployment-status';
 import { modelCardGradient } from '@/lib/models/utils';
 
 const DEPLOYMENT_STATUSES = [
+  'downloading',
   'pending',
   'launching',
   'running',
@@ -30,6 +31,7 @@ const DEPLOYMENT_STATUSES = [
 ] as const;
 
 const LOGS_PANEL_STATUSES: DeploymentStatus[] = [
+  'downloading',
   'pending',
   'launching',
   'ready',

@@ -12,7 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Backend `GET /api/models/slurm-accounts` and frontend `/api/slurm-accounts` routes that list the signed-in user's Slurm accounts.
 - Hugging Face gating support: model sync now records each model's HF gating status, `launch_model` fast-exits with a clear error if the requesting user lacks Hub access (missing/invalid `hf_token`) before allocating any GPU resources. The token is used only for that check and for downloading gated weights into the store; it never reaches the job. For gated models launched as an impersonated cluster user, weights are hard-linked from the shared model store into that user's own workspace instead of the infra-wide default.
 - `backend/scripts/evict_unused_models.py`, a cleanup script meant to run weekly from cron (not scheduled automatically), that deletes models from the shared Hugging Face cache nobody has launched in 90 days, based on `ModelDeployment` history. The cache directory comes from `MODEL_CACHE_DIR` or `--cache-dir`. Models with no launch history are kept and listed. It also deletes stale entries from the shared torch inductor cache (`COMPILE_CACHE_DIR`).
-- Gated models missing from `MODEL_STORE_ROOT` are downloaded there by the backend on first launch, using the user's token. That launch asks the user to retry in a few minutes; the next one hard-links the weights as before.
+- Gated models missing from `MODEL_STORE_ROOT` are downloaded there by the backend on first launch, using the user's token. The launch waits for the download (see below), then hard-links the weights as before.
+- Public models missing from `MODEL_CACHE_DIR` are downloaded there by the backend, as the service account and without any token, on first launch. A model counts as cached once a download has finished, so models staged before this change are re-checked against the Hub once on their next launch. After each download the backend removes group and other write from the cache, because huggingface_hub creates its lock files and shared-blob `.refs` manifests world-writable.
+- Launching a model whose weights aren't downloaded yet no longer fails with "launch again in a few minutes". The deployment shows as "Downloading weights" in Active Models and its job is submitted automatically once the download finishes; a failed download fails the deployment with the reason. Stopping it while it downloads cancels the launch. If the backend restarts mid-download, public downloads resume; gated ones fail and ask for a relaunch, since the user's token is never stored.
 - Qwen3.5-35B-A3B model config for the Magic Castle (Radiant) infrastructure, added by user request. ([#96](https://github.com/Center-for-AI-Innovation/LLMHub/pull/96))
 
 ### Changed
@@ -20,12 +22,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Resolve a user's Slurm accounts with `sacctmgr` instead of the Delta-local `/sw/user/scripts/accounts` helper, and omit the placeholder `noalloc` account.
 - Derive the cluster username from the signed-in email local-part, using the suffix after `+` for impersonation addresses such as `rohan13+svcllmhubrohan13@ncsa.illinois.edu`.
 - `delta-ai-ncsa/environment.yaml` now points at `/projects/modelcache` instead of `/model-weights`, which doesn't exist on DeltaAI.
-- Shared-cache write access is granted only on `MODEL_CACHE_DIR` and `COMPILE_CACHE_DIR`, not on every matching bind.
-- Delta kit: supports in-job downloads and writes the cache and model store settings to the backend `.env`.
+- Impersonated accounts get write access only on `COMPILE_CACHE_DIR`, never on `MODEL_CACHE_DIR`. ACLs granted on `MODEL_CACHE_DIR` by earlier launches are not removed automatically.
+- Delta kit: inference jobs get the Hugging Face cache read-only and run with `HF_HUB_OFFLINE=1`, so only the backend writes to it. The kit writes the cache and model store settings to the backend `.env`.
 - After login, users land on the model catalog (`/model-library`) instead of chat. Clicking the logo still returns to the landing page.
 
 ### Fixed
 
+- HF gating: gated launches now serve the weights in the protected store (or the user's hard-linked copy) instead of the repo id. With the repo id set, vec-inf served the model from the shared Hugging Face cache and never mounted the store, so gated weights already in the public cache bypassed the store.
 - HF gating: `launch_model` no longer falls back to a shared `settings.HF_TOKEN` when the requesting user supplies none — that let any user's launch inherit whatever gated repos the service account can see, defeating per-user gating. Only the requesting user's own token now authorizes access.
 - HF gating: for impersonated launches, the launch payload (which can carry the user's `hf_token`) is now written to a workspace-scoped file instead of passed inline on the command line, which was visible to any user on the host via `ps`/`/proc/<pid>/cmdline`.
 - HF gating: `model_name` is now resolved and containment-checked before being joined into shared-store and per-user workspace paths, closing a path-traversal gap (a crafted model name could otherwise read outside `MODEL_STORE_ROOT` or write outside the per-user workspace).

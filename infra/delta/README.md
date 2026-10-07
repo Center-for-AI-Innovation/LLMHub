@@ -235,11 +235,17 @@ LLMHUB_VLLM_SIF=/work/nvme/<allocation>/$USER/vllm-v0.19.1-slingshot.sif   # a c
 Three things the rendered inference config encodes, each found by a failed job:
 
 - **The Hugging Face model cache is service-populated and read-only in jobs.**
-  `LLMHUB_HF_CACHE` must be populated by the backend service account. Inference
-  jobs get a read-only bind and run with Hub offline mode, so impersonated
-  accounts cannot download into or modify weights another account will load.
-  Public models missing from this cache must be staged by the service account
-  before launch.
+  Only the backend service account writes to `LLMHUB_HF_CACHE`. The first launch
+  of a public model that isn't cached yet starts a download as that account; the
+  deployment shows "Downloading weights" and its job is submitted once the
+  download finishes. Inference jobs get a read-only bind
+  and run with Hub offline mode, so impersonated accounts cannot download into
+  or modify weights another account will load. The bind only covers the
+  container: also strip the host ACL entries earlier launches granted, e.g. for
+  each `svcllmhub*` account,
+  `setfacl -R -x u:<account> "$LLMHUB_HF_CACHE"` and
+  `setfacl -R -d -x u:<account> "$LLMHUB_HF_CACHE"`, then check with `getfacl`
+  that only the service account can write.
 - **Audit old gated weights before enabling this configuration.** Move or
   delete gated repositories already present in `/projects/modelcache/public`
   and `/projects/modelcache/public/huggingface`; existing files in those

@@ -88,6 +88,7 @@ export interface ModelDeployment {
   userId: string;
   slurmJobId: string;
   status:
+    | 'downloading'
     | 'pending'
     | 'launching'
     | 'ready'
