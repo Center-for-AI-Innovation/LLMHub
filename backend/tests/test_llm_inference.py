@@ -1,6 +1,7 @@
 import json
 from types import SimpleNamespace
 
+import pytest
 from vec_inf.client._helper import ModelLauncher
 from vec_inf.client._slurm_script_generator import SlurmScriptGenerator
 from vec_inf.client._slurm_templates import SLURM_SCRIPT_TEMPLATE
@@ -247,6 +248,51 @@ def test_ensure_cuda_visible_devices_env_drops_duplicate_field():
 
     assert env.count("CUDA_VISIBLE_DEVICES=") == 1
     assert env.endswith("CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES")
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,1",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,1,2",
+    ],
+)
+def test_literal_cuda_visible_devices_list_is_replaced(env_value):
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(env) == {
+        "HF_HOME": "/x",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+@pytest.mark.parametrize(
+    ("env_value", "stray_field"),
+    [
+        ("HF_HOME=/x,1,CUDA_VISIBLE_DEVICES=0,1,2", "1"),
+        ("HF_HOME=/x,3,CUDA_VISIBLE_DEVICES=0,1", "3"),
+        ("HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,1,PYTHON_PATH=/x,/y", "/y"),
+    ],
+)
+def test_stray_bare_field_outside_cuda_value_fails_loudly(
+    monkeypatch, tmp_path, env_value, stray_field
+):
+    """Bare fields outside CUDA_VISIBLE_DEVICES are typos, not GPU indices.
+
+    vec-inf reads a field without ``=`` as an env-file path, so the launch
+    fails instead of silently dropping the value.
+    """
+    monkeypatch.chdir(tmp_path)
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert stray_field in env.split(",")
+    with pytest.raises(FileNotFoundError, match=f"'{stray_field}'"):
+        ModelLauncher.__new__(ModelLauncher)._process_env_vars(env)
 
 
 def test_ensure_cuda_visible_devices_env_strips_stale_quoted_workaround():
