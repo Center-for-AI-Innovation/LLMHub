@@ -17,9 +17,9 @@ def main() -> int:
         )
         return 1
 
-    # The payload arrives as a file path, not inline, because it can carry a
-    # secret (hf_token) and command-line arguments are visible to any user on
-    # the host via ps/`/proc/<pid>/cmdline`.
+    # The payload arrives as a file path, not inline: command-line arguments are
+    # visible to any user on the host via ps/`/proc/<pid>/cmdline`. It no longer
+    # carries the HF token, so this is defense in depth.
     payload_path = sys.argv[1]
     try:
         with open(payload_path, "r") as f:
