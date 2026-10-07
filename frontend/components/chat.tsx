@@ -195,6 +195,7 @@ function ChatInner({
   isTemporaryChat,
   isReadonly,
   isGuestMode,
+  isModelReady,
   onGuestLimitReached,
   initialPrompt,
 }: {
@@ -208,6 +209,7 @@ function ChatInner({
   isTemporaryChat: boolean;
   isReadonly: boolean;
   isGuestMode: boolean;
+  isModelReady: boolean;
   onGuestLimitReached?: () => void;
   initialPrompt?: string;
 }) {
@@ -371,6 +373,11 @@ function ChatInner({
     message?: any,
     options?: ChatRequestOptions,
   ): Promise<void> => {
+    if (!isModelReady) {
+      showErrorToast('Model options are still loading. Please try again shortly.');
+      return;
+    }
+
     console.log('selectedModel', selectedModel, 'vllmDeploymentId', vllmDeploymentId);
     if (!ensureModelReadyForSend({ isGuestMode, selectedModel, vllmDeploymentId })) {
       return;
@@ -455,6 +462,12 @@ function ChatInner({
   }, [isTemporaryChat, messages.length, setHasDraftMessages]);
 
   useEffect(() => {
+    // Wait until the page has resolved the model to send to: firing earlier
+    // would race the options fetch and target a default or stale model.
+    if (!isModelReady) {
+      return;
+    }
+
     if (!initialPrompt || hasAutoSentInitialPrompt.current) {
       return;
     }
@@ -468,7 +481,7 @@ function ChatInner({
     // redirect to /chat/[id] before streaming begins.
     void guardedSendMessage({ text: initialPrompt });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPrompt, messages.length]);
+  }, [initialPrompt, isModelReady, messages.length]);
 
   // On the real /chat/[id] route, fire the stashed payload from a prior redirect
   // and immediately clear the store so it never runs twice.
@@ -527,6 +540,7 @@ function ChatInner({
                       setMessages={setMessages}
                       sendMessage={guardedSendMessage}
                       isGuestMode={isGuestMode}
+                      disabled={!isModelReady}
                     />
                   )}
                 </div>
@@ -563,6 +577,7 @@ export function Chat({
   selectedVisibilityType: _selectedVisibilityType,
   isReadonly,
   isGuestMode = false,
+  isModelReady = true,
   onGuestLimitReached,
   initialPrompt,
   resetVersion = 0,
@@ -575,6 +590,7 @@ export function Chat({
   selectedVisibilityType: VisibilityType;
   isReadonly: boolean;
   isGuestMode?: boolean;
+  isModelReady?: boolean;
   onGuestLimitReached?: () => void;
   initialPrompt?: string;
   resetVersion?: number;
@@ -625,6 +641,7 @@ export function Chat({
       isTemporaryChat={isTemporaryChat}
       isReadonly={isReadonly}
       isGuestMode={isGuestMode}
+      isModelReady={isModelReady}
       onGuestLimitReached={onGuestLimitReached}
       initialPrompt={initialPrompt}
     />
