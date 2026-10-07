@@ -18,14 +18,25 @@ export default function ChatPage() {
   const query = searchParams?.get('query');
   const deploymentIdFromUrl = searchParams?.get('deployment') ?? null;
   const { setSelectedModel } = useModelSelector();
+  // Select the URL deployment before Chat first renders so the composer
+  // shows it immediately; sends still wait for the options fetch below to
+  // validate it. Setting the store from an effect would be too late: Chat's
+  // first render would still hold the previous model.
+  useState(() => {
+    if (deploymentIdFromUrl) {
+      setSelectedModel(`vllm-deployment:${deploymentIdFromUrl}`);
+    }
+  });
   const resetVersion = useNewChat((state) => state.resetVersion);
   const [activeChatId, setActiveChatId] = useState('new');
   const {
     data: chatModelOptions = [],
     isFetchedAfterMount,
     isSuccess,
+    isError,
   } = useChatModels();
   const hasSelectedModelRef = useRef(false);
+  const [isModelResolved, setIsModelResolved] = useState(false);
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
@@ -35,6 +46,10 @@ export default function ChatPage() {
     toast.error('Guest chat limit reached. Please sign in to continue.');
     navigateToLogin(getLoginPath(currentPath));
   };
+
+  // Guests always chat with the hardcoded always-on model, so they never wait
+  // on the options fetch.
+  const isModelReady = isModelResolved || !session?.user;
 
   useEffect(() => {
     // Select once, from this mount's successful fetch: a cached list may not yet
@@ -57,6 +72,9 @@ export default function ChatPage() {
         "That deployment isn't available. It may have stopped, or you may not have access.",
       );
     }
+    // Sends (including the ?query= auto-send) wait for this: the picked model
+    // is guaranteed to come from the fetched options.
+    setIsModelResolved(true);
   }, [
     chatModelOptions,
     deploymentIdFromUrl,
@@ -64,6 +82,14 @@ export default function ChatPage() {
     isSuccess,
     setSelectedModel,
   ]);
+
+  // Never block sends forever: when the options fetch fails, fall back to the
+  // current selection (default, previous, or URL deployment).
+  useEffect(() => {
+    if (isError) {
+      setIsModelResolved(true);
+    }
+  }, [isError]);
 
   // Check authentication
   if (isLoading) {
@@ -92,6 +118,7 @@ export default function ChatPage() {
           selectedVisibilityType="private"
           isReadonly={false}
           isGuestMode={!session?.user}
+          isModelReady={isModelReady}
           onGuestLimitReached={handleGuestLimitReached}
           initialPrompt={query || undefined}
         />
