@@ -151,6 +151,19 @@ world_readable() {
     while [ "$p" != / ]; do m="$(stat -c %a "$p")"; [ $(( 8#$m & 1 )) -ne 0 ] || return 1; p="$(dirname "$p")"; done
 }
 
+# How the backend resolves a user's Slurm accounts. From 1.1.0 it runs
+# `sacctmgr` itself, as the account running the backend; before that it ran
+# /sw/user/scripts/accounts (VEC_INF_ACCOUNTS_SCRIPT). Judged from the checkout;
+# with nothing checked out yet, assume a current release.
+backend_uses_sacctmgr() { [ ! -d "$BE" ] || [ -r "${BE}/app/utils/slurm_accounts.py" ]; }
+# The accounts sacctmgr associates with a user, minus the `noalloc` placeholder,
+# as the backend filters them. An unknown user exits 0 with no rows, so callers
+# must test for an empty result, not the exit status.
+sacctmgr_accounts() {
+    sacctmgr -nP show associations user="$1" format=Account 2>/dev/null \
+        | tr -d '|' | grep -vix 'noalloc' | grep . | sort -u | paste -sd, - || true
+}
+
 # Cluster stamps (GAP-013). /projects is the one filesystem Delta and DeltaAI
 # share, and svcdeltallmhub is the same account on both, so a root that exists,
 # is writable and has the right mode is EXACTLY what a cross-cluster collision
@@ -828,7 +841,17 @@ cmd_preflight() {
         local sr="$LLMHUB_SHARED_ROOT"; while [ ! -d "$sr" ] && [ "$sr" != / ]; do sr="$(dirname "$sr")"; done
         [ -w "$sr" ] && ok "shared root ${LLMHUB_SHARED_ROOT} (under writable ${sr})" || bad "cannot write under ${sr} for the shared root"
         world_readable "$sr" && ok "${sr} is world-readable" || bad "${sr} is not world-readable — svcllmhub* could not reach the shared root"
-        local acc="${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; [ -x "$acc" ] && ok "accounts script ${acc}" || bad "accounts script ${acc} missing"
+        if backend_uses_sacctmgr; then
+            if ! command -v sacctmgr >/dev/null; then
+                bad "sacctmgr not on PATH — the backend resolves each user's Slurm account with it"
+            elif [ -n "$LLMHUB_TEST_CLUSTER_USER" ]; then
+                local accs; accs="$(sacctmgr_accounts "$LLMHUB_TEST_CLUSTER_USER")"
+                [ -n "$accs" ] && ok "sacctmgr: ${LLMHUB_TEST_CLUSTER_USER} → ${accs}" \
+                    || bad "sacctmgr finds no Slurm account for ${LLMHUB_TEST_CLUSTER_USER} — its launches would be refused"
+            else ok "sacctmgr $(command -v sacctmgr) (set LLMHUB_TEST_CLUSTER_USER to test a lookup)"; fi
+        else
+            local acc="${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; [ -x "$acc" ] && ok "accounts script ${acc}" || bad "accounts script ${acc} missing"
+        fi
         if [ -x "${LLMHUB_SHIM_ENV}/bin/python" ]; then
             world_readable "${LLMHUB_SHIM_ENV}/bin/python" && ok "shim env present ($(cut -c1-9 "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA" 2>/dev/null))" || bad "shim env present but not world-readable"
         else info "shim env not built yet — deploy builds it"; fi
@@ -980,7 +1003,8 @@ cmd_check_impersonation() {
     getent passwd "$u" >/dev/null && ok "account ${u}: groups $(id -nG "$u" 2>/dev/null | tr ' ' ',')" || { bad "no account ${u}"; F=1; }
     local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}' || true)"
     [ -r "${VIC}/environment.yaml" ] || { bad "no rendered config at ${VIC} — deploy has not completed"; F=1; }
-    for p in "$SHIM_PY" "${VIC}/environment.yaml" "${VIC}/models.yaml" "$img" "$LLMHUB_HF_CACHE" "${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; do
+    local acc=""; backend_uses_sacctmgr || acc="${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"   # 1.1.0+: sacctmgr, checked by the backend's own script below
+    for p in "$SHIM_PY" "${VIC}/environment.yaml" "${VIC}/models.yaml" "$img" "$LLMHUB_HF_CACHE" "$acc"; do
         [ -n "$p" ] || continue
         if [ ! -e "$p" ]; then bad "$p is missing"; F=1
         elif world_readable "$p"; then ok "$p"; else bad "$p is NOT world-readable"; F=1; fi

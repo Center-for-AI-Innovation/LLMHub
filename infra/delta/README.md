@@ -119,7 +119,9 @@ the dev VM. On a new VM:
 - `/sw` mounted read-write (deploy writes `/sw/llmhub/llmhub-production`)
 - `/projects` and `/work`
 - Apptainer
-- a Slurm client that can submit jobs
+- a Slurm client that can submit jobs, and `sacctmgr` on the `PATH` the
+  backend starts with — from 1.1.0 the backend runs it to find each user's
+  Slurm accounts. `preflight` looks up `LLMHUB_TEST_CLUSTER_USER` to prove it.
 - outbound HTTPS to PyPI, nodejs.org, npm, GitHub and Docker Hub
 - the sudoers rule that impersonation uses: `svcdeltallmhub` → the per-user
   accounts, NOPASSWD. Delta sudo has `requiretty`, which the backend satisfies
@@ -328,7 +330,8 @@ Three things the rendered inference config encodes, each found by a failed job:
 `LLMHUB_EXECUTION_MODE=impersonate` (put it in `local.env`) makes the backend
 launch each job as the requesting user's service account: it creates
 `/projects/llmhub/<user>` with ACLs, resolves that account's SLURM allocation
-with `/sw/user/scripts/accounts`, and runs
+with `sacctmgr` (run as the account running the backend; releases before 1.1.0
+used `/sw/user/scripts/accounts`), and runs
 `sudo -u <user> -i -- <python> -m app.utils.vec_inf_launch_shim` under a PTY.
 Two consequences the kit encodes:
 
