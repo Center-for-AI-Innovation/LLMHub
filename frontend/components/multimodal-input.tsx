@@ -40,6 +40,7 @@ function PureMultimodalInput({
   sendMessage,
   className,
   isGuestMode = false,
+  disabled = false,
 }: {
   input: string;
   setInput: (value: string) => void;
@@ -52,6 +53,7 @@ function PureMultimodalInput({
   sendMessage: (message?: any, options?: ChatRequestOptions) => Promise<void>;
   className?: string;
   isGuestMode?: boolean;
+  disabled?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -193,7 +195,8 @@ function PureMultimodalInput({
       {messages.length === 0 &&
         attachments.length === 0 &&
         uploadQueue.length === 0 &&
-        !isGuestMode && <SuggestedActions sendMessage={sendMessage} />}
+        !isGuestMode &&
+        !disabled && <SuggestedActions sendMessage={sendMessage} />}
 
       <input
         type="file"
@@ -226,9 +229,10 @@ function PureMultimodalInput({
 
       <Textarea
         ref={textareaRef}
-        placeholder="Send a message..."
+        placeholder={disabled ? 'Loading models...' : 'Send a message...'}
         value={input}
         onChange={handleInput}
+        disabled={disabled}
         className={cx(
           'min-h-[24px] max-h-[calc(100vh-14rem)] overflow-hidden resize-none rounded-2xl !text-base bg-background pb-12 pt-4 px-4 dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] focus-visible:ring-1 focus-visible:ring-accent/50 dark:focus-visible:ring-accent/25',
           className,
@@ -250,7 +254,11 @@ function PureMultimodalInput({
       />
 
       <div className="absolute bottom-3 left-3 w-fit flex flex-row justify-start">
-        <AttachmentsButton fileInputRef={fileInputRef} isLoading={isLoading} />
+        <AttachmentsButton
+          fileInputRef={fileInputRef}
+          isLoading={isLoading}
+          disabled={disabled}
+        />
       </div>
 
       <div className="absolute bottom-3 right-3 w-fit flex flex-row justify-end gap-2">
@@ -264,6 +272,7 @@ function PureMultimodalInput({
               submitForm={submitForm}
               uploadQueue={uploadQueue}
               canSend={input.trim().length > 0 || attachments.length > 0}
+              disabled={disabled}
             />
           </>
         )}
@@ -280,6 +289,7 @@ export const MultimodalInput = memo(
     if (prevProps.sendMessage !== nextProps.sendMessage) return false;
     if (prevProps.messages.length !== nextProps.messages.length) return false;
     if (prevProps.isGuestMode !== nextProps.isGuestMode) return false;
+    if (prevProps.disabled !== nextProps.disabled) return false;
     if (!equal(prevProps.attachments, nextProps.attachments)) return false;
 
     return true;
@@ -289,9 +299,11 @@ export const MultimodalInput = memo(
 function PureAttachmentsButton({
   fileInputRef,
   isLoading,
+  disabled = false,
 }: {
   fileInputRef: React.MutableRefObject<HTMLInputElement | null>;
   isLoading: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Button
@@ -300,7 +312,7 @@ function PureAttachmentsButton({
         event.preventDefault();
         fileInputRef.current?.click();
       }}
-      disabled={isLoading}
+      disabled={isLoading || disabled}
       variant="ghost"
     >
       <PaperclipIcon size={14} />
@@ -338,11 +350,13 @@ function PureSendButton({
   input,
   uploadQueue,
   canSend,
+  disabled = false,
 }: {
   submitForm: () => void;
   input: string;
   uploadQueue: Array<string>;
   canSend: boolean;
+  disabled?: boolean;
 }) {
   return (
     <Button
@@ -351,7 +365,7 @@ function PureSendButton({
         event.preventDefault();
         submitForm();
       }}
-      disabled={!canSend || uploadQueue.length > 0}
+      disabled={!canSend || uploadQueue.length > 0 || disabled}
     >
       <ArrowUpIcon size={14} />
     </Button>
@@ -362,5 +376,6 @@ const SendButton = memo(PureSendButton, (prevProps, nextProps) => {
   if (prevProps.uploadQueue.length !== nextProps.uploadQueue.length) return false;
   if (prevProps.input !== nextProps.input) return false;
   if (prevProps.canSend !== nextProps.canSend) return false;
+  if (prevProps.disabled !== nextProps.disabled) return false;
   return true;
 });
