@@ -232,7 +232,10 @@ class LLMInferenceDirectClient:
 
         Any pre-existing ``CUDA_VISIBLE_DEVICES`` field in ``env_value``
         (bare or shell-quoted, e.g. a stale multi-GPU workaround) is dropped
-        so exactly one canonical field is appended. The field is deliberately
+        so exactly one canonical field is appended. Digit-only fields directly
+        after it are the tail of a literal multi-GPU list (``=0,1``) and are
+        dropped too; any other bare field is left for vec-inf to reject.
+        The field is deliberately
         unquoted: container launches emit one ``--env`` flag per variable,
         and pflag's single-``=`` fast path does not strip quotes.
         """
@@ -240,11 +243,16 @@ class LLMInferenceDirectClient:
         if not env_value:
             return cuda_kv
 
-        fields = [
-            field
-            for field in env_value.split(",")
-            if "CUDA_VISIBLE_DEVICES" not in field
-        ]
+        fields = []
+        in_cuda_value = False
+        for field in env_value.split(","):
+            if "CUDA_VISIBLE_DEVICES" in field:
+                in_cuda_value = True
+                continue
+            if in_cuda_value and field.strip().isdigit():
+                continue
+            in_cuda_value = False
+            fields.append(field)
         fields.append(cuda_kv)
         return ",".join(fields)
 
