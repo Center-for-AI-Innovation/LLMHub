@@ -234,6 +234,19 @@ LLMHUB_VLLM_SIF=/work/nvme/<allocation>/$USER/vllm-v0.19.1-slingshot.sif   # a c
 
 Three things the rendered inference config encodes, each found by a failed job:
 
+- **The Hugging Face model cache is service-populated and read-only in jobs.**
+  `LLMHUB_HF_CACHE` must be populated by the backend service account. Inference
+  jobs get a read-only bind and run with Hub offline mode, so impersonated
+  accounts cannot download into or modify weights another account will load.
+  Public models missing from this cache must be staged by the service account
+  before launch.
+- **Audit old gated weights before enabling this configuration.** Move or
+  delete gated repositories already present in `/projects/modelcache/public`
+  and `/projects/modelcache/public/huggingface`; existing files in those
+  public locations bypass the protected store. The backend keeps new gated
+  downloads under `MODEL_STORE_ROOT` (default `/projects/modelcache/restricted`),
+  which must remain accessible only to the service account.
+
 - **The torch-inductor cache must be writable by whoever runs the job.**
   vLLM 0.19 compiles at startup and writes under `TORCHINDUCTOR_CACHE_DIR`. The
   shared `/projects/modelcache/public/torch_inductor` is `rwx` only for

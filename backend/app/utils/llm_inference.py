@@ -148,15 +148,13 @@ def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
 def _get_shared_cache_dirs() -> List[Path]:
     return [
         Path(cache_dir).expanduser()
-        for cache_dir in (settings.MODEL_CACHE_DIR, settings.COMPILE_CACHE_DIR)
+        for cache_dir in (settings.COMPILE_CACHE_DIR,)
         if cache_dir
     ]
 
 
 def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
-    """Grant cache write access. Expects a validated username."""
-    # TODO: Remove this temporary user write access once model cache population is
-    # managed manually and launch-time downloads are no longer needed.
+    """Grant compile-cache write access, never model-cache write access."""
     service_account = pwd.getpwuid(os.geteuid()).pw_name
     for cache_dir in _get_shared_cache_dirs():
         cache_dir.mkdir(parents=True, exist_ok=True)
