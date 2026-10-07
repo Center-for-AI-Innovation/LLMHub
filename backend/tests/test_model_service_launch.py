@@ -54,7 +54,9 @@ class FakeLLMClient:
 
 
 def test_launch_model_persists_cluster_username():
-    db = FakeDbSession()
+    db = FakeGatedDbSession(
+        AvailableModel(id="Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B")
+    )
     service = ModelService()
     fake_llm_client = FakeLLMClient()
     service.llm_client = fake_llm_client
@@ -481,3 +483,58 @@ def test_tunnel_lookup_uses_the_launched_model_id():
 
     assert looked_up == [("Qwen3-8B", "12345", "alice")]
     assert deployment.proxyUrl == "https://example.trycloudflare.com"
+
+
+def test_launch_model_fails_closed_for_a_model_missing_from_the_catalog():
+    """No catalog row means no repo id or gating status to check; vec-inf would
+    still launch a gated model from models.yaml, so refuse instead."""
+    service = ModelService()
+    fake_llm_client = FakeLLMClient()
+    service.llm_client = fake_llm_client
+
+    result = service.launch_model(
+        db=FakeDbSession(),
+        deployment=ModelDeploymentCreate(
+            modelName="Gated-7B",
+            modelId="Gated-7B",
+            userId="11111111-1111-1111-1111-111111111111",
+        ),
+    )
+
+    assert fake_llm_client.calls == []
+    assert result.status == "failed"
+    assert "has not been synced" in result.errorMessage
+
+
+def test_launch_model_survives_num_gpus_without_num_nodes(monkeypatch):
+    """model_dump() emits num_nodes=None; num_gpus * None used to raise TypeError."""
+    allocated = []
+
+    class _Resources:
+        def allocate_resources(self, db, resource_type, resource_name, count):
+            allocated.append(count)
+            return {"success": True}
+
+        def release_resources(self, **kwargs):
+            pass
+
+    monkeypatch.setattr(
+        "app.services.model_service.ResourceService", lambda: _Resources()
+    )
+    service = ModelService()
+    service.llm_client = FakeLLMClient()
+
+    result = service.launch_model(
+        db=FakeGatedDbSession(
+            AvailableModel(id="Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B")
+        ),
+        deployment=ModelDeploymentCreate(
+            modelName="Qwen3-8B",
+            modelId="Qwen3-8B",
+            userId="11111111-1111-1111-1111-111111111111",
+            num_gpus=2,
+        ),
+    )
+
+    assert allocated == [2]
+    assert result.slurmJobId == "12345"

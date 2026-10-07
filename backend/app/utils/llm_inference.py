@@ -106,8 +106,7 @@ def _restrict_acl_to_cluster_user(
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
         raise RuntimeError(
-            f"Failed to grant {cluster_username} access to launch payload: "
-            f"{stderr or exc}"
+            f"Failed to restrict {path} to {cluster_username}: {stderr or exc}"
         ) from exc
 
 
@@ -253,8 +252,14 @@ def _check_store_root_private() -> None:
     if not isinstance(store_root, str) or not store_root.strip():
         return
     root = Path(store_root).expanduser()
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    exposure = _store_root_exposure(root)
+    # Callers catch RuntimeError and record a failed deployment; anything else
+    # (a failed mkdir, getfacl exiting non-zero, an ACL line we can't parse)
+    # would otherwise surface as an HTTP 500.
+    try:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        exposure = _store_root_exposure(root)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise RuntimeError(f"Cannot check MODEL_STORE_ROOT {root}: {exc}") from exc
     if exposure:
         raise RuntimeError(
             f"MODEL_STORE_ROOT {root} is open to other accounts ({exposure}); "
@@ -308,11 +313,11 @@ def start_gated_model_download(
         return None
     try:
         _check_store_root_private()
+        if store_dir.is_dir():
+            return None
     except (OSError, RuntimeError) as exc:
         logger.error("Refusing gated model download: %s", exc)
         return f"Cannot store gated model weights: {exc}"
-    if store_dir.is_dir():
-        return None
 
     with _gated_downloads_lock:
         already_running = str(store_dir) in _gated_downloads_in_progress
@@ -367,9 +372,17 @@ def resolve_gated_model_store_dir(model_name: str) -> Path:
         source_dir = _resolve_model_store_dir(model_name)
     except ValueError as exc:
         raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
-    if source_dir is not None:
-        _check_store_root_private()
-    if source_dir is None or not source_dir.is_dir():
+    if source_dir is None:
+        raise RuntimeError(
+            "MODEL_STORE_ROOT is not set; gated models can only launch from the "
+            "protected model store"
+        )
+    _check_store_root_private()
+    try:
+        staged = source_dir.is_dir()
+    except OSError as exc:
+        raise RuntimeError(f"Cannot read the protected model store: {exc}") from exc
+    if not staged:
         raise RuntimeError(
             f"Model {model_name!r} not found in the protected model store "
             f"(MODEL_STORE_ROOT={store_root!r}); direct-mode gated launches "
@@ -393,30 +406,50 @@ def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) 
         source_dir = _resolve_model_store_dir(model_name)
     except ValueError as exc:
         raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
-    if source_dir is not None:
-        _check_store_root_private()
-    if source_dir is None or not source_dir.is_dir():
+    if source_dir is None:
+        raise RuntimeError(
+            "MODEL_STORE_ROOT is not set; gated models can only launch from the "
+            "protected model store"
+        )
+    _check_store_root_private()
+    try:
+        staged = source_dir.is_dir()
+    except OSError as exc:
+        raise RuntimeError(f"Cannot read the shared model store: {exc}") from exc
+    if not staged:
         raise RuntimeError(
             f"Model {model_name!r} not found in the shared model store "
             f"(MODEL_STORE_ROOT={getattr(settings, 'MODEL_STORE_ROOT', None)!r})"
         )
 
-    workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
-    if workspace_dir is None:
-        raise RuntimeError(
-            "Cannot prepare user-scoped model weights: no impersonated workspace "
-            "root configured (VEC_INF_SHARED_WORK_ROOT / vec-inf log dir)"
-        )
-
-    weights_parent_dir = workspace_dir / "model-weights"
-    # The workspace's owning group is shared by many accounts; keep it out of the links.
-    weights_parent_dir.mkdir(exist_ok=True)
-    _restrict_acl_to_cluster_user(weights_parent_dir, cluster_username, directory=True)
     try:
-        dest_dir = _join_contained(weights_parent_dir, model_name, "model_name")
-    except ValueError as exc:
-        raise RuntimeError(f"Invalid model name for user workspace: {exc}") from exc
-    _hardlink_tree(source_dir, dest_dir)
+        workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
+        if workspace_dir is None:
+            raise RuntimeError(
+                "Cannot prepare user-scoped model weights: no impersonated "
+                "workspace root configured (VEC_INF_SHARED_WORK_ROOT / vec-inf "
+                "log dir)"
+            )
+
+        weights_parent_dir = workspace_dir / "model-weights"
+        # The workspace's owning group is shared by many accounts; keep it out of
+        # the links.
+        weights_parent_dir.mkdir(exist_ok=True)
+        _restrict_acl_to_cluster_user(
+            weights_parent_dir, cluster_username, directory=True
+        )
+        try:
+            dest_dir = _join_contained(weights_parent_dir, model_name, "model_name")
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid model name for user workspace: {exc}") from exc
+        _hardlink_tree(source_dir, dest_dir)
+    except OSError as exc:
+        # os.link raises EXDEV when MODEL_STORE_ROOT and the workspace root are on
+        # different filesystems; hard links need both on the same one.
+        raise RuntimeError(
+            f"Failed to link {model_name!r} into {cluster_username}'s workspace: "
+            f"{exc}"
+        ) from exc
     return weights_parent_dir
 
 
@@ -851,10 +884,10 @@ class LLMInferenceClient:
                 ),
             }
 
-        # The payload can carry a secret (hf_token, via params["env"]). Command-line
-        # arguments are visible to any user on the host via `ps`/`/proc/<pid>/cmdline`
-        # for the process's lifetime, so write it to a file instead and pass only the
-        # path. The file lands in the impersonated user's workspace.
+        # Pass the payload as a file, not on the command line: arguments are visible
+        # to any user on the host via `ps`/`/proc/<pid>/cmdline`. It no longer carries
+        # the HF token (launches keep it out of the job, see launch_model), so this is
+        # defense in depth. The file lands in the impersonated user's workspace.
         payload = self._build_launch_payload(
             model_name, enable_cloudflare_tunnel, params
         )

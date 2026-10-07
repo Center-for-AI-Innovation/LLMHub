@@ -662,3 +662,95 @@ def test_launch_options_derive_parallel_sizes_from_gpu_request():
     assert options.gpus_per_node == 4
     assert options.vllm_args == ("--tensor-parallel-size=4,--pipeline-parallel-size=2")
     assert client._build_launch_options().vllm_args is None
+
+
+def test_gated_store_functions_say_when_the_store_is_not_configured(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", None)
+
+    with pytest.raises(RuntimeError, match="MODEL_STORE_ROOT is not set"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+    with pytest.raises(RuntimeError, match="MODEL_STORE_ROOT is not set"):
+        llm_inference.resolve_gated_model_store_dir("Gated-7B")
+
+
+def _private_store(tmp_path, monkeypatch):
+    store_root = tmp_path / "store"
+    (store_root / "Gated-7B").mkdir(parents=True)
+    (store_root / "Gated-7B" / "config.json").write_text("{}")
+    store_root.chmod(0o700)
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+    return store_root
+
+
+def _fake_getfacl(monkeypatch, *, raises=None, stdout=""):
+    real_run = subprocess.run
+
+    def _run(command, *args, **kwargs):
+        if command and command[0] == "getfacl":
+            if raises is not None:
+                raise raises
+            return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(llm_inference.subprocess, "run", _run)
+
+
+@pytest.mark.parametrize(
+    "fake",
+    [
+        {"raises": subprocess.CalledProcessError(1, ["getfacl"], stderr="denied")},
+        {"stdout": "this is not an ACL line\n"},
+    ],
+    ids=["getfacl-fails", "unparseable-acl"],
+)
+def test_store_check_failures_become_runtime_errors(monkeypatch, tmp_path, fake):
+    """Callers only catch RuntimeError; anything else would be an HTTP 500."""
+    _private_store(tmp_path, monkeypatch)
+    _fake_getfacl(monkeypatch, **fake)
+
+    with pytest.raises(RuntimeError, match="Cannot check MODEL_STORE_ROOT"):
+        llm_inference.resolve_gated_model_store_dir("Gated-7B")
+    with pytest.raises(RuntimeError, match="Cannot check MODEL_STORE_ROOT"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+    message = llm_inference.start_gated_model_download(
+        "Other-7B", "org/other", "user-token"
+    )
+    assert "Cannot check MODEL_STORE_ROOT" in message
+
+
+def test_cross_filesystem_hard_link_becomes_a_runtime_error(monkeypatch, tmp_path):
+    """os.link raises EXDEV when the store and workspace are on different
+    filesystems, an easy misconfiguration."""
+    import errno
+
+    _private_store(tmp_path, monkeypatch)
+    workspace_dir = tmp_path / "alice"
+    workspace_dir.mkdir()
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", lambda _: workspace_dir
+    )
+    monkeypatch.setattr(
+        llm_inference, "_restrict_acl_to_cluster_user", lambda *a, **k: None
+    )
+
+    def _exdev(src, dst):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr(llm_inference.os, "link", _exdev)
+
+    with pytest.raises(RuntimeError, match="Failed to link 'Gated-7B'.*cross-device"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+
+
+def test_workspace_mkdir_failure_becomes_a_runtime_error(monkeypatch, tmp_path):
+    _private_store(tmp_path, monkeypatch)
+
+    def _no_permission(_):
+        raise PermissionError(13, "Permission denied", "/projects/llmhub/dev/alice")
+
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", _no_permission
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to link.*Permission denied"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")

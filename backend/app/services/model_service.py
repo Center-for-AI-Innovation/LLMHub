@@ -201,16 +201,39 @@ class ModelService:
         # Check and allocate resources if needed
         resource_service = ResourceService()
 
-        # Get the number of GPUs requested
+        # Get the number of GPUs requested. model_dump() always emits num_nodes
+        # (default None), so a dict-get default never fires -- `or 1` does.
         num_gpus = params.get("num_gpus")
-        num_nodes = params.get("num_nodes", 1)
+        num_nodes = params.get("num_nodes") or 1
 
         # Early Hugging Face access check (requested "fast exit")
         db_model = (
             db.query(AvailableModel).filter(AvailableModel.id == model_id).first()
         )
-        hf_repo_id = db_model.huggingfaceId if db_model else None
-        cached_gated = db_model.gated if db_model else None
+        # Fail closed: without a catalog row there is no repo id or gating status
+        # to check, and vec-inf would still launch anything in models.yaml -- a
+        # gated model included, from the default weights directory. This happens
+        # before the first sync, while a sync is failing, or for a models.yaml
+        # entry that hasn't synced yet.
+        if db_model is None:
+            db_deployment = ModelDeployment(
+                modelId=model_id,
+                modelName=deployment.modelName,
+                userId=deployment.userId,
+                slurmJobId="failed",
+                status="failed",
+                errorMessage=(
+                    f"Unknown model {model_id!r}; the model catalog has not been "
+                    "synced with it yet. Try again after the next sync."
+                ),
+                resourceAllocation=resource_allocation,
+            )
+            db.add(db_deployment)
+            db.commit()
+            db.refresh(db_deployment)
+            return db_deployment
+        hf_repo_id = db_model.huggingfaceId
+        cached_gated = db_model.gated
         if hf_repo_id:
             params["hf_model"] = hf_repo_id
 
