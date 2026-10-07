@@ -28,7 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- HF gating: gated launches now serve the weights in the protected store (or the user's hard-linked copy) instead of the repo id. With the repo id set, vec-inf served the model from the shared Hugging Face cache and never mounted the store, so gated weights already in the public cache bypassed the store.
+- HF gating: gated launches no longer pass the repo id to vec-inf. vec-inf already prefers the store copy (or the user's hard-linked copy) when it can see it, but with the repo id set it would fall back to the shared Hugging Face cache when it can't; the launch now fails instead.
 - HF gating: `launch_model` no longer falls back to a shared `settings.HF_TOKEN` when the requesting user supplies none — that let any user's launch inherit whatever gated repos the service account can see, defeating per-user gating. Only the requesting user's own token now authorizes access.
 - HF gating: for impersonated launches, the launch payload (which can carry the user's `hf_token`) is now written to a workspace-scoped file instead of passed inline on the command line, which was visible to any user on the host via `ps`/`/proc/<pid>/cmdline`.
 - HF gating: `model_name` is now resolved and containment-checked before being joined into shared-store and per-user workspace paths, closing a path-traversal gap (a crafted model name could otherwise read outside `MODEL_STORE_ROOT` or write outside the per-user workspace).

@@ -358,8 +358,9 @@ class ModelService:
             except RuntimeError as exc:
                 return None, f"Failed to prepare gated model weights: {exc}"
             params["model_weights_parent_dir"] = str(weights_parent_dir)
-            # With hf_model set, vec-inf serves the repo id out of the shared HF
-            # cache and never binds the weights directory chosen above.
+            # vec-inf prefers these weights when it can see them, but with
+            # hf_model set it falls back to the repo id, and so the shared HF
+            # cache, when it can't. Without it the launch fails instead.
             params.pop("hf_model", None)
 
         # model_dump() always emits num_nodes (default None), so a dict-get
