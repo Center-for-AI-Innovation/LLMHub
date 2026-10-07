@@ -161,12 +161,9 @@ from before impersonation: the backend at that tag defines none of the
 ./llmhub launch-test                     # before enabling CILogon -- see below
 ```
 
-**Who a web user can launch as.** The frontend takes the part of the signed-in
-email before the `@` as the cluster username. If that part contains a `+`, it uses
-what follows the `+` (so `netid+svcllmhubnetid@…` launches as `svcllmhubnetid`).
-It does not check the email's domain. The sudoers rule is therefore the only
-limit on which accounts the service can launch as. Set its scope deliberately,
-and restrict the CILogon client to the Illinois identity provider.
+**Who the service can launch as.** Scope the sudoers rule to the accounts the
+service may launch jobs as, and restrict the CILogon client to the Illinois
+identity provider.
 
 **Nothing restarts the stack after a reboot.** Ordinary users cannot use
 `crontab`, and their services do not linger. On a VM you administer, a systemd
@@ -380,9 +377,7 @@ printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhub<ne
 ```
 
 `launch-test` calls the backend API directly with `LLMHUB_TEST_CLUSTER_USER`.
-The frontend derives `clusterUsername` from the signed-in email; see
-[Deploying production](#deploying-production) for how. Impersonated job logs
-are under `/projects/llmhub/<user>/`.
+Impersonated job logs are under `/projects/llmhub/<user>/`.
 
 ## Secrets
 
