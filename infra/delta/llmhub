@@ -150,6 +150,9 @@ world_readable() {
     p="$(dirname "$p")"
     while [ "$p" != / ]; do m="$(stat -c %a "$p")"; [ $(( 8#$m & 1 )) -ne 0 ] || return 1; p="$(dirname "$p")"; done
 }
+# Can this account create entries in directory $1? That takes write AND search
+# (x) permission; -w alone passes a directory whose entries cannot be reached.
+can_create_in() { [ -d "$1" ] && [ -w "$1" ] && [ -x "$1" ]; }
 
 # How the backend resolves a user's Slurm accounts. From 1.1.0 it runs
 # `sacctmgr` itself, as the account running the backend; before that it ran
@@ -796,7 +799,7 @@ cmd_preflight() {
     [ -r "$DEPLOYED_FILE" ] && info "currently deployed: $(tr '\n' ' ' < "$DEPLOYED_FILE")"
     step "Filesystems"
     local p="$LLMHUB_DEPLOY_ROOT"; while [ ! -d "$p" ] && [ "$p" != / ]; do p="$(dirname "$p")"; done
-    [ -w "$p" ] && ok "deploy root writable (${p})" || bad "cannot write under ${p} — check getfacl, ls shows the ACL mask"
+    can_create_in "$p" && ok "deploy root writable (${p})" || bad "cannot create under ${p} (needs write and search permission) — check getfacl, ls shows the ACL mask"
     local free; free=$(( $(df -Pk "$p" | awk 'NR==2{print $4}') / 1048576 ))
     [ "$free" -ge 10 ] && ok "${free} G free at ${p}" || warn "only ${free} G free at ${p}"
     if command -v lfs >/dev/null 2>&1; then
@@ -812,7 +815,7 @@ cmd_preflight() {
     p="$LLMHUB_LOCAL_ROOT"; while [ ! -d "$p" ] && [ "$p" != / ]; do p="$(dirname "$p")"; done
     local fst; fst="$(stat -f -c %T "$p" 2>/dev/null)"
     if [ "$(hostname -s)" != "${LLMHUB_VM_HOST%%.*}" ]; then warn "not on ${LLMHUB_VM_HOST%%.*} — local root ${LLMHUB_LOCAL_ROOT} only exists there; run preflight on the VM before deploying"
-    elif [ ! -w "$p" ]; then bad "local root not writable (${p})"
+    elif ! can_create_in "$p"; then bad "local root not writable and searchable (${p})"
     elif [ "$fst" = tmpfs ]; then bad "local root ${p} is tmpfs — the database would live in RAM and vanish on reboot"
     else ok "local root ${p} on ${fst}, $(( $(df -Pk "$p" | awk 'NR==2{print $4}') / 1048576 )) G free (postgres + apptainer cache)"; fi
     step "Network (first deploy fetches Node, pnpm, Python, the postgres image and pip/npm packages)"
@@ -834,12 +837,12 @@ cmd_preflight() {
         # existing ancestor -- as the shared-root check below does.
         local wr="$LLMHUB_SHARED_WORK_ROOT"; while [ ! -d "$wr" ] && [ "$wr" != / ]; do wr="$(dirname "$wr")"; done
         if [ "$wr" = "$LLMHUB_SHARED_WORK_ROOT" ]; then
-            [ -w "$wr" ] && ok "${wr} writable (per-user workspaces)" || bad "${wr} not writable by ${ME}"
+            can_create_in "$wr" && ok "${wr} writable (per-user workspaces)" || bad "${wr} not writable and searchable by ${ME}"
         else
-            [ -w "$wr" ] && ok "${LLMHUB_SHARED_WORK_ROOT} will be created by deploy (under writable ${wr})" || bad "cannot create ${LLMHUB_SHARED_WORK_ROOT}: ${wr} not writable by ${ME}"
+            can_create_in "$wr" && ok "${LLMHUB_SHARED_WORK_ROOT} will be created by deploy (under writable ${wr})" || bad "cannot create ${LLMHUB_SHARED_WORK_ROOT}: ${wr} not writable and searchable by ${ME}"
         fi
         local sr="$LLMHUB_SHARED_ROOT"; while [ ! -d "$sr" ] && [ "$sr" != / ]; do sr="$(dirname "$sr")"; done
-        [ -w "$sr" ] && ok "shared root ${LLMHUB_SHARED_ROOT} (under writable ${sr})" || bad "cannot write under ${sr} for the shared root"
+        can_create_in "$sr" && ok "shared root ${LLMHUB_SHARED_ROOT} (under writable ${sr})" || bad "cannot create under ${sr} for the shared root (needs write and search permission)"
         world_readable "$sr" && ok "${sr} is world-readable" || bad "${sr} is not world-readable — svcllmhub* could not reach the shared root"
         if backend_uses_sacctmgr; then
             if ! command -v sacctmgr >/dev/null; then
