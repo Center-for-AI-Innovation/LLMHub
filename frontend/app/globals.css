@@ -17,10 +17,14 @@
  *     Covers: primary (Illini Blue), secondary/accent (Illini Orange), muted,
  *     border, ring, destructive, sidebar-*, chart-*, and status-*.
  *
- * Typography:
- *   font-display → Montserrat   (headings, brand marks)
- *   font-sans    → Source Sans 3 (body)
- *   font-mono    → system mono  (code, logs)
+ * Typography (mirrors the Illinois Web Toolkit, cdn.toolkit.illinois.edu/3):
+ *   h1           → Montserrat    (--il-font-heading)
+ *   h2–h6, body  → Source Sans 3 (--il-font-sans)
+ *   font-display → Montserrat    (brand marks, display type)
+ *   font-mono    → system mono   (code, logs)
+ *
+ * Text colors (light mode) follow the toolkit: body copy in Storm darker-2
+ * (#252525), headings in Illini Blue (#13294B).
  *
  * Spacing:  Tailwind default 4 px base scale.
  *
@@ -36,11 +40,11 @@
     :root {
         /* ── shadcn semantic tokens (HSL components, no hsl() wrapper) ──────── */
         --background: 0 0% 100%;
-        --foreground: 217 85% 15%;
+        --foreground: 0 0% 14.5%;
         --card: 0 0% 100%;
-        --card-foreground: 217 85% 15%;
+        --card-foreground: 0 0% 14.5%;
         --popover: 0 0% 100%;
-        --popover-foreground: 217 85% 15%;
+        --popover-foreground: 0 0% 14.5%;
         --primary: 217 85% 15%;
         --primary-foreground: 0 0% 98%;
         --secondary: 16 90% 42%;
@@ -164,14 +168,46 @@
         font-family: var(--il-font-sans), "Source Sans 3", "Source Sans Pro", Arial, sans-serif;
     }
 
-    h1,
+    h1 {
+        font-family: var(--il-font-heading), Montserrat, "Avenir Next", "Segoe UI", sans-serif;
+    }
+
     h2,
     h3,
     h4,
     h5,
     h6 {
-        font-family: var(--il-font-heading), Montserrat, "Avenir Next", "Segoe UI", sans-serif;
+        font-family: var(--il-font-sans), "Source Sans 3", "Source Sans Pro", Arial, sans-serif;
     }
+}
+
+/* ── Illinois Web Toolkit overrides ──────────────────────────────────────── */
+
+/* Footer action buttons: the toolkit paints them UIUC orange (#FF5F05) with
+   white text, only 3.05:1. Darken to Altgeld so white text passes WCAG AA
+   (same override as llm.ncsa.illinois.edu). */
+ilw-footer [slot="actions"] a,
+ilw-footer [slot="actions"] button {
+    background-color: var(--il-altgeld, #c84113) !important;
+    border-color: var(--il-altgeld, #c84113) !important;
+    color: #fff !important;
+}
+
+/* Buttons in the header's utility links (e.g. Logout) render like the
+   surrounding toolkit links. */
+ilw-header .ilw-header-link-button {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+ilw-header .ilw-header-link-button:hover,
+ilw-header .ilw-header-link-button:focus-visible {
+    text-decoration: none;
 }
 
 .skeleton {

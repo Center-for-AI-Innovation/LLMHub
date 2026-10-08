@@ -1,107 +1,87 @@
 'use client';
 
-import { Suspense } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { ThemeToggle } from '@/components/theme-toggle';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { useSession, useSignOut } from '@/hooks/use-auth';
-import { BrandMark } from '@/components/brand-mark';
-import { getLoginPath } from '@/lib/auth/paths';
-import { navigateToLogin } from '@/lib/auth/navigation';
 import Link from 'next/link';
-import { UserInitialsAvatar } from '@/components/user-initials-avatar';
+import { usePathname, useRouter } from 'next/navigation';
+import { useSession, useSignOut } from '@/hooks/use-auth';
+import { getLoginPath } from '@/lib/auth/paths';
 
-function NavbarInner() {
+const NAV_ITEMS = [
+  { label: 'Overview', href: '/', exact: true },
+  { label: 'Model Library', href: '/model-library', exact: false },
+  { label: 'Active Models', href: '/active-models', exact: false },
+  { label: 'Chat', href: '/chat', exact: false },
+  { label: 'Request a Model', href: '/request-model', exact: false },
+] as const;
+
+/**
+ * Site header built on the Illinois Web Toolkit `<ilw-header>`, matching the
+ * standardized NCSA sites (llm.ncsa.illinois.edu, lumen.ncsa.illinois.edu):
+ * the campus wordmark, NCSA as the primary unit, utility links for account
+ * actions, and the site navigation menu.
+ */
+export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
   const signOut = useSignOut();
-  const isChatPage = pathname.startsWith('/chat');
-  const router = useRouter(); 
-  return (
-    <header className="relative z-50 border-b border-primary/10 bg-background/50 backdrop-blur-xl">
-      <div className="container mx-auto flex h-16 items-center px-6">
-        <div className="flex items-center gap-2">
-          <BrandMark />
-        </div>
 
-        <div className="ml-auto flex items-center gap-3">
-          <TooltipProvider>
-            <ThemeToggle />
-            {!isChatPage ? (
-              session?.user ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      title={session.user.email ?? undefined}
-                      aria-label={
-                        session.user.email
-                          ? `Account menu, signed in as ${session.user.email}`
-                          : 'Account menu'
-                      }
-                      className="flex items-center rounded-full transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                      <UserInitialsAvatar
-                        name={session.user.name}
-                        email={session.user.email}
-                        className="size-8 text-sm"
-                      />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem asChild>
-                      <Link href="/profile" className="cursor-pointer">
-                        Profile
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <button
-                        type="button"
-                        className="w-full cursor-pointer"
-                        onClick={async () => {
-                          await signOut.mutateAsync();
-                          router.push('/');
-                        }}
-                      >
-                        Logout
-                      </button>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigateToLogin(getLoginPath(pathname))}
+  const isActive = (item: (typeof NAV_ITEMS)[number]) =>
+    item.exact ? pathname === item.href : pathname.startsWith(item.href);
+
+  return (
+    <ilw-header>
+      <a slot="primary-unit" href="https://www.ncsa.illinois.edu/">
+        National Center for Supercomputing Applications
+      </a>
+      <Link slot="site-name" href="/">
+        LLM Hub
+      </Link>
+
+      <nav slot="links" aria-label="Utility">
+        <ul>
+          <li>
+            <a href="https://llm.ncsa.illinois.edu/">LLM Services</a>
+          </li>
+          {session?.user ? (
+            <>
+              <li>
+                <Link href="/profile">Profile</Link>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  className="ilw-header-link-button"
+                  onClick={async () => {
+                    await signOut.mutateAsync();
+                    router.push('/');
+                  }}
                 >
-                  Login
-                </Button>
-              )
-            ) : null}
-          </TooltipProvider>
-        </div>
-      </div>
-    </header>
-  );
-}
+                  Logout
+                </button>
+              </li>
+            </>
+          ) : (
+            <li>
+              <a href={getLoginPath(pathname)}>Login</a>
+            </li>
+          )}
+        </ul>
+      </nav>
 
-export function Navbar() {
-  return (
-    <Suspense fallback={
-      <header className="relative z-50 border-b border-primary/10 bg-background/50 backdrop-blur-xl">
-        <div className="container mx-auto flex h-16 items-center px-6" />
-      </header>
-    }>
-      <NavbarInner />
-    </Suspense>
+      <ilw-header-menu slot="navigation">
+        <ul>
+          {NAV_ITEMS.map((item) => (
+            <li key={item.href}>
+              <Link
+                href={item.href}
+                aria-current={isActive(item) ? 'page' : undefined}
+              >
+                {item.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </ilw-header-menu>
+    </ilw-header>
   );
 }

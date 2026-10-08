@@ -17,7 +17,7 @@ export default async function LoginPage({
   }
 
   return (
-    <div className="flex min-h-dvh items-start justify-center bg-background px-4 pt-12 md:items-center md:pt-0">
+    <div className="flex flex-1 items-start justify-center px-4 py-12 md:items-center">
       <AuthView
         view="SIGN_IN"
         callbackURL={redirectTo}

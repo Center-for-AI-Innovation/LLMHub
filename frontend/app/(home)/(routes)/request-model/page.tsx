@@ -8,9 +8,9 @@ export const metadata: Metadata = {
 
 export default function RequestModelPage() {
   return (
-    <div className="container mx-auto flex min-h-screen max-w-2xl flex-col px-4 py-16">
+    <div className="container mx-auto flex max-w-2xl flex-col px-4 py-16">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl">
+        <h1 className="text-3xl font-bold tracking-tight text-primary sm:text-4xl md:text-5xl">
           Request a Model
         </h1>
         <p className="mt-4 text-lg text-muted-foreground">

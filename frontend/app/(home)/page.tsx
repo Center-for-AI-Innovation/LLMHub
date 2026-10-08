@@ -2,8 +2,6 @@
 
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Github } from 'lucide-react';
-import { Navbar } from '@/components/navbar';
 import { ChatBar } from '@/components/chat-bar';
 
 const FEATURES = [
@@ -32,15 +30,7 @@ const FEATURES = [
 
 export default function LandingPage() {
   return (
-    <div
-      className="flex min-h-screen flex-col bg-background"
-      style={{
-        backgroundImage:
-          'radial-gradient(circle, hsl(var(--primary) / 0.07) 1px, transparent 1px)',
-        backgroundSize: '28px 28px',
-      }}
-    >
-      <Navbar />
+    <div className="flex flex-1 flex-col">
 
       {/* ── Hero ── */}
       <section className="container mx-auto max-w-6xl px-6 pt-20 pb-24 lg:pt-28 lg:pb-32">
@@ -48,23 +38,20 @@ export default function LandingPage() {
           {/* Eyebrow */}
           <div className="flex items-center gap-3">
             <div className="h-[2px] w-8 bg-secondary" />
-            <span
-              className="text-xs font-bold tracking-[0.2em] uppercase text-secondary"
-              style={{ fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, monospace' }}
-            >
+            <span className="text-sm font-bold tracking-[0.15em] uppercase text-secondary-accessible">
               Now in Beta
             </span>
           </div>
 
           {/* H1 */}
-          <h1 className="font-display text-[clamp(4rem,10vw,8rem)] font-black leading-[0.9] tracking-tight text-primary">
+          <h1 className="font-display text-[clamp(3.5rem,9vw,7rem)] font-bold leading-[0.95] tracking-tight text-primary">
             AI for
             <br />
-            <span className="text-secondary">Illinois.</span>
+            <span className="text-secondary-accessible">Illinois.</span>
           </h1>
 
           {/* Subheading */}
-          <p className="max-w-lg text-lg text-muted-foreground leading-relaxed">
+          <p className="max-w-lg text-xl leading-relaxed">
             Access and deploy state-of-the-art language models for your research
             and applications. Built for the UIUC community.
           </p>
@@ -81,7 +68,7 @@ export default function LandingPage() {
         <div className="container mx-auto max-w-6xl px-6 py-20">
 
           {/* Section heading */}
-          <h2 className="font-display text-5xl sm:text-6xl lg:text-7xl font-black text-foreground leading-none tracking-tight mb-16">
+          <h2 className="text-4xl sm:text-5xl font-bold text-primary leading-tight mb-12">
             Capabilities
           </h2>
 
@@ -95,10 +82,10 @@ export default function LandingPage() {
                 <div className="h-[3px] w-12 bg-secondary transition-all duration-500 group-hover:w-full" />
 
                 <div className="flex flex-col gap-4 p-8 pt-7">
-                  <h3 className="font-display text-2xl font-bold text-foreground leading-tight">
+                  <h3 className="text-2xl font-bold text-primary leading-tight">
                     {title}
                   </h3>
-                  <p className="text-base text-muted-foreground leading-relaxed">
+                  <p className="text-lg leading-relaxed">
                     {body}
                   </p>
                 </div>
@@ -120,14 +107,11 @@ export default function LandingPage() {
                     inverts the other way, in step with the page) ends up on
                     the wrong side of contrast in both themes. Pin the
                     lightness explicitly instead of following the theme. */}
-                <span
-                  className="text-xs font-bold tracking-[0.2em] uppercase text-[hsl(16_85%_58%)] dark:text-[hsl(16_90%_38%)]"
-                  style={{ fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, monospace' }}
-                >
+                <span className="text-sm font-bold tracking-[0.15em] uppercase text-[hsl(16_85%_58%)] dark:text-[hsl(16_90%_38%)]">
                   Get Started
                 </span>
               </div>
-              <h2 className="font-display text-4xl font-black leading-tight tracking-tight text-primary-foreground sm:text-5xl">
+              <h2 className="text-4xl font-bold leading-tight text-primary-foreground sm:text-5xl">
                 Ready to build with state-of-the-art AI?
               </h2>
             </div>
@@ -151,33 +135,6 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
-
-      {/* ── Footer ── */}
-      <footer className="border-t border-primary/10 bg-background py-8 mt-auto">
-        <div className="container mx-auto max-w-6xl flex flex-col items-center justify-between gap-4 px-6 text-center md:flex-row md:text-left">
-          <p
-            className="text-xs text-muted-foreground"
-            style={{ fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, monospace' }}
-          >
-            © 2026 LLM Hub — University of Illinois
-          </p>
-          <div className="flex items-center gap-6">
-            <Link
-              href="https://github.com/uiuc-llm"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="GitHub"
-            >
-              <Github className="size-4" />
-            </Link>
-            <Link href="/privacy" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-              Privacy Policy
-            </Link>
-            <Link href="/terms" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-              Terms of Service
-            </Link>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

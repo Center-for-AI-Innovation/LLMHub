@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { Providers } from '@/components/providers';
 import { isCilogonEnabled } from '@/lib/auth/config';
 
@@ -52,7 +53,9 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <link rel="stylesheet" href="https://cdn.brand.illinois.edu/illinois.css" />
+        {/* Illinois Web Toolkit v3: brand tokens/fonts (it @imports
+            illinois.css) plus the <ilw-header>/<ilw-footer> components. */}
+        <link rel="stylesheet" href="https://cdn.toolkit.illinois.edu/3/toolkit.css" />
         <script
           dangerouslySetInnerHTML={{
             __html: THEME_COLOR_SCRIPT,
@@ -64,6 +67,14 @@ export default async function RootLayout({
         <Providers isCilogonEnabled={cilogonEnabled}>
           {children}
         </Providers>
+        {/* Loaded after hydration: upgrading the toolkit's custom elements
+            mutates their attributes/children, which would otherwise cause a
+            React hydration mismatch. */}
+        <Script
+          type="module"
+          src="https://cdn.toolkit.illinois.edu/3/toolkit.js"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
