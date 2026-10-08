@@ -1,0 +1,120 @@
+{{- $fe := .Values.frontend }}
+{{- $alwaysOnUrl := $fe.config.ALWAYS_ON_VLLM_BASE_URL }}
+{{- $alwaysOnModel := $fe.config.ALWAYS_ON_VLLM_MODEL }}
+{{- if and .Values.vllm.enabled (not $alwaysOnUrl) }}
+{{- $alwaysOnUrl = printf "http://%s-vllm:%v/v1" (include "llmhub.fullname" .) .Values.vllm.service.port }}
+{{- $alwaysOnModel = default .Values.vllm.model $alwaysOnModel }}
+{{- end }}
+{{- $config := merge (dict "ALWAYS_ON_VLLM_BASE_URL" $alwaysOnUrl "ALWAYS_ON_VLLM_MODEL" $alwaysOnModel) (deepCopy $fe.config) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llmhub.fullname" . }}-frontend
+  labels:
+    {{- include "llmhub.componentLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
+spec:
+  type: {{ $fe.service.type }}
+  ports:
+    - name: http
+      port: {{ $fe.service.port }}
+      targetPort: http
+  selector:
+    {{- include "llmhub.componentSelectorLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llmhub.fullname" . }}-frontend
+  labels:
+    {{- include "llmhub.componentLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
+spec:
+  replicas: {{ $fe.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "llmhub.componentSelectorLabels" (dict "ctx" . "component" "frontend") | nindent 6 }}
+  template:
+    metadata:
+      {{- with $fe.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "llmhub.componentSelectorLabels" (dict "ctx" . "component" "frontend") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "llmhub.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $fe.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- include "llmhub.waitForDb" . | nindent 8 }}
+      containers:
+        - name: frontend
+          image: {{ include "llmhub.image" (dict "image" $fe.image "ctx" .) }}
+          imagePullPolicy: {{ $fe.image.pullPolicy }}
+          {{- with $fe.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $fe.containerPort }}
+          env:
+            {{- include "llmhub.db.env" . | nindent 12 }}
+            - name: POSTGRES_URL
+              value: $(LLMHUB_DATABASE_URL)
+            - name: BACKEND_API_URL
+              value: {{ printf "http://%s-backend:%v" (include "llmhub.fullname" .) .Values.backend.service.port | quote }}
+            - name: BETTER_AUTH_URL
+              value: {{ include "llmhub.publicUrl" . | quote }}
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ $fe.containerPort | quote }}
+            {{- range list "BETTER_AUTH_SECRET" "USER_API_KEY_PEPPER" "CILOGON_CLIENT_ID" "CILOGON_CLIENT_SECRET" "ALWAYS_ON_VLLM_API_KEY" "OPENAI_API_KEY" "NCSA_API_KEY" "S3_ACCESS_KEY_ID" "S3_SECRET_ACCESS_KEY" }}
+            {{- include "llmhub.secretEnv" (dict "name" . "ctx" $) | nindent 12 }}
+            {{- end }}
+            {{- include "llmhub.envFromMap" $config | nindent 12 }}
+            {{- with $fe.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $fe.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $fe.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $fe.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $fe.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $fe.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with $fe.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $fe.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $fe.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $fe.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

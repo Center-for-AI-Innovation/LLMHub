@@ -1,0 +1,145 @@
+{{- $be := .Values.backend }}
+{{- $public := include "llmhub.publicUrl" . }}
+{{- $cors := concat (list $public) $be.corsOrigins | uniq }}
+{{- if or $be.vecInf.environmentYaml $be.vecInf.modelsYaml }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "llmhub.fullname" . }}-vec-inf
+  labels:
+    {{- include "llmhub.componentLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
+data:
+  {{- with $be.vecInf.environmentYaml }}
+  environment.yaml: |
+    {{- . | nindent 4 }}
+  {{- end }}
+  {{- with $be.vecInf.modelsYaml }}
+  models.yaml: |
+    {{- . | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llmhub.fullname" . }}-backend
+  labels:
+    {{- include "llmhub.componentLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
+spec:
+  type: {{ $be.service.type }}
+  ports:
+    - name: http
+      port: {{ $be.service.port }}
+      targetPort: http
+  selector:
+    {{- include "llmhub.componentSelectorLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llmhub.fullname" . }}-backend
+  labels:
+    {{- include "llmhub.componentLabels" (dict "ctx" . "component" "backend") | nindent 4 }}
+spec:
+  replicas: {{ $be.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "llmhub.componentSelectorLabels" (dict "ctx" . "component" "backend") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/vec-inf: {{ $be.vecInf | toYaml | sha256sum }}
+        {{- with $be.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "llmhub.componentSelectorLabels" (dict "ctx" . "component" "backend") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "llmhub.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $be.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- include "llmhub.waitForDb" . | nindent 8 }}
+      containers:
+        - name: backend
+          image: {{ include "llmhub.image" (dict "image" $be.image "ctx" .) }}
+          imagePullPolicy: {{ $be.image.pullPolicy }}
+          {{- with $be.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $be.containerPort }}
+          env:
+            {{- include "llmhub.db.env" . | nindent 12 }}
+            - name: DATABASE_URL
+              value: $(LLMHUB_DATABASE_URL)
+            - name: BACKEND_CORS_ORIGINS
+              value: {{ $cors | toJson | quote }}
+            - name: FRONTEND_URL
+              value: {{ $public | quote }}
+            {{- if or $be.vecInf.environmentYaml $be.vecInf.modelsYaml }}
+            - name: VEC_INF_CONFIG_DIR
+              value: /etc/llmhub/vec-inf
+            {{- end }}
+            # Rendered even when empty: an empty SMTP_HOST disables email, while
+            # an unset one falls back to the campus relay.
+            - name: SMTP_HOST
+              value: {{ $be.config.SMTP_HOST | default "" | quote }}
+            {{- include "llmhub.envFromMap" (omit $be.config "SMTP_HOST") | nindent 12 }}
+            {{- with $be.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with $be.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $be.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $be.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $be.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- if or $be.vecInf.environmentYaml $be.vecInf.modelsYaml }}
+            - name: vec-inf-config
+              mountPath: /etc/llmhub/vec-inf
+              readOnly: true
+            {{- end }}
+            {{- with $be.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        {{- if or $be.vecInf.environmentYaml $be.vecInf.modelsYaml }}
+        - name: vec-inf-config
+          configMap:
+            name: {{ include "llmhub.fullname" . }}-vec-inf
+        {{- end }}
+        {{- with $be.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $be.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $be.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $be.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
