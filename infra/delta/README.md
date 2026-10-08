@@ -334,6 +334,11 @@ Local accounts are the default. CILogon needs four things, in this order:
 4. `CILOGON_CLIENT_ID`, `CILOGON_CLIENT_SECRET` (and the discovery URL / skin
    if not the defaults) in `secrets.env`, then `./llmhub render`.
 
+With CILogon on, `OAUTH_MAPFILE_PATH` (default `/sw/grid-security/oauth-mapfile`)
+gates sign-in: the login email must appear in the mapfile's first column.
+Plus-address test accounts (`netid+svcllmhubnetid@…`) are rewritten like model
+launch before the lookup. Set `OAUTH_MAPFILE_PATH=` in `local.env` to disable.
+
 ## Inference jobs and the vLLM image
 
 `smoke` never launches a model. `POST /api/models/deployments` submits a real
