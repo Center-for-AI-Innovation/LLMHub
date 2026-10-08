@@ -1,0 +1,40 @@
+{{- if .Values.migrations.enabled }}
+{{- $m := .Values.migrations }}
+# Drizzle migrations from the frontend image (the frontend owns the schema).
+# Named per revision so each install/upgrade gets a fresh, immutable Job.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-migrate-%d" (include "llmhub.fullname" .) .Release.Revision | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "llmhub.componentLabels" (dict "ctx" . "component" "migrate") | nindent 4 }}
+spec:
+  backoffLimit: {{ $m.backoffLimit }}
+  ttlSecondsAfterFinished: {{ $m.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "llmhub.componentSelectorLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "llmhub.serviceAccountName" . }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- include "llmhub.waitForDb" . | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "llmhub.image" (dict "image" .Values.frontend.image "ctx" .) }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          command: {{ toYaml $m.command | nindent 12 }}
+          env:
+            {{- include "llmhub.db.env" . | nindent 12 }}
+            - name: POSTGRES_URL
+              value: $(LLMHUB_DATABASE_URL)
+          {{- with $m.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}

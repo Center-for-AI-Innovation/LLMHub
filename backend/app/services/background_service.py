@@ -315,13 +315,23 @@ class BackgroundService:
 
     def _get_active_deployments(self, db: Session) -> List[ModelDeployment]:
         """Get active deployments that need status updates."""
-        return (
+        deployments = (
             db.query(ModelDeployment)
             .filter(
                 ModelDeployment.status.in_(["pending", "launching", "running", "ready"])
             )
             .all()
         )
+        # The frontend's local test deployments (NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS)
+        # point at an always-on vLLM and have no Slurm job behind them.
+        return [
+            d
+            for d in deployments
+            if not (
+                isinstance(d.resourceAllocation, dict)
+                and d.resourceAllocation.get("mode") == "local"
+            )
+        ]
 
 
 # Singleton instance

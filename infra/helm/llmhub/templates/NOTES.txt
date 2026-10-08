@@ -1,0 +1,25 @@
+LLMHub {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+{{- if .Values.ingress.enabled }}
+
+Frontend: {{ include "llmhub.publicUrl" . }}
+{{- else }}
+
+Frontend (port-forward):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "llmhub.fullname" . }}-frontend {{ .Values.frontend.service.port }}
+  open {{ include "llmhub.publicUrl" . }}
+{{- end }}
+
+Backend API docs (internal only):
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "llmhub.fullname" . }}-backend 8000:{{ .Values.backend.service.port }}
+  open http://localhost:8000/docs
+
+{{- if not .Values.secrets.existingSecret }}
+
+App secrets are in Secret "{{ include "llmhub.secretName" . }}" (kept on uninstall).
+USER_API_KEY_PEPPER must stay stable: rotating it invalidates every user API key.
+{{- end }}
+{{- if not .Values.secrets.cilogonClientId }}
+
+CILogon is not configured: the frontend uses local email/password accounts.
+{{- end }}
