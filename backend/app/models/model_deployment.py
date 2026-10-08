@@ -20,6 +20,7 @@ class ModelDeployment(Base):
     slurmJobId = Column(String, nullable=False)
     status = Column(
         Enum(
+            "downloading",
             "pending",
             "launching",
             "ready",

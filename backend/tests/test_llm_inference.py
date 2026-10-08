@@ -542,17 +542,15 @@ def test_gated_store_refuses_a_group_readable_root(monkeypatch, tmp_path):
         llm_inference.resolve_gated_model_store_dir("Gated-7B")
     with pytest.raises(RuntimeError, match="open to other accounts"):
         llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
-    message = llm_inference.start_gated_model_download(
-        "Other-7B", "org/other", "user-token"
-    )
-    assert "open to other accounts" in message
+    with pytest.raises(RuntimeError, match="open to other accounts"):
+        llm_inference.start_gated_model_download("Other-7B", "org/other", "user-token")
 
 
 def test_gated_store_root_is_created_owner_only(monkeypatch, tmp_path):
     store_root = tmp_path / "missing" / "store"
     monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
     monkeypatch.setattr(llm_inference.threading, "Thread", _NoopThread)
-    monkeypatch.setattr(llm_inference, "_gated_downloads_in_progress", set())
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
 
     llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
 
@@ -590,11 +588,123 @@ class _NoopThread:
         pass
 
 
-def test_shared_cache_dirs_come_from_settings_only(monkeypatch):
+def test_shared_cache_dirs_never_include_the_model_cache(monkeypatch):
     monkeypatch.setattr(settings, "MODEL_CACHE_DIR", "/cache/huggingface")
-    monkeypatch.setattr(settings, "COMPILE_CACHE_DIR", None)
+    monkeypatch.setattr(settings, "COMPILE_CACHE_DIR", "/cache/torch_inductor")
 
-    assert llm_inference._get_shared_cache_dirs() == [Path("/cache/huggingface")]
+    assert llm_inference._get_shared_cache_dirs() == [Path("/cache/torch_inductor")]
+
+
+def test_public_model_downloads_into_cache_then_is_found(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
+
+    def fake_snapshot_download(repo_id, cache_dir, token, ignore_patterns):
+        assert (repo_id, cache_dir, token) == ("org/public", tmp_path, False)
+        snapshot = Path(cache_dir) / "models--org--public" / "snapshots" / "abc"
+        snapshot.mkdir(parents=True)
+        (snapshot / "config.json").write_text("{}")
+
+    class InlineThread:
+        def __init__(self, target, args, daemon):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(llm_inference, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
+
+    assert llm_inference.start_public_model_download("org/public") is True
+    assert llm_inference.start_public_model_download("org/public") is False
+    assert llm_inference.public_model_download_state("org/public") == ("ready", None)
+
+
+def test_public_download_leaves_nothing_group_or_other_writable(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
+
+    def fake_snapshot_download(repo_id, cache_dir, token, ignore_patterns):
+        # What huggingface_hub 2.x leaves in its shared blob store.
+        prefix = Path(cache_dir) / "blobs" / "ab"
+        prefix.mkdir(parents=True)
+        for name in ("abcd.refs", "abcd.lock"):
+            (prefix / name).touch()
+            (prefix / name).chmod(0o666)
+        (prefix / "abcd").touch()
+        (prefix / "abcd").chmod(0o444)
+        (Path(cache_dir) / "models--org--public").mkdir()
+
+    class InlineThread:
+        def __init__(self, target, args, daemon):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(llm_inference, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
+
+    llm_inference.start_public_model_download("org/public")
+
+    prefix = tmp_path / "blobs" / "ab"
+    assert (prefix / "abcd.refs").stat().st_mode & 0o777 == 0o644
+    assert (prefix / "abcd.lock").stat().st_mode & 0o777 == 0o644
+    assert (prefix / "abcd").stat().st_mode & 0o777 == 0o444
+    assert (tmp_path / "models--org--public" / ".llmhub-complete").is_file()
+
+
+def test_failed_public_download_is_reported_then_retried(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
+    monkeypatch.setattr(llm_inference, "_download_failures", {})
+    (tmp_path / "models--org--public" / "snapshots" / "abc").mkdir(parents=True)
+
+    def failing_snapshot_download(**kwargs):
+        raise OSError("connection reset")
+
+    class InlineThread:
+        def __init__(self, target, args, daemon):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(llm_inference, "snapshot_download", failing_snapshot_download)
+    monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
+
+    # A partial snapshot without the marker is not a cached model.
+    assert llm_inference.start_public_model_download("org/public") is True
+    assert llm_inference.public_model_download_state("org/public") == (
+        "failed",
+        "connection reset",
+    )
+
+    # Launching again starts a fresh download, which clears the old failure.
+    monkeypatch.setattr(llm_inference.threading, "Thread", _NoopThread)
+    assert llm_inference.start_public_model_download("org/public") is True
+    assert llm_inference.public_model_download_state("org/public") == (
+        "downloading",
+        None,
+    )
+
+
+def test_public_download_cut_short_by_a_restart_reads_as_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
+    monkeypatch.setattr(llm_inference, "_download_failures", {})
+
+    assert llm_inference.public_model_download_state("org/public") == (
+        "missing",
+        None,
+    )
+
+
+def test_public_download_is_skipped_without_a_model_cache(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", None)
+
+    assert llm_inference.start_public_model_download("org/public") is False
+    assert llm_inference.public_model_download_state("org/public") == ("ready", None)
 
 
 def test_gated_model_downloads_into_store_then_is_found(monkeypatch, tmp_path):
@@ -615,18 +725,19 @@ def test_gated_model_downloads_into_store_then_is_found(monkeypatch, tmp_path):
     monkeypatch.setattr(llm_inference, "snapshot_download", fake_snapshot_download)
     monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
 
-    message = llm_inference.start_gated_model_download(
-        "Gated-7B", "org/gated", "user-token"
+    assert (
+        llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
+        is True
     )
 
-    assert "Downloading" in message
     config = tmp_path / "Gated-7B" / "config.json"
     assert config.stat().st_mode & 0o777 == 0o644
     assert not (tmp_path / "Gated-7B.partial").exists()
     assert (
         llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
-        is None
+        is False
     )
+    assert llm_inference.gated_model_download_state("Gated-7B") == ("ready", None)
 
 
 @pytest.mark.skipif(
@@ -662,3 +773,93 @@ def test_launch_options_derive_parallel_sizes_from_gpu_request():
     assert options.gpus_per_node == 4
     assert options.vllm_args == ("--tensor-parallel-size=4,--pipeline-parallel-size=2")
     assert client._build_launch_options().vllm_args is None
+
+
+def test_gated_store_functions_say_when_the_store_is_not_configured(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", None)
+
+    with pytest.raises(RuntimeError, match="MODEL_STORE_ROOT is not set"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+    with pytest.raises(RuntimeError, match="MODEL_STORE_ROOT is not set"):
+        llm_inference.resolve_gated_model_store_dir("Gated-7B")
+
+
+def _private_store(tmp_path, monkeypatch):
+    store_root = tmp_path / "store"
+    (store_root / "Gated-7B").mkdir(parents=True)
+    (store_root / "Gated-7B" / "config.json").write_text("{}")
+    store_root.chmod(0o700)
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+    return store_root
+
+
+def _fake_getfacl(monkeypatch, *, raises=None, stdout=""):
+    real_run = subprocess.run
+
+    def _run(command, *args, **kwargs):
+        if command and command[0] == "getfacl":
+            if raises is not None:
+                raise raises
+            return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(llm_inference.subprocess, "run", _run)
+
+
+@pytest.mark.parametrize(
+    "fake",
+    [
+        {"raises": subprocess.CalledProcessError(1, ["getfacl"], stderr="denied")},
+        {"stdout": "this is not an ACL line\n"},
+    ],
+    ids=["getfacl-fails", "unparseable-acl"],
+)
+def test_store_check_failures_become_runtime_errors(monkeypatch, tmp_path, fake):
+    """Callers only catch RuntimeError; anything else would be an HTTP 500."""
+    _private_store(tmp_path, monkeypatch)
+    _fake_getfacl(monkeypatch, **fake)
+
+    with pytest.raises(RuntimeError, match="Cannot check MODEL_STORE_ROOT"):
+        llm_inference.resolve_gated_model_store_dir("Gated-7B")
+    with pytest.raises(RuntimeError, match="Cannot check MODEL_STORE_ROOT"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+    with pytest.raises(RuntimeError, match="Cannot check MODEL_STORE_ROOT"):
+        llm_inference.start_gated_model_download("Other-7B", "org/other", "user-token")
+
+
+def test_cross_filesystem_hard_link_becomes_a_runtime_error(monkeypatch, tmp_path):
+    """os.link raises EXDEV when the store and workspace are on different
+    filesystems, an easy misconfiguration."""
+    import errno
+
+    _private_store(tmp_path, monkeypatch)
+    workspace_dir = tmp_path / "alice"
+    workspace_dir.mkdir()
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", lambda _: workspace_dir
+    )
+    monkeypatch.setattr(
+        llm_inference, "_restrict_acl_to_cluster_user", lambda *a, **k: None
+    )
+
+    def _exdev(src, dst):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr(llm_inference.os, "link", _exdev)
+
+    with pytest.raises(RuntimeError, match="Failed to link 'Gated-7B'.*cross-device"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+
+
+def test_workspace_mkdir_failure_becomes_a_runtime_error(monkeypatch, tmp_path):
+    _private_store(tmp_path, monkeypatch)
+
+    def _no_permission(_):
+        raise PermissionError(13, "Permission denied", "/projects/llmhub/dev/alice")
+
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", _no_permission
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to link.*Permission denied"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")

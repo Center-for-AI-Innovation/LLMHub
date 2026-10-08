@@ -1,9 +1,12 @@
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
 from app.models.available_model import AvailableModel
+from app.models.model_deployment import ModelDeployment
 from app.schemas.model_deployment import ModelDeploymentCreate
-from app.services.model_service import ModelService
+from app.services.model_service import NO_SLURM_JOB_YET, ModelService
 
 
 class FakeQuery:
@@ -54,7 +57,9 @@ class FakeLLMClient:
 
 
 def test_launch_model_persists_cluster_username():
-    db = FakeDbSession()
+    db = FakeGatedDbSession(
+        AvailableModel(id="Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B")
+    )
     service = ModelService()
     fake_llm_client = FakeLLMClient()
     service.llm_client = fake_llm_client
@@ -127,6 +132,7 @@ def test_launch_model_scopes_gated_weights_to_cluster_user(monkeypatch):
         fake_llm_client.calls[0]["params"]["model_weights_parent_dir"]
         == "/workspace/alice/model-weights"
     )
+    assert "hf_model" not in fake_llm_client.calls[0]["params"]
     assert "valid-token" not in (fake_llm_client.calls[0]["params"].get("env") or "")
 
 
@@ -200,6 +206,7 @@ def test_launch_model_scopes_gated_weights_to_protected_store_when_direct(monkey
         fake_llm_client.calls[0]["params"]["model_weights_parent_dir"]
         == "/protected/model-store"
     )
+    assert "hf_model" not in fake_llm_client.calls[0]["params"]
 
 
 def test_launch_model_direct_gated_store_failure_fails_deployment(monkeypatch):
@@ -408,39 +415,300 @@ def test_launch_model_runs_the_access_checked_model_id():
     assert fake_llm_client.calls[0]["model_name"] == "Qwen3-8B"
 
 
-def test_launch_model_gated_missing_from_store_starts_download(monkeypatch):
-    gated_model = AvailableModel(
-        id="Gated-7B", huggingfaceId="org/gated", gated="manual"
-    )
-    db = FakeGatedDbSession(gated_model)
-    service = ModelService()
-    fake_llm_client = FakeLLMClient()
-    service.llm_client = fake_llm_client
+@pytest.fixture
+def sql_db():
+    """A real SQLite session with the real ORM models and the frontend migration's
+    one-active-deployment-per-user index, so conditional updates and the
+    "already running" conflict run as real SQL."""
+    engine = create_engine("sqlite://")
+    AvailableModel.__table__.create(engine)
+    ModelDeployment.__table__.create(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                'CREATE UNIQUE INDEX "ModelDeployment_active_modelId_userId_unique" '
+                'ON "ModelDeployment" ("modelId","userId") '
+                "WHERE status IN ('pending', 'launching', 'ready', 'running')"
+            )
+        )
+    session = sessionmaker(bind=engine)()
+    yield session
+    session.close()
 
+
+USER_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+
+def _catalog(db, model_id, repo_id, gated=None):
+    db.add(
+        AvailableModel(
+            id=model_id,
+            name=model_id,
+            type="small",
+            family="test",
+            variant="",
+            modelType="LLM",
+            specs={},
+            huggingfaceId=repo_id,
+            gated=gated,
+        )
+    )
+    db.commit()
+
+
+def _service():
+    service = ModelService()
+    service.llm_client = FakeLLMClient()
+    return service
+
+
+def _launch_while_downloading(monkeypatch, db, service, model_id, **kwargs):
+    monkeypatch.setattr(
+        "app.services.model_service.start_public_model_download", lambda *a: True
+    )
+    monkeypatch.setattr(
+        "app.services.model_service.start_gated_model_download", lambda *a: True
+    )
     monkeypatch.setattr(
         "app.services.model_service.check_model_hf_access",
         lambda *a, **k: (True, None),
     )
-    started = []
-    monkeypatch.setattr(
-        "app.services.model_service.start_gated_model_download",
-        lambda *args: started.append(args) or "Downloading gated model weights",
+    return service.launch_model(
+        db=db,
+        deployment=ModelDeploymentCreate(
+            modelName=model_id, modelId=model_id, userId=USER_ID, **kwargs
+        ),
     )
 
-    deployment = ModelDeploymentCreate(
-        modelName="Gated-7B",
-        modelId="Gated-7B",
-        userId="11111111-1111-1111-1111-111111111111",
+
+def _download_state(monkeypatch, state, error=None):
+    monkeypatch.setattr(
+        "app.services.model_service.public_model_download_state",
+        lambda repo_id: (state, error),
+    )
+    monkeypatch.setattr(
+        "app.services.model_service.gated_model_download_state",
+        lambda model_name: (state, error),
+    )
+
+
+def test_launch_model_waits_for_a_gated_download(monkeypatch, sql_db):
+    _catalog(sql_db, "Gated-7B", "org/gated", gated="manual")
+    service = _service()
+    started = []
+    monkeypatch.setattr(
+        "app.services.model_service.check_model_hf_access",
+        lambda *a, **k: (True, None),
+    )
+    monkeypatch.setattr(
+        "app.services.model_service.start_gated_model_download",
+        lambda *args: started.append(args) or True,
+    )
+
+    result = service.launch_model(
+        db=sql_db,
+        deployment=ModelDeploymentCreate(
+            modelName="Gated-7B",
+            modelId="Gated-7B",
+            userId=USER_ID,
+            clusterUsername="alice",
+            hf_token="valid-token",
+        ),
+    )
+
+    assert started == [("Gated-7B", "org/gated", "valid-token")]
+    assert result.status == "downloading"
+    assert result.slurmJobId == NO_SLURM_JOB_YET
+    assert result.errorMessage is None
+    assert "valid-token" not in repr(result.resourceAllocation)
+    assert service.llm_client.calls == []
+
+
+def test_launch_model_waits_for_a_public_download(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+
+    first = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+    second = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+
+    assert first.status == "downloading"
+    # Clicking launch again while it downloads doesn't queue a second job.
+    assert second.id == first.id
+    assert sql_db.query(ModelDeployment).count() == 1
+    assert service.llm_client.calls == []
+
+
+def test_launch_model_fails_when_the_download_cannot_start(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+
+    def refuse(repo_id):
+        raise RuntimeError("Cannot read the model cache: denied")
+
+    monkeypatch.setattr(
+        "app.services.model_service.start_public_model_download", refuse
+    )
+
+    result = service.launch_model(
+        db=sql_db,
+        deployment=ModelDeploymentCreate(
+            modelName="Qwen3-8B", modelId="Qwen3-8B", userId=USER_ID
+        ),
+    )
+
+    assert result.status == "failed"
+    assert result.errorMessage == "Cannot read the model cache: denied"
+
+
+def test_downloading_deployment_launches_once_the_weights_arrive(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+    deployment = _launch_while_downloading(
+        monkeypatch, sql_db, service, "Qwen3-8B", clusterUsername="alice"
+    )
+
+    _download_state(monkeypatch, "downloading")
+    service.advance_downloading_deployments(sql_db)
+    assert service.llm_client.calls == []
+
+    _download_state(monkeypatch, "ready")
+    service.advance_downloading_deployments(sql_db)
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    assert deployment.status == "pending"
+    assert deployment.slurmJobId == "12345"
+    assert len(service.llm_client.calls) == 1
+    call = service.llm_client.calls[0]
+    assert call["model_name"] == "Qwen3-8B"
+    assert call["params"]["hf_model"] == "Qwen/Qwen3-8B"
+    assert call["cluster_username"] == "alice"
+
+
+def test_downloaded_gated_model_launches_from_the_user_copy(monkeypatch, sql_db):
+    _catalog(sql_db, "Gated-7B", "org/gated", gated="manual")
+    service = _service()
+    deployment = _launch_while_downloading(
+        monkeypatch,
+        sql_db,
+        service,
+        "Gated-7B",
         clusterUsername="alice",
         hf_token="valid-token",
     )
+    monkeypatch.setattr(
+        "app.services.model_service.ensure_gated_model_weights_for_user",
+        lambda cluster_username, model_name: f"/workspace/{cluster_username}/weights",
+    )
 
-    result = service.launch_model(db=db, deployment=deployment)
+    _download_state(monkeypatch, "ready")
+    service.advance_downloading_deployments(sql_db)
 
-    assert started == [("Gated-7B", "org/gated", "valid-token")]
-    assert result.status == "failed"
-    assert "Downloading" in result.errorMessage
-    assert fake_llm_client.calls == []
+    sql_db.refresh(deployment)
+    assert deployment.status == "pending"
+    params = service.llm_client.calls[0]["params"]
+    assert params["model_weights_parent_dir"] == "/workspace/alice/weights"
+    assert "hf_model" not in params
+
+
+def test_failed_download_fails_the_deployment(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+    deployment = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+
+    _download_state(monkeypatch, "failed", "401 Unauthorized")
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    assert deployment.status == "failed"
+    assert "401 Unauthorized" in deployment.errorMessage
+    assert service.llm_client.calls == []
+
+
+def test_public_download_cut_short_by_a_restart_starts_again(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+    deployment = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+    restarted = []
+    monkeypatch.setattr(
+        "app.services.model_service.start_public_model_download",
+        lambda repo_id: restarted.append(repo_id) or True,
+    )
+
+    _download_state(monkeypatch, "missing")
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    assert restarted == ["Qwen/Qwen3-8B"]
+    assert deployment.status == "downloading"
+
+
+def test_gated_download_cut_short_by_a_restart_asks_for_a_relaunch(monkeypatch, sql_db):
+    """The user's token is never stored, so the backend can't restart it."""
+    _catalog(sql_db, "Gated-7B", "org/gated", gated="manual")
+    service = _service()
+    deployment = _launch_while_downloading(
+        monkeypatch, sql_db, service, "Gated-7B", hf_token="valid-token"
+    )
+
+    _download_state(monkeypatch, "missing")
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    assert deployment.status == "failed"
+    assert "Launch the model again" in deployment.errorMessage
+
+
+def test_shutting_down_while_downloading_never_submits_a_job(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+    deployment = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+
+    # FakeLLMClient has no shutdown_model: calling it would raise.
+    service.shutdown_deployment(sql_db, deployment.id)
+    _download_state(monkeypatch, "ready")
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    assert deployment.status == "shutdown"
+    assert service.llm_client.calls == []
+
+
+def test_download_finishing_while_the_model_already_runs_fails_cleanly(
+    monkeypatch, sql_db
+):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+    deployment = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+    sql_db.add(
+        ModelDeployment(
+            modelId="Qwen3-8B",
+            modelName="Qwen3-8B",
+            userId=deployment.userId,
+            slurmJobId="999",
+            status="running",
+        )
+    )
+    sql_db.commit()
+
+    _download_state(monkeypatch, "ready")
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    assert deployment.status == "failed"
+    assert "already running" in deployment.errorMessage
+    assert service.llm_client.calls == []
+
+
+def test_status_refresh_skips_deployments_without_a_job(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+    deployment = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+
+    # FakeLLMClient has no get_model_status: asking Slurm would raise.
+    refreshed = service.update_deployment_status(sql_db, deployment.id)
+
+    assert refreshed.status == "downloading"
 
 
 def test_tunnel_lookup_uses_the_launched_model_id():
@@ -481,3 +749,58 @@ def test_tunnel_lookup_uses_the_launched_model_id():
 
     assert looked_up == [("Qwen3-8B", "12345", "alice")]
     assert deployment.proxyUrl == "https://example.trycloudflare.com"
+
+
+def test_launch_model_fails_closed_for_a_model_missing_from_the_catalog():
+    """No catalog row means no repo id or gating status to check; vec-inf would
+    still launch a gated model from models.yaml, so refuse instead."""
+    service = ModelService()
+    fake_llm_client = FakeLLMClient()
+    service.llm_client = fake_llm_client
+
+    result = service.launch_model(
+        db=FakeDbSession(),
+        deployment=ModelDeploymentCreate(
+            modelName="Gated-7B",
+            modelId="Gated-7B",
+            userId="11111111-1111-1111-1111-111111111111",
+        ),
+    )
+
+    assert fake_llm_client.calls == []
+    assert result.status == "failed"
+    assert "has not been synced" in result.errorMessage
+
+
+def test_launch_model_survives_num_gpus_without_num_nodes(monkeypatch):
+    """model_dump() emits num_nodes=None; num_gpus * None used to raise TypeError."""
+    allocated = []
+
+    class _Resources:
+        def allocate_resources(self, db, resource_type, resource_name, count):
+            allocated.append(count)
+            return {"success": True}
+
+        def release_resources(self, **kwargs):
+            pass
+
+    monkeypatch.setattr(
+        "app.services.model_service.ResourceService", lambda: _Resources()
+    )
+    service = ModelService()
+    service.llm_client = FakeLLMClient()
+
+    result = service.launch_model(
+        db=FakeGatedDbSession(
+            AvailableModel(id="Qwen3-8B", huggingfaceId="Qwen/Qwen3-8B")
+        ),
+        deployment=ModelDeploymentCreate(
+            modelName="Qwen3-8B",
+            modelId="Qwen3-8B",
+            userId="11111111-1111-1111-1111-111111111111",
+            num_gpus=2,
+        ),
+    )
+
+    assert allocated == [2]
+    assert result.slurmJobId == "12345"
