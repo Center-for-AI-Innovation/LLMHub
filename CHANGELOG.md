@@ -9,6 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - Qwen3.5-35B-A3B model config for the Magic Castle (Radiant) infrastructure, added by user request. ([#96](https://github.com/Center-for-AI-Innovation/LLMHub/pull/96))
 
+### Fixed
+
+- Deployment kit (`infra/delta/`), found by the first DeltaAI deploy:
+  - The backend's `DATABASE_URL` now names the `psycopg2` driver. SQLAlchemy 2.1 maps a bare `postgresql://` to psycopg 3, which the backend does not install, so a fresh install failed at import with `No module named 'psycopg'`.
+  - DeltaAI single-node inference jobs run with the OFI network plugin off. vec-inf starts them outside `srun`, with no Slingshot VNI, and the plugin's `Failed to find valid default rgroup and vni` warning made vec-inf mark healthy launches FAILED. Multi-node jobs keep the plugin.
+  - `preflight` no longer fails a first deploy because the job-workspace root does not exist yet.
+  - `launch-test` warns when a SLURM job is still running after shutdown, with the command to cancel it, and prints the job-log path correctly.
+  - `preflight` and `check-impersonation` no longer require `/sw/user/scripts/accounts` when the deployed backend resolves accounts with `sacctmgr` (1.1.0+). `preflight` instead checks that `sacctmgr` is on the `PATH` and finds at least one account for `LLMHUB_TEST_CLUSTER_USER`. Older releases still get the script check.
+  - README: new "Deploying production" section (VM prerequisites, the `local.env` a new VM needs, which ref to pin, run `launch-test` before CILogon). Examples that used the deleted `port/backend-pr-32` branch or `v0.1.1`, which has no impersonation, are fixed. The CILogon steps now end with `deploy --apply`, because `LLMHUB_PUBLIC_URL` is baked into the build.
+
 ## [1.1.0]
 
 ### Added
