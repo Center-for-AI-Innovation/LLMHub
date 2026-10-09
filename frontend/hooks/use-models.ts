@@ -77,7 +77,7 @@ export interface ModelInfo {
   variant: string;
   specs: ModelSpecs;
   huggingfaceId?: string; // HuggingFace model ID (e.g., "Qwen/Qwen3-8B")
-  gated?: string | null; // HF gating status: null/undefined (public), "auto", or "manual"
+  gated?: string | null; // HF gating status: null/undefined (public), "auto", "manual", or "unknown" (check failed)
 }
 
 // Matches ModelDeployment table in lib/db/schema.ts
