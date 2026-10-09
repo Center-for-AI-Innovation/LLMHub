@@ -11,15 +11,74 @@ import {
   DEFAULT_CILOGON_DISCOVERY_URL,
   DEFAULT_CILOGON_SKIN,
   getBaseURL,
+  getOauthMapfilePath,
   isCilogonEnabled,
 } from '@/lib/auth/config';
+import { isEmailAuthorizedByOauthMapfile } from '@/lib/auth/oauth-mapfile';
 import { db } from '@/lib/db';
 import { account, session, user, verification } from '@/lib/db/schema';
 import { claimPendingDeploymentInvitesForUser } from '@/lib/db/queries';
 import type { AuthSession, AuthUser } from '@/lib/auth/types';
 
+const DELTA_UNAUTHORIZED_MESSAGE =
+  'Your identity is not authorized to use LLM Hub on this cluster.';
+
 function normalizeUserName(email: string) {
   return email.split('@')[0] || 'Local User';
+}
+
+type AuthHookContext = {
+  path?: string;
+  redirect: (url: string) => never;
+  context: {
+    baseURL: string;
+    options: {
+      onAPIError?: {
+        errorURL?: string;
+      };
+    };
+    internalAdapter: {
+      findUserById: (userId: string) => Promise<{ email?: string | null } | null>;
+    };
+  };
+} | null;
+
+/**
+ * When OAUTH_MAPFILE_PATH is set, require the login email (first-column exact
+ * match, with + rewrite for test service accounts) to appear in the mapfile.
+ */
+async function assertDeltaAuthorized(
+  email: string | null | undefined,
+  ctx: AuthHookContext,
+) {
+  const mapfilePath = getOauthMapfilePath();
+  if (!mapfilePath) {
+    return;
+  }
+
+  if (isEmailAuthorizedByOauthMapfile(email, mapfilePath)) {
+    return;
+  }
+
+  if (
+    ctx &&
+    (ctx.path?.startsWith('/callback') ||
+      ctx.path?.startsWith('/oauth2/callback'))
+  ) {
+    const redirectURI =
+      ctx.context.options.onAPIError?.errorURL ||
+      `${ctx.context.baseURL}/error`;
+    throw ctx.redirect(
+      `${redirectURI}?error=access_denied&error_description=${encodeURIComponent(
+        DELTA_UNAUTHORIZED_MESSAGE,
+      )}`,
+    );
+  }
+
+  throw new APIError('FORBIDDEN', {
+    message: DELTA_UNAUTHORIZED_MESSAGE,
+    code: 'DELTA_UNAUTHORIZED',
+  });
 }
 
 export const authConfig = {
@@ -102,12 +161,14 @@ export const betterAuthInstance = betterAuth({
   databaseHooks: {
     user: {
       create: {
-        before: async (newUser) => {
+        before: async (newUser, ctx) => {
+          const email = typeof newUser.email === 'string' ? newUser.email : '';
+          await assertDeltaAuthorized(email, ctx as AuthHookContext);
+
           if (newUser.name) {
             return;
           }
 
-          const email = typeof newUser.email === 'string' ? newUser.email : '';
           return {
             data: {
               ...newUser,
@@ -143,6 +204,23 @@ export const betterAuthInstance = betterAuth({
               error,
             );
           }
+        },
+      },
+    },
+    session: {
+      create: {
+        // Re-check on every login so mapfile removals take effect for
+        // returning users, not only first-time sign-up.
+        before: async (newSession, ctx) => {
+          const hookCtx = ctx as AuthHookContext;
+          if (!getOauthMapfilePath() || !hookCtx) {
+            return;
+          }
+
+          const dbUser = await hookCtx.context.internalAdapter.findUserById(
+            newSession.userId,
+          );
+          await assertDeltaAuthorized(dbUser?.email, hookCtx);
         },
       },
     },
