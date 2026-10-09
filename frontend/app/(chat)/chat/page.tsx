@@ -8,20 +8,35 @@ import { useSession } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useChatModels } from '@/hooks/use-models';
-import { consumePreferredChatModel } from '@/lib/chat-navigation';
 import { useNewChat } from '@/hooks/use-new-chat';
+import { pickChatModel } from '@/lib/chat-model-selection';
 import { getLoginPath } from '@/lib/auth/paths';
 import { navigateToLogin } from '@/lib/auth/navigation';
 
 export default function ChatPage() {
   const searchParams = useSearchParams();
   const query = searchParams?.get('query');
+  const deploymentIdFromUrl = searchParams?.get('deployment') ?? null;
   const { setSelectedModel } = useModelSelector();
+  // Select the URL deployment before Chat first renders so the composer
+  // shows it immediately; sends still wait for the options fetch below to
+  // validate it. Setting the store from an effect would be too late: Chat's
+  // first render would still hold the previous model.
+  useState(() => {
+    if (deploymentIdFromUrl) {
+      setSelectedModel(`vllm-deployment:${deploymentIdFromUrl}`);
+    }
+  });
   const resetVersion = useNewChat((state) => state.resetVersion);
   const [activeChatId, setActiveChatId] = useState('new');
-  const { data: chatModelOptions = [] } = useChatModels();
-  const preferredModelRef = useRef<string | null>(null);
-  const hasInitializedSelectedModelRef = useRef(false);
+  const {
+    data: chatModelOptions = [],
+    isFetchedAfterMount,
+    isSuccess,
+    isError,
+  } = useChatModels();
+  const hasSelectedModelRef = useRef(false);
+  const [isModelResolved, setIsModelResolved] = useState(false);
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
@@ -32,38 +47,49 @@ export default function ChatPage() {
     navigateToLogin(getLoginPath(currentPath));
   };
 
+  // Guests always chat with the hardcoded always-on model, so they never wait
+  // on the options fetch.
+  const isModelReady = isModelResolved || !session?.user;
+
   useEffect(() => {
-    if (chatModelOptions.length === 0) {
+    // Select once, from this mount's successful fetch: a cached list may not yet
+    // include a deployment that just became ready, and later refetches must not
+    // override a model the user picked by hand.
+    if (hasSelectedModelRef.current || !isFetchedAfterMount || !isSuccess) {
       return;
     }
+    hasSelectedModelRef.current = true;
 
-    if (preferredModelRef.current === null) {
-      preferredModelRef.current = consumePreferredChatModel();
+    const { modelId, deploymentUnavailable } = pickChatModel(
+      chatModelOptions,
+      deploymentIdFromUrl,
+    );
+    if (modelId) {
+      setSelectedModel(modelId);
     }
-    const preferredModel = preferredModelRef.current;
-    if (preferredModel) {
-      const modelExists = chatModelOptions.some(
-        (chatModel) => chatModel.id === preferredModel,
+    if (deploymentUnavailable) {
+      toast.info(
+        "That deployment isn't available. It may have stopped, or you may not have access.",
       );
-      if (modelExists) {
-        setSelectedModel(preferredModel);
-        preferredModelRef.current = null;
-        hasInitializedSelectedModelRef.current = true;
-        return;
-      }
-
-      preferredModelRef.current = null;
     }
+    // Sends (including the ?query= auto-send) wait for this: the picked model
+    // is guaranteed to come from the fetched options.
+    setIsModelResolved(true);
+  }, [
+    chatModelOptions,
+    deploymentIdFromUrl,
+    isFetchedAfterMount,
+    isSuccess,
+    setSelectedModel,
+  ]);
 
-    if (hasInitializedSelectedModelRef.current) {
-      return;
+  // Never block sends forever: when the options fetch fails, fall back to the
+  // current selection (default, previous, or URL deployment).
+  useEffect(() => {
+    if (isError) {
+      setIsModelResolved(true);
     }
-
-    // Default to the first option, which is already prioritized by /api/chat/models:
-    // recent deployment -> always-on -> dev model.
-    setSelectedModel(chatModelOptions[0].id);
-    hasInitializedSelectedModelRef.current = true;
-  }, [chatModelOptions, setSelectedModel]);
+  }, [isError]);
 
   // Check authentication
   if (isLoading) {
@@ -92,6 +118,7 @@ export default function ChatPage() {
           selectedVisibilityType="private"
           isReadonly={false}
           isGuestMode={!session?.user}
+          isModelReady={isModelReady}
           onGuestLimitReached={handleGuestLimitReached}
           initialPrompt={query || undefined}
         />
