@@ -43,6 +43,41 @@ Validates the Delta impersonation path for user-submitted launches.
 .venv/bin/python scripts/check-impersonation-setup.py --user svcllmhubrohan13 --skip-wrapper
 ```
 
+### `evict_unused_models.py`
+Deletes models from the shared Hugging Face cache that nobody has launched in 90
+days.
+
+- **Directory:** `MODEL_CACHE_DIR` from the backend `.env`, or `--cache-dir`.
+  Never inferred, because it differs per cluster.
+- **Last use:** the newest `ModelDeployment` for each model, matched to the cache
+  by exact Hugging Face repo id (`AvailableModel.huggingfaceId`).
+- **No launch history** (hand-staged, renamed upstream, or removed from
+  `models.yaml`): kept, and listed at the end of each run.
+- **Deletion** goes through `huggingface_hub`'s `delete_revisions()`, not `rm`,
+  so shared blobs and snapshot links stay consistent.
+- **Compile cache:** if `COMPILE_CACHE_DIR` (or `--compile-cache-dir`) is set,
+  directories there with no file read or written in `--days` are deleted too.
+
+**Usage:**
+```bash
+# Report what would be evicted, deleting nothing
+.venv/bin/python scripts/evict_unused_models.py --dry-run
+
+# Clean a directory other than MODEL_CACHE_DIR
+.venv/bin/python scripts/evict_unused_models.py --cache-dir /path/to/hf-cache --dry-run
+
+# Evict for real, with a different cutoff
+.venv/bin/python scripts/evict_unused_models.py --days 120
+```
+
+**Cron (as the service account that owns the cache, e.g. `svcdeltallmhub`):**
+```
+0 3 * * 0 cd /path/to/backend && .venv/bin/python scripts/evict_unused_models.py >> /projects/llmhub/logs/model-eviction.log 2>&1
+```
+
+Needs `DATABASE_URL` and `MODEL_CACHE_DIR` from the backend `.env`.
+
+
 ## Infrastructure Detection Process
 
 The infrastructure detection script performs the following steps:

@@ -2,10 +2,11 @@ import concurrent.futures
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config.logging import get_logger
@@ -15,11 +16,24 @@ from app.models.model_request import ModelRequest
 from app.schemas.model_deployment import ModelDeploymentCreate, ModelDeploymentUpdate
 from app.schemas.model_request import ModelRequestCreate, ModelRequestUpdate
 from app.services.resource_service import ResourceService
+from app.utils.hf_auth import (
+    check_model_hf_access,
+    fetch_model_gating_status,
+)
+from app.utils.hf_family_orgs import resolve_hf_model
 from app.utils.infrastructure import (
     get_vec_inf_log_base_dir,
     get_vec_inf_user_workspace_dir,
 )
-from app.utils.llm_inference import LLMInferenceClient
+from app.utils.llm_inference import (
+    LLMInferenceClient,
+    ensure_gated_model_weights_for_user,
+    gated_model_download_state,
+    public_model_download_state,
+    resolve_gated_model_store_dir,
+    start_gated_model_download,
+    start_public_model_download,
+)
 
 logger = get_logger("model_service")
 
@@ -33,6 +47,9 @@ def _infer_model_family_from_model_name(model_name: str) -> str:
 
 
 TRANSIENT_STATUS_LOOKUP_WINDOW = timedelta(minutes=50)
+DOWNLOADING_STATUS = "downloading"
+# slurmJobId of a deployment whose job hasn't been submitted yet.
+NO_SLURM_JOB_YET = "awaiting-download"
 SLURM_FAILED_JOB_STATES = {
     "FAILED",
     "CANCELLED",
@@ -155,144 +172,23 @@ class ModelService:
         return db_request
 
     # Model Deployment Functions
-    def launch_model(
-        self, db: Session, deployment: ModelDeploymentCreate
+    @staticmethod
+    def _record_deployment(
+        db: Session,
+        deployment: ModelDeploymentCreate,
+        model_id: str,
+        resource_allocation: Dict[str, Any],
+        status: str,
+        slurm_job_id: str,
+        error_message: Optional[str] = None,
     ) -> ModelDeployment:
-        """Launch a model and create a deployment record."""
-        # Extract parameters for the launch command
-        params = deployment.model_dump(exclude={"modelName", "modelId", "userId"})
-        model_id = deployment.modelId or deployment.modelName
-
-        # Get the enable_cloudflare_tunnel parameter
-        enable_cloudflare_tunnel = params.pop("enable_cloudflare_tunnel", False)
-        resource_allocation = {
-            **params,
-            "enable_cloudflare_tunnel": enable_cloudflare_tunnel,
-        }
-
-        # Check and allocate resources if needed
-        resource_service = ResourceService()
-
-        # Get the number of GPUs requested
-        num_gpus = params.get("num_gpus")
-        num_nodes = params.get("num_nodes", 1)
-
-        # If GPU resources are requested, check availability and allocate
-        if num_gpus:
-            # Calculate total GPUs needed
-            total_gpus = num_gpus * num_nodes
-
-            # Try to allocate GPU resources
-            # Note: We're using a generic "GPU" resource type here
-            # In a real system, you might want to be more specific (e.g., "A100", "V100")
-            allocation_result = resource_service.allocate_resources(
-                db=db, resource_type="GPU", resource_name="default", count=total_gpus
-            )
-
-            if not allocation_result.get("success", False):
-                # Failed to allocate resources
-                db_deployment = ModelDeployment(
-                    modelId=model_id,
-                    modelName=deployment.modelName,
-                    userId=deployment.userId,
-                    slurmJobId="failed",
-                    status="failed",
-                    errorMessage=allocation_result.get(
-                        "error", "Failed to allocate GPU resources"
-                    ),
-                    resourceAllocation=resource_allocation,
-                )
-                db.add(db_deployment)
-                db.commit()
-                db.refresh(db_deployment)
-                return db_deployment
-
-            logger.info(
-                f"Allocated {total_gpus} GPU resources for model {deployment.modelName}"
-            )
-
-        # Launch the model
-        logger.info(
-            "Launching model=%s user_id=%s partition=%s resource_type=%s num_nodes=%s num_gpus=%s time=%s",
-            deployment.modelName,
-            deployment.userId,
-            params.get("partition"),
-            params.get("resource_type"),
-            params.get("num_nodes"),
-            params.get("num_gpus"),
-            params.get("time"),
-        )
-        result = self.llm_client.launch_model(
-            deployment.modelName,
-            enable_cloudflare_tunnel=enable_cloudflare_tunnel,
-            **params,
-        )
-
-        if not result.get("success", False):
-            # Release allocated resources if launch failed
-            if num_gpus:
-                resource_service.release_resources(
-                    db=db,
-                    resource_type="GPU",
-                    resource_name="default",
-                    count=total_gpus,
-                )
-
-            # Create a failed deployment record
-            db_deployment = ModelDeployment(
-                modelId=model_id,
-                modelName=deployment.modelName,
-                userId=deployment.userId,
-                slurmJobId="failed",
-                status="failed",
-                errorMessage=result.get("error", "Unknown error"),
-                resourceAllocation=resource_allocation,
-            )
-            db.add(db_deployment)
-            db.commit()
-            db.refresh(db_deployment)
-            return db_deployment
-
-        # Extract the Slurm job ID from the result (support multiple keys)
-        slurm_job_id: Optional[str] = result.get("job_id") or result.get("slurm_job_id")
-        # vec-inf sometimes emits a trailing "\nAccount:" due to environment prompts; sanitize
-        if isinstance(slurm_job_id, str):
-            slurm_job_id = slurm_job_id.strip()
-            # Remove any trailing fragments after a newline
-            if "\n" in slurm_job_id:
-                slurm_job_id = slurm_job_id.split("\n", 1)[0].strip()
-        if not slurm_job_id:
-            # Release allocated resources if launch failed
-            if num_gpus:
-                resource_service.release_resources(
-                    db=db,
-                    resource_type="GPU",
-                    resource_name="default",
-                    count=total_gpus,
-                )
-
-            # Create a failed deployment record
-            db_deployment = ModelDeployment(
-                modelId=model_id,
-                modelName=deployment.modelName,
-                userId=deployment.userId,
-                slurmJobId="failed",
-                status="failed",
-                errorMessage="Failed to get Slurm job ID",
-                resourceAllocation=resource_allocation,
-            )
-            db.add(db_deployment)
-            db.commit()
-            db.refresh(db_deployment)
-            return db_deployment
-
-        # Create a deployment record
         db_deployment = ModelDeployment(
             modelId=model_id,
             modelName=deployment.modelName,
             userId=deployment.userId,
             slurmJobId=slurm_job_id,
-            status="pending",
+            status=status,
+            errorMessage=error_message,
             resourceAllocation=resource_allocation,
             # Expiration is set when deployment becomes ready, so queued time
             # does not consume model lifetime.
@@ -302,6 +198,351 @@ class ModelService:
         db.commit()
         db.refresh(db_deployment)
         return db_deployment
+
+    def launch_model(
+        self, db: Session, deployment: ModelDeploymentCreate
+    ) -> ModelDeployment:
+        """Launch a model and create a deployment record.
+
+        When the weights still have to be downloaded, the deployment is recorded
+        as ``downloading`` and ``advance_downloading_deployments`` submits its job
+        once they are in.
+        """
+        # Extract parameters for the launch command (never persist hf_token on the deployment row).
+        # Fields that pick the repo, weights or write location come from the server only.
+        # vllm_args too: vec-inf writes them unquoted into the job script, and flags
+        # like --tokenizer or --lora-modules could load weights the gate never checked.
+        params = deployment.model_dump(
+            exclude={
+                "modelName",
+                "modelId",
+                "userId",
+                "hf_token",
+                "hf_model",
+                "model_weights_parent_dir",
+                "work_dir",
+                "vllm_args",
+            }
+        )
+        # Only the requesting user's own token authorizes a gated launch --
+        # never fall back to a shared/service credential (that would let any
+        # user inherit whatever gated repos the service account can see).
+        hf_token = deployment.hf_token
+        model_id = deployment.modelId or deployment.modelName
+
+        # Get the enable_cloudflare_tunnel parameter
+        enable_cloudflare_tunnel = params.pop("enable_cloudflare_tunnel", False)
+        resource_allocation = {
+            **params,
+            "enable_cloudflare_tunnel": enable_cloudflare_tunnel,
+        }
+
+        def failed(message: str) -> ModelDeployment:
+            return self._record_deployment(
+                db,
+                deployment,
+                model_id,
+                resource_allocation,
+                status="failed",
+                slurm_job_id="failed",
+                error_message=message,
+            )
+
+        # Early Hugging Face access check (requested "fast exit")
+        db_model = (
+            db.query(AvailableModel).filter(AvailableModel.id == model_id).first()
+        )
+        # Fail closed: without a catalog row there is no repo id or gating status
+        # to check, and vec-inf would still launch anything in models.yaml -- a
+        # gated model included, from the default weights directory. This happens
+        # before the first sync, while a sync is failing, or for a models.yaml
+        # entry that hasn't synced yet.
+        if db_model is None:
+            return failed(
+                f"Unknown model {model_id!r}; the model catalog has not been "
+                "synced with it yet. Try again after the next sync."
+            )
+        hf_repo_id = db_model.huggingfaceId
+        cached_gated = db_model.gated
+
+        has_access, hf_err = check_model_hf_access(cached_gated, hf_repo_id, hf_token)
+        if not has_access:
+            return failed(
+                "Hugging Face model access denied or unavailable. "
+                "For gated or private models, supply a valid hf_token with Hub access. "
+                f"Details: {hf_err}"
+            )
+
+        # Jobs can't download weights themselves: gated ones go to the protected
+        # store with the user's token, public ones to the read-only shared cache.
+        try:
+            if cached_gated:
+                downloading = start_gated_model_download(model_id, hf_repo_id, hf_token)
+            else:
+                downloading = start_public_model_download(hf_repo_id)
+        except RuntimeError as exc:
+            return failed(str(exc))
+        if downloading:
+            # A second click while the first is still downloading gets the same row.
+            existing = (
+                db.query(ModelDeployment)
+                .filter(
+                    ModelDeployment.modelId == model_id,
+                    ModelDeployment.userId == deployment.userId,
+                    ModelDeployment.status == DOWNLOADING_STATUS,
+                )
+                .first()
+            )
+            if existing is not None:
+                return existing
+            return self._record_deployment(
+                db,
+                deployment,
+                model_id,
+                resource_allocation,
+                status=DOWNLOADING_STATUS,
+                slurm_job_id=NO_SLURM_JOB_YET,
+            )
+
+        if hf_repo_id:
+            params["hf_model"] = hf_repo_id
+        slurm_job_id, error = self._submit_launch(
+            db,
+            model_id,
+            bool(cached_gated),
+            params,
+            enable_cloudflare_tunnel,
+            deployment.userId,
+        )
+        if error:
+            return failed(error)
+        return self._record_deployment(
+            db,
+            deployment,
+            model_id,
+            resource_allocation,
+            status="pending",
+            slurm_job_id=slurm_job_id,
+        )
+
+    def _submit_launch(
+        self,
+        db: Session,
+        model_id: str,
+        gated: bool,
+        params: Dict[str, Any],
+        enable_cloudflare_tunnel: bool,
+        user_id: Any,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Prepare weights, allocate GPUs and submit the job.
+
+        Returns ``(slurm_job_id, None)``, or ``(None, error)`` with any GPUs
+        released again.
+        """
+        params = dict(params)
+        # A gated model must never fall back to the infrastructure-wide default
+        # model_weights_parent_dir, which is typically world-readable -- anyone
+        # with plain filesystem access could bypass this gate entirely otherwise.
+        # Impersonated launches get a per-user hard-linked copy (the launched
+        # process runs as that user); direct launches run as the service
+        # account, which already has its own access to the protected store.
+        if gated:
+            cluster_username = params.get("cluster_username")
+            try:
+                if cluster_username:
+                    weights_parent_dir = ensure_gated_model_weights_for_user(
+                        cluster_username, model_id
+                    )
+                else:
+                    weights_parent_dir = resolve_gated_model_store_dir(model_id)
+            except RuntimeError as exc:
+                return None, f"Failed to prepare gated model weights: {exc}"
+            params["model_weights_parent_dir"] = str(weights_parent_dir)
+            # vec-inf prefers these weights when it can see them, but with
+            # hf_model set it falls back to the repo id, and so the shared HF
+            # cache, when it can't. Without it the launch fails instead.
+            params.pop("hf_model", None)
+
+        # model_dump() always emits num_nodes (default None), so a dict-get
+        # default never fires -- `or 1` does.
+        num_gpus = params.get("num_gpus")
+        total_gpus = num_gpus * (params.get("num_nodes") or 1) if num_gpus else 0
+        resource_service = ResourceService()
+        if total_gpus:
+            # Note: We're using a generic "GPU" resource type here
+            # In a real system, you might want to be more specific (e.g., "A100", "V100")
+            allocation_result = resource_service.allocate_resources(
+                db=db, resource_type="GPU", resource_name="default", count=total_gpus
+            )
+            if not allocation_result.get("success", False):
+                return None, allocation_result.get(
+                    "error", "Failed to allocate GPU resources"
+                )
+            logger.info(f"Allocated {total_gpus} GPU resources for model {model_id}")
+
+        logger.info(
+            "Launching model=%s user_id=%s partition=%s resource_type=%s num_nodes=%s num_gpus=%s time=%s",
+            model_id,
+            user_id,
+            params.get("partition"),
+            params.get("resource_type"),
+            params.get("num_nodes"),
+            params.get("num_gpus"),
+            params.get("time"),
+        )
+        # Launch the access-checked model_id; modelName comes from the client and
+        # would otherwise let a request pass the check on one model and run another.
+        result = self.llm_client.launch_model(
+            model_id,
+            enable_cloudflare_tunnel=enable_cloudflare_tunnel,
+            **params,
+        )
+
+        slurm_job_id: Optional[str] = None
+        if not result.get("success", False):
+            error = result.get("error", "Unknown error")
+        else:
+            # Extract the Slurm job ID from the result (support multiple keys)
+            slurm_job_id = result.get("job_id") or result.get("slurm_job_id")
+            # vec-inf sometimes emits a trailing "\nAccount:" due to environment prompts; sanitize
+            if isinstance(slurm_job_id, str):
+                slurm_job_id = slurm_job_id.strip()
+                # Remove any trailing fragments after a newline
+                if "\n" in slurm_job_id:
+                    slurm_job_id = slurm_job_id.split("\n", 1)[0].strip()
+            error = None if slurm_job_id else "Failed to get Slurm job ID"
+
+        if error:
+            if total_gpus:
+                resource_service.release_resources(
+                    db=db,
+                    resource_type="GPU",
+                    resource_name="default",
+                    count=total_gpus,
+                )
+            return None, error
+        return slurm_job_id, None
+
+    def advance_downloading_deployments(self, db: Session) -> None:
+        """Submit the jobs of ``downloading`` deployments whose weights are in."""
+        waiting = (
+            db.query(ModelDeployment)
+            .filter(ModelDeployment.status == DOWNLOADING_STATUS)
+            .all()
+        )
+        for db_deployment in waiting:
+            try:
+                self._advance_downloading_deployment(db, db_deployment)
+            except Exception:
+                db.rollback()
+                logger.exception(
+                    "Could not advance downloading deployment %s", db_deployment.id
+                )
+
+    def _advance_downloading_deployment(
+        self, db: Session, db_deployment: ModelDeployment
+    ) -> None:
+        def fail(message: str) -> None:
+            db_deployment.status = "failed"
+            db_deployment.slurmJobId = "failed"
+            db_deployment.errorMessage = message
+            db_deployment.updatedAt = datetime.utcnow()
+            db.commit()
+
+        model_id = db_deployment.modelId
+        db_model = (
+            db.query(AvailableModel).filter(AvailableModel.id == model_id).first()
+        )
+        if db_model is None:
+            return fail(f"Model {model_id!r} is no longer in the model catalog.")
+        if db_model.gated:
+            state, error = gated_model_download_state(model_id)
+        else:
+            state, error = public_model_download_state(db_model.huggingfaceId)
+
+        if state == "downloading":
+            return None
+        if state == "failed":
+            return fail(f"Downloading the model weights failed: {error}")
+        if state == "missing":
+            # A backend restart cut the download short. Gated downloads need the
+            # user's token, which is never stored, so only public ones restart.
+            if db_model.gated:
+                return fail(
+                    "The model download stopped before it finished. "
+                    "Launch the model again."
+                )
+            try:
+                start_public_model_download(db_model.huggingfaceId)
+            except RuntimeError as exc:
+                return fail(str(exc))
+            return None
+
+        # Claim the row first, so a shutdown meanwhile or a second worker wins
+        # cleanly. "launching" is in the one-active-deployment-per-user index.
+        try:
+            claimed = (
+                db.query(ModelDeployment)
+                .filter(
+                    ModelDeployment.id == db_deployment.id,
+                    ModelDeployment.status == DOWNLOADING_STATUS,
+                )
+                .update(
+                    {"status": "launching", "updatedAt": datetime.utcnow()},
+                    synchronize_session=False,
+                )
+            )
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return fail("This model is already running for this user.")
+        if not claimed:
+            return None
+        db.refresh(db_deployment)
+
+        params = dict(db_deployment.resourceAllocation or {})
+        enable_cloudflare_tunnel = params.pop("enable_cloudflare_tunnel", False)
+        if db_model.huggingfaceId:
+            params["hf_model"] = db_model.huggingfaceId
+        slurm_job_id, error = self._submit_launch(
+            db,
+            model_id,
+            bool(db_model.gated),
+            params,
+            enable_cloudflare_tunnel,
+            db_deployment.userId,
+        )
+        if error:
+            return fail(error)
+
+        submitted = (
+            db.query(ModelDeployment)
+            .filter(
+                ModelDeployment.id == db_deployment.id,
+                ModelDeployment.status == "launching",
+            )
+            .update(
+                {
+                    "slurmJobId": slurm_job_id,
+                    "status": "pending",
+                    "updatedAt": datetime.utcnow(),
+                },
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+        if not submitted:
+            # Shut down while the job was being submitted: don't leave it running.
+            logger.info(
+                "Deployment %s was shut down during submission; cancelling job %s",
+                db_deployment.id,
+                slurm_job_id,
+            )
+            self.llm_client.shutdown_model(
+                slurm_job_id, cluster_username=params.get("cluster_username")
+            )
+            self._release_gpus(db, db_deployment.id, params)
+        return None
 
     def get_deployment(
         self, db: Session, deployment_id: UUID
@@ -386,6 +627,9 @@ class ModelService:
         db_deployment = self.get_deployment(db, deployment_id)
         if not db_deployment:
             return None
+        # No Slurm job to ask about yet; advance_downloading_deployments moves it on.
+        if db_deployment.slurmJobId == NO_SLURM_JOB_YET:
+            return db_deployment
 
         # Skip if the deployment is already in a terminal state, except for
         # transient Slurm lookup failures that can recover shortly after launch.
@@ -522,7 +766,10 @@ class ModelService:
             and db_deployment.resourceAllocation
             and db_deployment.resourceAllocation.get("enable_cloudflare_tunnel")
         ):
-            job_name = db_deployment.modelName.replace("/", "-")
+            # Jobs are launched (and so named) by modelId.
+            job_name = (db_deployment.modelId or db_deployment.modelName).replace(
+                "/", "-"
+            )
             cluster_username = db_deployment.resourceAllocation.get("cluster_username")
             tunnel_url = self.llm_client.get_tunnel_url(
                 job_name,
@@ -600,6 +847,15 @@ class ModelService:
         if db_deployment.status in ["failed", "shutdown", "completed"]:
             return db_deployment
 
+        # Still waiting on its weights: no job to cancel, no GPUs allocated.
+        if db_deployment.slurmJobId == NO_SLURM_JOB_YET:
+            db_deployment.status = "shutdown"
+            db_deployment.errorMessage = None
+            db_deployment.updatedAt = datetime.utcnow()
+            db.commit()
+            db.refresh(db_deployment)
+            return db_deployment
+
         cluster_username = None
         if isinstance(db_deployment.resourceAllocation, dict):
             cluster_username = db_deployment.resourceAllocation.get("cluster_username")
@@ -632,37 +888,34 @@ class ModelService:
         db.commit()
         db.refresh(db_deployment)
 
-        # Release allocated resources
-        resource_service = ResourceService()
-
-        # Check if the deployment has resource allocation information
-        if db_deployment.resourceAllocation:
-            num_gpus = db_deployment.resourceAllocation.get("num_gpus")
-            num_nodes = db_deployment.resourceAllocation.get("num_nodes", 1)
-
-            # If GPU resources were allocated, release them
-            if num_gpus:
-                # Calculate total GPUs to release
-                total_gpus = num_gpus * num_nodes
-
-                # Release GPU resources
-                release_result = resource_service.release_resources(
-                    db=db,
-                    resource_type="GPU",
-                    resource_name="default",
-                    count=total_gpus,
-                )
-
-                if release_result.get("success", False):
-                    logger.info(
-                        f"Released {total_gpus} GPU resources from deployment {deployment_id}"
-                    )
-                else:
-                    logger.error(
-                        f"Failed to release GPU resources from deployment {deployment_id}: {release_result.get('error')}"
-                    )
-
+        self._release_gpus(db, deployment_id, db_deployment.resourceAllocation)
         return db_deployment
+
+    @staticmethod
+    def _release_gpus(
+        db: Session, deployment_id: Any, resource_allocation: Optional[Dict[str, Any]]
+    ) -> None:
+        """Release the GPUs a deployment's launch allocated, if any."""
+        if not resource_allocation:
+            return
+        num_gpus = resource_allocation.get("num_gpus")
+        if not num_gpus:
+            return
+        total_gpus = num_gpus * (resource_allocation.get("num_nodes") or 1)
+        release_result = ResourceService().release_resources(
+            db=db,
+            resource_type="GPU",
+            resource_name="default",
+            count=total_gpus,
+        )
+        if release_result.get("success", False):
+            logger.info(
+                f"Released {total_gpus} GPU resources from deployment {deployment_id}"
+            )
+        else:
+            logger.error(
+                f"Failed to release GPU resources from deployment {deployment_id}: {release_result.get('error')}"
+            )
 
     def list_available_models(self) -> Dict[str, Any]:
         """List available models using llm-inference."""
@@ -919,7 +1172,7 @@ class ModelService:
                             "num_gpus",
                             "num_nodes",
                             "vocab_size",
-                            "huggingface_id",
+                            "hf_model",
                             "vllm_args",
                             "max_model_len",
                             "pipeline_parallelism",
@@ -951,9 +1204,10 @@ class ModelService:
                             model_dict, model_config
                         )
 
+                    model_family_value = get_value("model_family", "")
                     model_data = {
                         "model_name": model_name,
-                        "model_family": get_value("model_family", ""),
+                        "model_family": model_family_value,
                         "model_variant": get_value("model_variant", ""),
                         "model_type": get_value("model_type", "LLM"),
                         "num_gpus": get_value("gpus_per_node")
@@ -962,7 +1216,9 @@ class ModelService:
                         "max_model_len": max_model_len,
                         "pipeline_parallelism": pipeline_parallelism,
                         "vocab_size": get_value("vocab_size"),
-                        "huggingface_id": get_value("huggingface_id"),
+                        "huggingface_id": resolve_hf_model(
+                            model_family_value, model_name, get_value("hf_model")
+                        ),
                     }
                     detailed_models.append(model_data)
                 else:
@@ -1075,6 +1331,22 @@ class ModelService:
         vocab_size = model_data.get("vocab_size")
         huggingface_id = model_data.get("huggingface_id")
 
+        # Refresh gating status from HF Hub. On failure, keep the cached DB
+        # value for a model we've seen before; for a brand-new model with no
+        # cache to fall back to, fail closed ("unknown" is truthy, so launches
+        # require a token and get a real per-user Hub check) rather than
+        # silently treating an unverified model as public.
+        if huggingface_id:
+            try:
+                gated = fetch_model_gating_status(huggingface_id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to fetch gating status for %s: %s", huggingface_id, exc
+                )
+                gated = existing_model.gated if existing_model else "unknown"
+        else:
+            gated = existing_model.gated if existing_model else None
+
         # Create model specs
         specs = {
             "gpus": num_gpus,
@@ -1101,6 +1373,7 @@ class ModelService:
             "specs": specs,
             "vocabSize": vocab_size,
             "huggingfaceId": huggingface_id,
+            "gated": gated,
         }
 
         # Check if model exists and needs update
@@ -1114,6 +1387,7 @@ class ModelService:
                 or existing_model.vocabSize != vocab_size
                 or existing_model.huggingfaceId != huggingface_id
                 or existing_model.specs != specs
+                or existing_model.gated != gated
             )
 
             if needs_update:

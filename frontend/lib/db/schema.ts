@@ -244,6 +244,7 @@ export const availableModel = pgTable('AvailableModel', {
   specs: json('specs').notNull(),
   vocabSize: integer('vocabSize'),
   huggingfaceId: varchar('huggingfaceId', { length: 255 }),
+  gated: varchar('gated', { length: 50 }),
   createdAt: timestamp('createdAt').notNull().defaultNow(),
   updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 });
@@ -261,7 +262,7 @@ export const modelDeployment = pgTable('ModelDeployment',
     userId: uuid('userId').notNull().references(() => user.id),
     slurmJobId: varchar('slurmJobId', { length: 50 }).notNull(),
     status: varchar('status', {
-      enum: ['pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],
+      enum: ['downloading', 'pending', 'launching', 'ready', 'running', 'failed', 'shutdown', 'completed'],
     })
       .notNull()
       .default('pending'),
