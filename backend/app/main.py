@@ -15,8 +15,14 @@ _infra_id = _infra_manager.detect_infrastructure()
 _infra_config_path = _infra_manager.get_config_path(_infra_id)
 _infra_config_path_abs = _infra_config_path.resolve()
 _infra_config_str = str(_infra_config_path_abs)
-os.environ["VEC_INF_CONFIG_DIR"] = _infra_config_str
+# Persist the resolved config dir on Settings, then push into the process env
+# for vec-inf / other libraries that only read os.environ. Force the absolute
+# path so a relative .env value cannot linger in os.environ.
 setattr(settings, "VEC_INF_CONFIG_DIR", _infra_config_str)
+os.environ["VEC_INF_CONFIG_DIR"] = _infra_config_str
+if settings.INFRASTRUCTURE is None and _infra_id:
+    setattr(settings, "INFRASTRUCTURE", _infra_id)
+settings.apply_vec_inf_environ()
 
 _logger = logging.getLogger(__name__)
 _logger.info(
@@ -29,13 +35,14 @@ _logger.info(
 # This keeps infrastructure-specific environment.yaml while avoiding vec-inf default package models.
 _infra_models_path = _infra_config_path_abs / "models.yaml"
 _shared_models_path = (_infra_manager.config_dir / "models.yaml").resolve()
-if not os.getenv("VEC_INF_MODEL_CONFIG"):
+if not settings.VEC_INF_MODEL_CONFIG:
     if _infra_models_path.exists():
         _logger.info("Using infrastructure models config: %s", _infra_models_path)
     elif _shared_models_path.exists():
         _shared_models_str = str(_shared_models_path)
-        os.environ["VEC_INF_MODEL_CONFIG"] = _shared_models_str
         setattr(settings, "MODEL_CONFIG_PATH", _shared_models_str)
+        setattr(settings, "VEC_INF_MODEL_CONFIG", _shared_models_str)
+        settings.apply_vec_inf_environ()
         _logger.info(
             "Infrastructure models config missing at %s; using shared models config: %s",
             _infra_models_path,
