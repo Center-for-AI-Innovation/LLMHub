@@ -22,6 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Resolve a user's Slurm accounts with `sacctmgr` instead of the Delta-local `/sw/user/scripts/accounts` helper, and omit the placeholder `noalloc` account.
 - Derive the cluster username from the signed-in email local-part, using the suffix after `+` for impersonation addresses such as `rohan13+svcllmhubrohan13@ncsa.illinois.edu`.
+- Impersonation cleanup: centralize vec-inf config on `Settings`, type execution mode as `direct` | `impersonate`, consolidate workspace-root resolution (`SHARED_WORK_ROOT` → `WORK_DIR` → `LOG_DIR`), always run the wrapper with `--no-login-shell`, and grant ACLs on `VEC_INF_LOG_DIR`. ([#58](https://github.com/Center-for-AI-Innovation/LLMHub/issues/58))
 - `delta-ai-ncsa/environment.yaml` now points at `/projects/modelcache` instead of `/model-weights`, which doesn't exist on DeltaAI.
 - Impersonated accounts get write access only on `COMPILE_CACHE_DIR`, never on `MODEL_CACHE_DIR`. ACLs granted on `MODEL_CACHE_DIR` by earlier launches are not removed automatically.
 - Delta kit: inference jobs get the Hugging Face cache read-only and run with `HF_HUB_OFFLINE=1`, so only the backend writes to it. The kit writes the cache and model store settings to the backend `.env`.

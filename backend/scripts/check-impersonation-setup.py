@@ -59,6 +59,7 @@ def _run_wrapper_probe(
     )
     command = [
         str(wrapper_path),
+        "--no-login-shell",
         cluster_username,
         "--",
         impersonation_python,
@@ -70,7 +71,7 @@ def _run_wrapper_probe(
         text=True,
         capture_output=True,
         env=_build_wrapper_env(account, workspace_dir),
-        cwd=str(PROJECT_ROOT),
+        cwd=str(workspace_dir),
     )
     return {
         "command": command,
@@ -101,7 +102,7 @@ def main() -> int:
 
     print(f"user={cluster_username}")
     print(f"execution_mode={settings.VEC_INF_EXECUTION_MODE}")
-    print(f"shared_work_root={settings.VEC_INF_SHARED_WORK_ROOT}")
+    print(f"shared_work_root={settings.resolve_workspace_root()}")
     print(f"wrapper={settings.VEC_INF_IMPERSONATE_SCRIPT}")
     print(f"impersonate_python={_get_impersonation_python()}")
 

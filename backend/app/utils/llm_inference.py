@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from huggingface_hub import snapshot_download
 from huggingface_hub.file_download import repo_folder_name
 
-from app.config.config import settings
+from app.config.config import VecInfExecutionMode, settings
 from app.config.logging import get_logger
 from app.utils.cluster_users import normalize_cluster_username
 from app.utils.infrastructure import get_vec_inf_log_base_dir
@@ -27,29 +27,7 @@ from app.utils.slurm_accounts import (
 # vec-inf loads/caches config at import time.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-
-def _apply_vec_inf_environment() -> None:
-    """Set vec-inf env vars before importing the SDK."""
-    if getattr(settings, "VEC_INF_CONFIG_DIR", None) and not os.getenv(
-        "VEC_INF_CONFIG_DIR"
-    ):
-        os.environ["VEC_INF_CONFIG_DIR"] = str(settings.VEC_INF_CONFIG_DIR)
-    if not os.getenv("VEC_INF_ACCOUNT") and (
-        getattr(settings, "VEC_INF_ACCOUNT", None)
-        or getattr(settings, "SLURM_ACCOUNT", None)
-    ):
-        os.environ["VEC_INF_ACCOUNT"] = str(
-            getattr(settings, "VEC_INF_ACCOUNT", None) or settings.SLURM_ACCOUNT
-        )
-    if getattr(settings, "VEC_INF_WORK_DIR", None) and not os.getenv(
-        "VEC_INF_WORK_DIR"
-    ):
-        os.environ["VEC_INF_WORK_DIR"] = str(settings.VEC_INF_WORK_DIR)
-    if getattr(settings, "VEC_INF_LOG_DIR", None) and not os.getenv("VEC_INF_LOG_DIR"):
-        os.environ["VEC_INF_LOG_DIR"] = str(settings.VEC_INF_LOG_DIR)
-
-
-_apply_vec_inf_environment()
+settings.apply_vec_inf_environ()
 
 # Python SDK for vec-inf (imported AFTER env vars are set)
 from vec_inf.client.api import VecInfClient  # noqa: E402
@@ -113,10 +91,7 @@ def _restrict_acl_to_cluster_user(
 
 
 def _resolve_impersonated_workspace_root() -> Optional[Path]:
-    raw_root = (
-        getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
-        or get_vec_inf_log_base_dir()
-    )
+    raw_root = settings.resolve_workspace_root() or get_vec_inf_log_base_dir()
     if not isinstance(raw_root, str) or not raw_root.strip():
         return None
     return Path(raw_root).expanduser()
@@ -128,6 +103,22 @@ def _resolve_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]
     if root is None:
         return None
     return root / cluster_username
+
+
+def _ensure_log_dir_acl(cluster_username: str) -> None:
+    """Grant the impersonated user (and service account) ACL on VEC_INF_LOG_DIR."""
+    raw_log_dir = settings.VEC_INF_LOG_DIR
+    if not isinstance(raw_log_dir, str) or not raw_log_dir.strip():
+        return
+
+    log_dir = Path(raw_log_dir).expanduser()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    service_account = pwd.getpwuid(os.geteuid()).pw_name
+    _grant_acl_access(
+        log_dir,
+        [cluster_username, service_account],
+        f"log dir {log_dir} for {cluster_username}",
+    )
 
 
 def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
@@ -143,6 +134,7 @@ def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
         [cluster_username, service_account],
         f"workspace {workspace_dir} for {cluster_username}",
     )
+    _ensure_log_dir_acl(cluster_username)
 
     return workspace_dir
 
@@ -613,26 +605,38 @@ def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) 
 
 
 def _get_impersonation_python() -> str:
-    configured = getattr(settings, "VEC_INF_IMPERSONATE_PYTHON", None) or os.getenv(
-        "VEC_INF_IMPERSONATE_PYTHON"
-    )
+    configured = settings.VEC_INF_IMPERSONATE_PYTHON
     if isinstance(configured, str) and configured.strip():
         return configured.strip()
     return sys.executable
 
 
 def _should_inject_project_pythonpath() -> bool:
-    configured = getattr(settings, "VEC_INF_IMPERSONATE_PYTHON", None) or os.getenv(
-        "VEC_INF_IMPERSONATE_PYTHON"
-    )
+    configured = settings.VEC_INF_IMPERSONATE_PYTHON
     return not (isinstance(configured, str) and configured.strip())
+
+
+def _impersonation_wrapper_command(cluster_username: str, *command: str) -> List[str]:
+    """Build the sudo wrapper invocation.
+
+    Always pass ``--no-login-shell`` so the impersonated user's bashrc/profile
+    cannot alter the launch environment.
+    """
+    wrapper_path = Path(settings.VEC_INF_IMPERSONATE_SCRIPT)
+    return [
+        str(wrapper_path),
+        "--no-login-shell",
+        cluster_username,
+        "--",
+        *command,
+    ]
 
 
 class LLMInferenceDirectClient:
     """Direct vec-inf client used both locally and inside the launch shim."""
 
     def __init__(self):
-        vec_inf_config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None)
+        vec_inf_config_dir = settings.VEC_INF_CONFIG_DIR
         if vec_inf_config_dir:
             logger.info("Using VEC_INF_CONFIG_DIR: %s", vec_inf_config_dir)
             self._verify_config_files(vec_inf_config_dir)
@@ -641,17 +645,17 @@ class LLMInferenceDirectClient:
                 "VEC_INF_CONFIG_DIR not set, using vec-inf default config location"
             )
 
-        # MODEL_CONFIG_PATH can still be used for explicit models.yaml path override
-        config_path = getattr(settings, "MODEL_CONFIG_PATH", None)
+        # MODEL_CONFIG_PATH / VEC_INF_MODEL_CONFIG can override models.yaml
+        config_path = settings.VEC_INF_MODEL_CONFIG or settings.MODEL_CONFIG_PATH
         if config_path:
             logger.info("Using custom model config path: %s", config_path)
-            if not os.getenv("VEC_INF_MODEL_CONFIG"):
+            if not os.environ.get("VEC_INF_MODEL_CONFIG"):
                 os.environ["VEC_INF_MODEL_CONFIG"] = str(config_path)
                 logger.info("Set VEC_INF_MODEL_CONFIG to: %s", config_path)
 
         # Initialize VecInfClient - it will use VEC_INF_CONFIG_DIR if set
         self.client = VecInfClient()
-        self.slurm_account = os.getenv("SLURM_ACCOUNT") or settings.SLURM_ACCOUNT
+        self.slurm_account = settings.SLURM_ACCOUNT or settings.VEC_INF_ACCOUNT
 
     @staticmethod
     def _ensure_cuda_visible_devices_env(env_value: Optional[str]) -> str:
@@ -733,7 +737,7 @@ class LLMInferenceDirectClient:
         if params.get("model_weights_parent_dir") is not None:
             mapped["model_weights_parent_dir"] = params["model_weights_parent_dir"]
 
-        env_value = params.get("env") or getattr(settings, "VEC_INF_ENV", None)
+        env_value = params.get("env") or settings.VEC_INF_ENV
         mapped["env"] = self._ensure_cuda_visible_devices_env(env_value)
 
         return LaunchOptions(**mapped)
@@ -831,11 +835,11 @@ class LLMInferenceDirectClient:
 
     def _resolve_user_models_config_path(self) -> Optional[str]:
         """Return the path to the infrastructure-specific models.yaml, or None."""
-        explicit = os.getenv("VEC_INF_MODEL_CONFIG")
+        explicit = settings.VEC_INF_MODEL_CONFIG or settings.MODEL_CONFIG_PATH
         if explicit and Path(explicit).exists():
             return explicit
 
-        config_dir = os.getenv("VEC_INF_CONFIG_DIR")
+        config_dir = settings.VEC_INF_CONFIG_DIR
         if config_dir:
             candidate = Path(config_dir) / "models.yaml"
             if candidate.exists():
@@ -865,8 +869,8 @@ class LLMInferenceDirectClient:
         if models_file.exists():
             logger.info("Found models.yaml at: %s", models_file)
         else:
-            model_config_override = os.getenv("VEC_INF_MODEL_CONFIG") or getattr(
-                settings, "MODEL_CONFIG_PATH", None
+            model_config_override = (
+                settings.VEC_INF_MODEL_CONFIG or settings.MODEL_CONFIG_PATH
             )
             if model_config_override and Path(model_config_override).exists():
                 logger.info(
@@ -917,9 +921,7 @@ class LLMInferenceClient:
     """Launch wrapper that can impersonate the submitting cluster user."""
 
     def __init__(self):
-        self.execution_mode = str(
-            getattr(settings, "VEC_INF_EXECUTION_MODE", "direct") or "direct"
-        )
+        self.execution_mode = settings.VEC_INF_EXECUTION_MODE
         self.direct_client = LLMInferenceDirectClient()
 
     @staticmethod
@@ -993,13 +995,7 @@ class LLMInferenceClient:
             return {"success": False, "error": str(exc)}
 
         params = dict(params)
-        wrapper_path = Path(
-            getattr(
-                settings,
-                "VEC_INF_IMPERSONATE_SCRIPT",
-                PROJECT_ROOT / "scripts" / "impersonate-wrapper.py",
-            )
-        )
+        wrapper_path = Path(settings.VEC_INF_IMPERSONATE_SCRIPT)
         if not wrapper_path.exists():
             return {
                 "success": False,
@@ -1062,36 +1058,33 @@ class LLMInferenceClient:
             f.write(payload)
 
         try:
-            command = [str(wrapper_path)]
-            if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
-                command.append("--no-login-shell")
-            command.extend(
-                [
-                    cluster_username,
-                    "--",
-                    _get_impersonation_python(),
-                    "-m",
-                    "app.utils.vec_inf_launch_shim",
-                    str(payload_path),
-                ]
+            command = _impersonation_wrapper_command(
+                cluster_username,
+                _get_impersonation_python(),
+                "-m",
+                "app.utils.vec_inf_launch_shim",
+                str(payload_path),
             )
 
             env = os.environ.copy()
             if _should_inject_project_pythonpath():
                 env = self._prepend_pythonpath(env)
-            if getattr(settings, "VEC_INF_ENV", None):
+            if settings.VEC_INF_ENV:
                 env["VEC_INF_ENV"] = str(settings.VEC_INF_ENV)
             env["VEC_INF_LOG_DIR"] = str(workspace_dir)
             env["VEC_INF_WORK_DIR"] = str(params.get("work_dir") or workspace_dir)
             if params.get("account"):
                 env["VEC_INF_ACCOUNT"] = str(params["account"])
                 env["SLURM_ACCOUNT"] = str(params["account"])
+            # Do not use PROJECT_ROOT as cwd: Settings(env_file=".env") would try to
+            # open the service account's unreadable .env as svcllmhub*. Imports come
+            # from VEC_INF_IMPERSONATE_PYTHON's site-packages (or PYTHONPATH).
             result = subprocess.run(
                 command,
                 text=True,
                 capture_output=True,
                 env=env,
-                cwd=str(PROJECT_ROOT),
+                cwd=str(workspace_dir),
             )
         finally:
             payload_path.unlink(missing_ok=True)
@@ -1123,29 +1116,23 @@ class LLMInferenceClient:
         except ValueError as exc:
             return {"success": False, "error": str(exc)}
 
-        wrapper_path = Path(
-            getattr(
-                settings,
-                "VEC_INF_IMPERSONATE_SCRIPT",
-                PROJECT_ROOT / "scripts" / "impersonate-wrapper.py",
-            )
-        )
+        wrapper_path = Path(settings.VEC_INF_IMPERSONATE_SCRIPT)
         if not wrapper_path.exists():
             return {
                 "success": False,
                 "error": f"Impersonation wrapper not found: {wrapper_path}",
             }
 
-        command = [str(wrapper_path)]
-        if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
-            command.append("--no-login-shell")
-        command.extend([cluster_username, "--", "scancel", str(slurm_job_id)])
+        command = _impersonation_wrapper_command(
+            cluster_username, "scancel", str(slurm_job_id)
+        )
 
+        workspace_dir = _resolve_impersonated_workspace_dir(cluster_username)
         result = subprocess.run(
             command,
             text=True,
             capture_output=True,
-            cwd=str(PROJECT_ROOT),
+            cwd=str(workspace_dir or Path.cwd()),
         )
 
         if result.returncode != 0:
@@ -1164,7 +1151,7 @@ class LLMInferenceClient:
         cluster_username: Optional[str] = None,
         **params,
     ):
-        if self.execution_mode == "impersonate":
+        if self.execution_mode == VecInfExecutionMode.IMPERSONATE:
             return self._launch_model_impersonated(
                 model_name,
                 enable_cloudflare_tunnel=enable_cloudflare_tunnel,
@@ -1184,7 +1171,7 @@ class LLMInferenceClient:
         return self.direct_client.get_model_metrics(slurm_job_id)
 
     def shutdown_model(self, slurm_job_id: str, cluster_username: Optional[str] = None):
-        if self.execution_mode == "impersonate":
+        if self.execution_mode == VecInfExecutionMode.IMPERSONATE:
             return self._shutdown_model_impersonated(slurm_job_id, cluster_username)
         return self.direct_client.shutdown_model(slurm_job_id)
 

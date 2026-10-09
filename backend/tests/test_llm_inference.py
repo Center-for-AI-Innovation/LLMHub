@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.config.config import settings
+from app.config.config import VecInfExecutionMode, settings
 from app.utils import llm_inference
 
 
@@ -46,7 +46,7 @@ class FakeDirectClient:
 
 def test_launch_model_uses_direct_mode(monkeypatch):
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "direct")
+    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.DIRECT)
 
     client = llm_inference.LLMInferenceClient()
     result = client.launch_model("Qwen/Qwen3-8B", cluster_username=None, num_gpus=2)
@@ -58,7 +58,9 @@ def test_launch_model_uses_direct_mode(monkeypatch):
 
 def test_launch_model_requires_cluster_username_when_impersonating(monkeypatch):
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(
+        settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.IMPERSONATE
+    )
     monkeypatch.setattr(
         settings, "VEC_INF_IMPERSONATE_SCRIPT", "/tmp/impersonate-wrapper"
     )
@@ -121,12 +123,17 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(
+        settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.IMPERSONATE
+    )
     monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
     monkeypatch.setattr(
         llm_inference,
         "_ensure_impersonated_workspace_dir",
         lambda _: workspace_dir,
+    )
+    monkeypatch.setattr(
+        llm_inference, "_ensure_shared_cache_dir_access", lambda _username: None
     )
     monkeypatch.setattr(
         llm_inference,
@@ -148,18 +155,19 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     payload = captured["payload"]
 
     assert result["success"] is True
-    assert captured["command"][:4] == [
+    assert captured["command"][:5] == [
         str(wrapper_path),
+        "--no-login-shell",
         "alice",
         "--",
         llm_inference._get_impersonation_python(),
     ]
-    assert captured["command"][4:6] == ["-m", "app.utils.vec_inf_launch_shim"]
-    # The secret-bearing payload travels as a file path, never inline in argv
+    assert captured["command"][5:7] == ["-m", "app.utils.vec_inf_launch_shim"]
+    # The payload travels as a file path, never inline in argv
     # (argv is visible to any user on the host via ps/`/proc/<pid>/cmdline`).
     assert captured["command"][-1] != json.dumps(payload)
     assert captured["command"][-1].startswith(str(workspace_dir))
-    assert captured["kwargs"]["cwd"] == str(llm_inference.PROJECT_ROOT)
+    assert captured["kwargs"]["cwd"] == str(workspace_dir)
     assert captured["kwargs"]["env"]["VEC_INF_ACCOUNT"] == "bgns-delta-gpu"
     assert captured["kwargs"]["env"]["SLURM_ACCOUNT"] == "bgns-delta-gpu"
     assert captured["kwargs"]["env"]["VEC_INF_LOG_DIR"].endswith("/alice")
@@ -249,12 +257,17 @@ def test_launch_model_uses_provided_slurm_account(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(
+        settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.IMPERSONATE
+    )
     monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
     monkeypatch.setattr(
         llm_inference,
         "_ensure_impersonated_workspace_dir",
         lambda _: workspace_dir,
+    )
+    monkeypatch.setattr(
+        llm_inference, "_ensure_shared_cache_dir_access", lambda _username: None
     )
     monkeypatch.setattr(
         llm_inference,
@@ -297,12 +310,17 @@ def test_launch_model_rejects_unassociated_slurm_account(monkeypatch, tmp_path):
     wrapper_path.chmod(0o755)
 
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(
+        settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.IMPERSONATE
+    )
     monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
     monkeypatch.setattr(
         llm_inference,
         "_ensure_impersonated_workspace_dir",
         lambda _: tmp_path / "alice",
+    )
+    monkeypatch.setattr(
+        llm_inference, "_ensure_shared_cache_dir_access", lambda _username: None
     )
     monkeypatch.setattr(
         llm_inference,
@@ -863,3 +881,16 @@ def test_workspace_mkdir_failure_becomes_a_runtime_error(monkeypatch, tmp_path):
 
     with pytest.raises(RuntimeError, match="Failed to link.*Permission denied"):
         llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+
+
+def test_resolve_workspace_root_prefers_shared_then_work_then_log(monkeypatch):
+    monkeypatch.setattr(settings, "VEC_INF_SHARED_WORK_ROOT", "/shared")
+    monkeypatch.setattr(settings, "VEC_INF_WORK_DIR", "/work")
+    monkeypatch.setattr(settings, "VEC_INF_LOG_DIR", "/logs")
+    assert settings.resolve_workspace_root() == "/shared"
+
+    monkeypatch.setattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
+    assert settings.resolve_workspace_root() == "/work"
+
+    monkeypatch.setattr(settings, "VEC_INF_WORK_DIR", None)
+    assert settings.resolve_workspace_root() == "/logs"
