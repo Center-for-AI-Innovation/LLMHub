@@ -27,6 +27,7 @@ set -eo pipefail   # no -u: helpers pipe into head/grep, and SIGPIPE would abort
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------ args ----
+ORIG_ARGS=("$@")   # deploy re-runs the checked-out kit with these
 CMD=""; TARGET=""; REF_ARG=""; APPLY=0; STOP_ALL=0; WITH_SYNC=0; RECREATE=0; FOLLOW=0; KEEP=0
 usage() { sed -n '2,20p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
@@ -585,12 +586,33 @@ cmd_deploy() {
 
     step "Source — ${LLMHUB_REF}"
     run mkdir -p "$LLMHUB_DEPLOY_ROOT" "$LLMHUB_LOG_DIR" "$LLMHUB_RUN_DIR" "$LLMHUB_VEC_INF_WORK_DIR" "$CACHE"
-    if [ -d "${LLMHUB_SRC_DIR}/.git" ]; then run g fetch -q --tags --prune origin
+    # A re-run (below) skips the fetch, so the ref resolves to the same commit.
+    if [ -n "${LLMHUB_KIT_REEXEC:-}" ]; then info "running the kit checked out at ${LLMHUB_KIT_REEXEC:0:9}"
+    elif [ -d "${LLMHUB_SRC_DIR}/.git" ]; then run g fetch -q --tags --prune origin
     else run git clone -q "$LLMHUB_REPO" "$LLMHUB_SRC_DIR"; fi
     if [ "$APPLY" = 1 ]; then
         [ -z "$(g status --porcelain | head -1)" ] || die "deployment tree is dirty — it must be a clean checkout, not a working copy"
         local rk; rk="$(resolve_ref "$LLMHUB_REF")"; REF_KIND="${rk%% *}"; SHA="${rk##* }"
+        [ -z "${LLMHUB_KIT_REEXEC:-}" ] || [ "$SHA" = "$LLMHUB_KIT_REEXEC" ] \
+            || die "re-run resolved '${LLMHUB_REF}' to ${SHA:0:9}, not the ${LLMHUB_KIT_REEXEC:0:9} it checked out"
+        local old; old="$(g rev-parse -q --verify HEAD 2>/dev/null || true)"
         run g checkout -q --detach "$SHA"
+        # This kit's config and functions were loaded before the checkout. When
+        # it IS the checkout's kit, re-run the new one at once, so the new ref's
+        # delta.env and render code apply and bash never reads a changed file.
+        # Only into a kit that knows LLMHUB_KIT_REEXEC: older kits re-fetch, and
+        # some predate the cluster stamps and would write Delta's roots from
+        # DeltaAI. A kit run from outside the checkout is kept: the operator chose it.
+        local own; own="$(cd "${LLMHUB_SRC_DIR}/infra/delta" 2>/dev/null && pwd -P || true)"
+        if [ -z "${LLMHUB_KIT_REEXEC:-}" ] && [ "$old" != "$SHA" ] && [ "$own" = "$(cd "$HERE" && pwd -P)" ]; then
+            if [ -x "${own}/llmhub" ] && grep -q 'LLMHUB_KIT_REEXEC' "${own}/llmhub"; then
+                info "re-running the kit from ${SHA:0:9}, so its own config and render code apply"
+                LLMHUB_KIT_REEXEC="$SHA" exec "${own}/llmhub" "${ORIG_ARGS[@]}"
+            fi
+            warn "${SHA:0:9}'s kit predates re-running after checkout — continuing with the kit loaded before the checkout"
+        elif [ "$own" != "$(cd "$HERE" && pwd -P)" ] && ! diff -rq "$HERE" "${LLMHUB_SRC_DIR}/infra/delta" >/dev/null 2>&1; then
+            warn "rendering with the kit at ${HERE}, which differs from ${SHA:0:9}'s infra/delta"
+        fi
         printf 'ref=%s\nkind=%s\nsha=%s\ndate=%s\nby=%s\n' "$LLMHUB_REF" "$REF_KIND" "$SHA" "$(date -Is)" "$ME" > "$DEPLOYED_FILE"
         ok "${REF_KIND} ${LLMHUB_REF} → ${SHA:0:9} ($(g log -1 --format='%cs %s' | cut -c1-70))"
     else
