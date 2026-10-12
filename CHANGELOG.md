@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `preflight` checks that the deploy, local, job-workspace and shared roots (or their nearest existing parent) are searchable as well as writable, since creating anything in a directory needs both.
   - `launch-test` warns when a SLURM job is still running after shutdown, with the command to cancel it, and prints the job-log path correctly.
   - `preflight` and `check-impersonation` no longer require `/sw/user/scripts/accounts` when the deployed backend resolves accounts with `sacctmgr` (1.1.0+). `preflight` instead checks that `sacctmgr` is on the `PATH` and finds at least one account for `LLMHUB_TEST_CLUSTER_USER`. Older releases still get the script check.
+  - `stop` and `restart` no longer exit silently, with status 1, when a service is already down and has no pidfile.
   - README: new "Deploying production" section (VM prerequisites, the `local.env` a new VM needs, which ref to pin, run `launch-test` before CILogon). Examples that used the deleted `port/backend-pr-32` branch or `v0.1.1`, which has no impersonation, are fixed. The CILogon steps now end with `deploy --apply`, because `LLMHUB_PUBLIC_URL` is baked into the build.
 
 ## [1.1.0]

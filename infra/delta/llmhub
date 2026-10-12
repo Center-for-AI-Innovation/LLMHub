@@ -404,7 +404,7 @@ start_daemon() {  # pidfile log dir cmd…
 # ours (cwd inside the deployment). Never kills someone else's process.
 stop_service() {  # name pidfile port
     local name="$1" pidf="$2" port="$3" p i
-    p="$(cat "$pidf" 2>/dev/null)"
+    p="$(cat "$pidf" 2>/dev/null || true)"   # no pidfile is "not running", not an error under set -e
     if ! alive "$pidf"; then
         p="$(port_pid "$port")"
         if ours "$p"; then warn "${name}: pid ${p} on port ${port} is this deployment's but has no pidfile — stopping it"
