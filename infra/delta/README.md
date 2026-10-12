@@ -409,6 +409,11 @@ Local accounts are the default. CILogon needs four things, in this order:
    Use `deploy`, not `render`: `LLMHUB_PUBLIC_URL` is baked into the frontend
    build. After that, `render` is enough for a change to secrets only.
 
+With CILogon on, `OAUTH_MAPFILE_PATH` (default `/sw/grid-security/oauth-mapfile`)
+gates sign-in: the login email must appear in the mapfile's first column.
+Plus-address test accounts (`netid+svcllmhubnetid@…`) are rewritten like model
+launch before the lookup. Set `OAUTH_MAPFILE_PATH=` in `local.env` to disable.
+
 Run `launch-test` at least once **before** step 4. It signs up a local test
 user (stored in `$LLMHUB_DEPLOY_ROOT/test-user.env`), and turning CILogon on
 turns local sign-up off. Once the user exists, later runs find it in the

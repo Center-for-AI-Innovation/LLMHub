@@ -560,6 +560,7 @@ render_frontend_env() {
         emit CILOGON_CLIENT_SECRET "$CILOGON_CLIENT_SECRET"
         emit CILOGON_DISCOVERY_URL "$CILOGON_DISCOVERY_URL"
         emit CILOGON_SKIN "$CILOGON_SKIN"
+        emit OAUTH_MAPFILE_PATH "$OAUTH_MAPFILE_PATH"
         emit ALWAYS_ON_VLLM_BASE_URL "$ALWAYS_ON_VLLM_BASE_URL"
         emit ALWAYS_ON_VLLM_API_KEY "$ALWAYS_ON_VLLM_API_KEY"
         emit ALWAYS_ON_VLLM_MODEL "$ALWAYS_ON_VLLM_MODEL"
@@ -878,6 +879,10 @@ cmd_preflight() {
     if [ -r "$LLMHUB_SECRETS_FILE" ]; then
         [ "$(stat -c %a "$LLMHUB_SECRETS_FILE")" = 600 ] && ok "secrets file mode 0600" || bad "secrets file must be mode 0600"
         load_secrets; [ -n "$CILOGON_CLIENT_ID" ] && ok "CILogon configured" || warn "CILogon not configured — frontend runs with local accounts only"
+        if [ -n "$CILOGON_CLIENT_ID" ] && [ -n "$OAUTH_MAPFILE_PATH" ]; then
+            [ -r "$OAUTH_MAPFILE_PATH" ] && ok "sign-in mapfile ${OAUTH_MAPFILE_PATH} readable" \
+                || bad "sign-in mapfile ${OAUTH_MAPFILE_PATH} not readable — every CILogon sign-in would be refused"
+        fi
     else warn "no secrets file yet — deploy generates one (auth secret + API-key pepper); CILogon/S3 stay unset"; fi
     printf '\n'; _c 1; printf 'Result: %d pass, %d warn, %d fail' "$P" "$W" "$F"; _c 0; printf '\n'
     [ "$F" -eq 0 ]
