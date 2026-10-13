@@ -266,7 +266,7 @@ function PureMultimodalInput({
           <StopButton stop={stop} setMessages={setMessages} />
         ) : (
           <>
-            <ModelSelector className="hidden md:flex" />
+            <ModelSelector className="hidden md:flex" disabled={disabled} />
             <SendButton
               input={input}
               submitForm={submitForm}

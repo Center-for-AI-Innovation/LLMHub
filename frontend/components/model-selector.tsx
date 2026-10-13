@@ -17,6 +17,7 @@ import { useChatModels } from '@/hooks/use-models';
 
 export function ModelSelector({
   className,
+  disabled = false,
 }: React.ComponentProps<typeof Button>) {
   const [open, setOpen] = useState(false);
   const { selectedModel, setSelectedModel } = useModelSelector();
@@ -33,12 +34,17 @@ export function ModelSelector({
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         asChild
+        disabled={disabled}
         className={cn(
           'w-fit data-[state=open]:bg-accent data-[state=open]:text-accent-foreground',
           className,
         )}
       >
-        <Button variant="outline" className="md:h-[34px] md:px-2 bg-background dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] dark:hover:bg-muted">
+        <Button
+          variant="outline"
+          disabled={disabled}
+          className="md:h-[34px] md:px-2 bg-background dark:bg-muted/50 border-0 shadow-[0_2px_6px_rgba(0,0,0,0.05)] dark:shadow-[0_2px_6px_rgba(0,0,0,0.25)] dark:hover:bg-muted"
+        >
           {selectedChatModel?.name || 'Select model'}
           <ChevronDownIcon />
         </Button>

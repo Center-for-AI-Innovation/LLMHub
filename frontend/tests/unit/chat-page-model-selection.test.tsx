@@ -17,6 +17,7 @@ const routerReplace = vi.fn();
 
 const mocks = vi.hoisted(() => ({
   searchParamsString: 'deployment=dep-1',
+  modelSelectorDisabled: [] as Array<boolean>,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -35,7 +36,12 @@ vi.mock('@/components/artifact', () => ({
   artifactDefinitions: [],
 }));
 vi.mock('@/components/messages', () => ({ Messages: () => null }));
-vi.mock('@/components/model-selector', () => ({ ModelSelector: () => null }));
+vi.mock('@/components/model-selector', () => ({
+  ModelSelector: (props: { disabled?: boolean }) => {
+    mocks.modelSelectorDisabled.push(props.disabled ?? false);
+    return null;
+  },
+}));
 vi.mock('@/components/suggested-actions', () => ({
   SuggestedActions: () => null,
 }));
@@ -68,6 +74,7 @@ describe('ChatPage ?deployment= model selection', () => {
     });
     useModelSelector.setState({ selectedModel: 'previous-model' });
     mocks.searchParamsString = 'deployment=dep-1';
+    mocks.modelSelectorDisabled.length = 0;
     const chatModels = new Promise<{ id: string }[]>((resolve, reject) => {
       resolveChatModels = resolve;
       rejectChatModels = reject;
@@ -166,6 +173,24 @@ describe('ChatPage ?deployment= model selection', () => {
     expect(useModelSelector.getState().selectedModel).toBe(
       'vllm-deployment:dep-2',
     );
+  });
+
+  it('disables the model selector while resolution is pending', async () => {
+    renderPage();
+    const lastSelectorDisabled = () =>
+      mocks.modelSelectorDisabled[mocks.modelSelectorDisabled.length - 1];
+
+    // Cached options can populate the selector while the post-mount refetch
+    // is still pending; a pick made in that window would be overwritten by
+    // the URL/default pick when the fetch settles, so the selector must be
+    // disabled until then.
+    await waitFor(() => expect(lastSelectorDisabled()).toBe(true));
+
+    await act(async () => {
+      resolveChatModels([{ id: 'vllm-deployment:dep-1' }]);
+    });
+
+    await waitFor(() => expect(lastSelectorDisabled()).toBe(false));
   });
 
   it('holds the ?query= auto-send until the options fetch picks the model', async () => {
