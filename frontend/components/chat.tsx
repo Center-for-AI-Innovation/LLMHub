@@ -28,10 +28,7 @@ import {
 } from '@/lib/guest-chat';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useDocumentCache } from '@/hooks/use-document-cache';
-import {
-  useVllmDeployment,
-  getVllmChatEndpoint,
-} from '@/hooks/use-vllm-deployment';
+import { getVllmChatEndpoint } from '@/hooks/use-vllm-deployment';
 import { useNewChat } from '@/hooks/use-new-chat';
 import { usePendingChat } from '@/hooks/use-pending-chat';
 import type { DataStreamDelta } from '@/lib/ai/data-stream';
@@ -55,8 +52,8 @@ function isAlwaysOnModel(model: string): boolean {
   return model === 'always-on-model';
 }
 
-// Helper to determine API endpoint based on model and deployment ID
-const getApiEndpoint = (model: string, vllmDeploymentId: string | null) => {
+// Helper to determine API endpoint based on the selected model
+const getApiEndpoint = (model: string) => {
   if (isAlwaysOnModel(model)) {
     return '/api/public/chat';
   }
@@ -133,11 +130,9 @@ function getGuestMessageCountFromCookie(): number {
 function ensureModelReadyForSend({
   isGuestMode,
   selectedModel,
-  vllmDeploymentId,
 }: {
   isGuestMode: boolean;
   selectedModel: string;
-  vllmDeploymentId: string | null;
 }): boolean {
   if (isGuestMode) {
     return true;
@@ -153,10 +148,6 @@ function ensureModelReadyForSend({
 
   // Deployment-specific options include the deployment ID directly.
   if (getSelectedVllmDeploymentId(selectedModel)) {
-    return true;
-  }
-
-  if (vllmDeploymentId) {
     return true;
   }
 
@@ -188,7 +179,6 @@ function ChatInner({
   chatId,
   apiEndpoint,
   selectedModel,
-  vllmDeploymentId,
   initialMessages,
   initialDocuments,
   initialVotes,
@@ -202,7 +192,6 @@ function ChatInner({
   chatId: string;
   apiEndpoint: string;
   selectedModel: string;
-  vllmDeploymentId: string | null;
   initialMessages: Array<UIMessage>;
   initialDocuments?: Array<Document>;
   initialVotes?: Array<Vote>;
@@ -279,14 +268,11 @@ function ChatInner({
               trigger,
               messageId,
               selectedChatModel: selectedModel,
-              ...(isVllmDeploymentModel(selectedModel) && vllmDeploymentId
-                ? { vllmDeploymentId }
-                : {}),
             },
           };
         },
       }),
-    [apiEndpoint, chatId, selectedModel, vllmDeploymentId],
+    [apiEndpoint, chatId, selectedModel],
   );
 
   const {
@@ -378,8 +364,7 @@ function ChatInner({
       return;
     }
 
-    console.log('selectedModel', selectedModel, 'vllmDeploymentId', vllmDeploymentId);
-    if (!ensureModelReadyForSend({ isGuestMode, selectedModel, vllmDeploymentId })) {
+    if (!ensureModelReadyForSend({ isGuestMode, selectedModel })) {
       return;
     }
 
@@ -598,7 +583,6 @@ export function Chat({
 }) {
   const { selectedModel, setSelectedModel } = useModelSelector();
   const effectiveSelectedModel = isGuestMode ? 'always-on-model' : selectedModel;
-  const { deploymentId: vllmDeploymentId } = useVllmDeployment(!isGuestMode);
   const isTemporaryChat = id === 'new';
   const chatKey = isTemporaryChat ? `new:${resetVersion}` : `id:${id}`;
   const [chatIdentity, setChatIdentity] = useState(() => ({
@@ -615,8 +599,8 @@ export function Chat({
 
   const chatId = chatIdentity.chatId;
 
-  // Determine API endpoint based on selected model and vLLM deployment ID
-  const apiEndpoint = getApiEndpoint(effectiveSelectedModel, vllmDeploymentId);
+  // Determine API endpoint based on the selected model
+  const apiEndpoint = getApiEndpoint(effectiveSelectedModel);
 
   useEffect(() => {
     onResolvedChatId?.(chatId);
@@ -634,7 +618,6 @@ export function Chat({
       chatId={chatId}
       apiEndpoint={apiEndpoint}
       selectedModel={effectiveSelectedModel}
-      vllmDeploymentId={vllmDeploymentId}
       initialMessages={initialMessages}
       initialDocuments={initialDocuments}
       initialVotes={initialVotes}
