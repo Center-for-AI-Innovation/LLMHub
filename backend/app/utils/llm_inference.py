@@ -32,6 +32,12 @@ from vec_inf.client.models import LaunchOptions  # noqa: E402
 logger = get_logger("llm_inference")
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# Valid CUDA_VISIBLE_DEVICES device tokens: ordinal indices (a negative index
+# such as -1 hides all GPUs), GPU-<uuid>, MIG-<uuid>, and
+# MIG-GPU-<uuid>/<sw-gpu-instance-id>/<sw-compute-instance-id>.
+_CUDA_DEVICE_TOKEN_RE = re.compile(
+    r"^(?:-?\d+|GPU-[0-9a-fA-F-]+|MIG-[0-9A-Za-z-]+(?:/\d+)*)$"
+)
 _select_user_slurm_account = select_user_slurm_account
 
 
@@ -226,11 +232,14 @@ class LLMInferenceDirectClient:
         """Ensure we pass Slurm-assigned GPUs into the container.
 
         Any pre-existing ``CUDA_VISIBLE_DEVICES`` field in ``env_value``
-        (bare or shell-quoted, e.g. a stale multi-GPU workaround) is dropped
-        so exactly one canonical field is appended. Digit-only fields directly
-        after it are the tail of a literal multi-GPU list (``=0,1``) and are
-        dropped too; any other bare field is left for vec-inf to reject.
-        The field is deliberately
+        (bare, shell-quoted, or backslash-quoted, e.g. a stale multi-GPU
+        workaround) is dropped so exactly one canonical field is appended.
+        Continuation fields of a literal multi-device value are dropped too
+        when they are valid CUDA device tokens -- decimal indices, negative
+        indices such as ``-1``, ``GPU-<uuid>``, and ``MIG-<uuid>`` /
+        ``MIG-GPU-<uuid>/<id>...`` -- with surrounding whitespace and quotes
+        normalized; any other bare field is left for vec-inf to reject.
+        The canonical field is deliberately
         unquoted: container launches emit one ``--env`` flag per variable,
         and pflag's single-``=`` fast path does not strip quotes.
         """
@@ -238,14 +247,21 @@ class LLMInferenceDirectClient:
         if not env_value:
             return cuda_kv
 
+        def normalized_token(field: str) -> str:
+            return field.strip().strip("\\\"'")
+
         fields = []
         in_cuda_value = False
         for field in env_value.split(","):
             name, separator, _ = field.partition("=")
-            if separator and name.strip().strip("\\\"'") == "CUDA_VISIBLE_DEVICES":
+            if normalized_token(name) == "CUDA_VISIBLE_DEVICES":
                 in_cuda_value = True
                 continue
-            if in_cuda_value and field.strip().isdigit():
+            if (
+                in_cuda_value
+                and not separator
+                and _CUDA_DEVICE_TOKEN_RE.match(normalized_token(field))
+            ):
                 continue
             in_cuda_value = False
             fields.append(field)

@@ -337,6 +337,86 @@ def test_ensure_cuda_visible_devices_env_strips_stale_quoted_workaround():
     assert env.endswith("CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES")
 
 
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,1,2,3",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=-1",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=GPU-a1b2,GPU-c3d4",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=MIG-39d1a7f3-9b1e,MIG-84e5ac57-3a91",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=MIG-GPU-abc123/1/0,MIG-GPU-def456/2/1",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,GPU-a1b2,MIG-GPU-def456/2/1",
+    ],
+)
+def test_cuda_visible_devices_device_tokens_are_consumed(env_value):
+    """Issue #56: UUID and MIG tails must not leak as bare vec-inf fields."""
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(env) == {
+        "HF_HOME": "/x",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        'HF_HOME=/x,CUDA_VISIBLE_DEVICES="0,1,2,3"',
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES='0,1'",
+        'HF_HOME=/x,CUDA_VISIBLE_DEVICES="GPU-a1b2,GPU-c3d4"',
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES='MIG-39d1a7f3-9b1e,MIG-84e5ac57-3a91'",
+        'HF_HOME=/x,\\"CUDA_VISIBLE_DEVICES=0,1,2\\"',
+    ],
+)
+def test_cuda_visible_devices_quoted_lists_are_consumed(env_value):
+    """Quoted pre-seeds leave quote-bearing tails that must be consumed."""
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(env) == {
+        "HF_HOME": "/x",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES,0,1",
+        "HF_HOME=/x,'CUDA_VISIBLE_DEVICES'",
+    ],
+)
+def test_cuda_visible_devices_bare_name_is_consumed(env_value):
+    """A bare field is an env-file path for vec-inf, so it must be dropped."""
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(env) == {
+        "HF_HOME": "/x",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+def test_invalid_cuda_continuation_token_fails_loudly(monkeypatch, tmp_path):
+    """A typo inside a CUDA list is not a device token, so it stays behind."""
+    monkeypatch.chdir(tmp_path)
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,x,1"
+    )
+
+    assert "x" in env.split(",")
+    with pytest.raises(FileNotFoundError, match="'x'"):
+        ModelLauncher.__new__(ModelLauncher)._process_env_vars(env)
+
+
 def test_multi_gpu_container_launch_renders_one_env_flag_per_variable(monkeypatch):
     """Issue #56: the CUDA field must survive Apptainer's --env CSV parsing."""
     stale_workaround = (
