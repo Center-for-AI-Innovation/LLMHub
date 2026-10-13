@@ -269,6 +269,17 @@ def test_ensure_cuda_visible_devices_env_drops_duplicate_field():
     assert env.endswith("CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES")
 
 
+def test_ensure_cuda_visible_devices_env_preserves_similarly_named_field():
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        "MY_CUDA_VISIBLE_DEVICES=0"
+    )
+
+    assert env == (
+        "MY_CUDA_VISIBLE_DEVICES=0,"
+        "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    )
+
+
 @pytest.mark.parametrize(
     "env_value",
     [
