@@ -5,8 +5,8 @@
  * /api/chat/models only returns deployments the user can access, so an unknown
  * or inaccessible id falls back to the first option and is reported as
  * unavailable. Options are already prioritized by /api/chat/models: most
- * recently updated deployment -> always-on. With an empty list, the selector
- * keeps its initial DEFAULT_CHAT_MODEL.
+ * recently updated deployment -> always-on. An empty list leaves nothing to
+ * select or fall back to; the caller must not resolve with a stale selection.
  */
 export function pickChatModel(
   chatModelOptions: { id: string }[],

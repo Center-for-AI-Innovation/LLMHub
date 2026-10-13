@@ -186,6 +186,7 @@ function ChatInner({
   isReadonly,
   isGuestMode,
   isModelReady,
+  hasNoModels,
   onGuestLimitReached,
   initialPrompt,
 }: {
@@ -199,6 +200,7 @@ function ChatInner({
   isReadonly: boolean;
   isGuestMode: boolean;
   isModelReady: boolean;
+  hasNoModels: boolean;
   onGuestLimitReached?: () => void;
   initialPrompt?: string;
 }) {
@@ -526,6 +528,7 @@ function ChatInner({
                       sendMessage={guardedSendMessage}
                       isGuestMode={isGuestMode}
                       disabled={!isModelReady}
+                      hasNoModels={hasNoModels}
                     />
                   )}
                 </div>
@@ -563,6 +566,7 @@ export function Chat({
   isReadonly,
   isGuestMode = false,
   isModelReady = true,
+  hasNoModels = false,
   onGuestLimitReached,
   initialPrompt,
   resetVersion = 0,
@@ -576,6 +580,7 @@ export function Chat({
   isReadonly: boolean;
   isGuestMode?: boolean;
   isModelReady?: boolean;
+  hasNoModels?: boolean;
   onGuestLimitReached?: () => void;
   initialPrompt?: string;
   resetVersion?: number;
@@ -625,6 +630,7 @@ export function Chat({
       isReadonly={isReadonly}
       isGuestMode={isGuestMode}
       isModelReady={isModelReady}
+      hasNoModels={hasNoModels}
       onGuestLimitReached={onGuestLimitReached}
       initialPrompt={initialPrompt}
     />

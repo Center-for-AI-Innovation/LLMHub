@@ -41,6 +41,7 @@ function PureMultimodalInput({
   className,
   isGuestMode = false,
   disabled = false,
+  hasNoModels = false,
 }: {
   input: string;
   setInput: (value: string) => void;
@@ -54,6 +55,7 @@ function PureMultimodalInput({
   className?: string;
   isGuestMode?: boolean;
   disabled?: boolean;
+  hasNoModels?: boolean;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
@@ -229,7 +231,13 @@ function PureMultimodalInput({
 
       <Textarea
         ref={textareaRef}
-        placeholder={disabled ? 'Loading models...' : 'Send a message...'}
+        placeholder={
+          hasNoModels
+            ? 'No models available'
+            : disabled
+              ? 'Loading models...'
+              : 'Send a message...'
+        }
         value={input}
         onChange={handleInput}
         disabled={disabled}
@@ -290,6 +298,7 @@ export const MultimodalInput = memo(
     if (prevProps.messages.length !== nextProps.messages.length) return false;
     if (prevProps.isGuestMode !== nextProps.isGuestMode) return false;
     if (prevProps.disabled !== nextProps.disabled) return false;
+    if (prevProps.hasNoModels !== nextProps.hasNoModels) return false;
     if (!equal(prevProps.attachments, nextProps.attachments)) return false;
 
     return true;

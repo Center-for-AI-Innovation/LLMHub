@@ -197,6 +197,26 @@ describe('ChatPage ?deployment= model selection', () => {
     await waitFor(() => expect(lastSelectorDisabled()).toBe(false));
   });
 
+  it('keeps sends disabled when the fetch succeeds with no models', async () => {
+    renderPage();
+
+    await act(async () => {
+      resolveChatModels([]);
+    });
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('No models available')).toBeTruthy(),
+    );
+    const textarea = screen.getByPlaceholderText(
+      'No models available',
+    ) as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(true);
+
+    fireEvent.change(textarea, { target: { value: 'hello' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
   it('holds the ?query= auto-send until the options fetch picks the model', async () => {
     mocks.searchParamsString = 'query=hello';
 

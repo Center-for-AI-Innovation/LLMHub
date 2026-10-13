@@ -59,6 +59,13 @@ export default function ChatPage() {
   // Guests always chat with the hardcoded always-on model, so they never wait
   // on the options fetch.
   const isModelReady = isModelResolved || !session?.user;
+  // A successful fetch with zero options: no model to send to. Keep the
+  // composer disabled with a no-models message instead of a "Loading..." one.
+  const hasNoModels =
+    !isModelReady &&
+    isFetchedAfterMount &&
+    isSuccess &&
+    chatModelOptions.length === 0;
 
   useEffect(() => {
     // Select once per URL deployment, from this mount's successful fetch: a
@@ -72,9 +79,12 @@ export default function ChatPage() {
       chatModelOptions,
       deploymentIdFromUrl,
     );
-    if (modelId) {
-      setSelectedModel(modelId);
+    if (!modelId) {
+      // No options: nothing to select or fall back to. Stay unresolved so
+      // sends stay disabled; a later refetch with options resolves here.
+      return;
     }
+    setSelectedModel(modelId);
     if (deploymentUnavailable) {
       toast.info(
         "That deployment isn't available. It may have stopped, or you may not have access.",
@@ -133,6 +143,7 @@ export default function ChatPage() {
           isReadonly={false}
           isGuestMode={!session?.user}
           isModelReady={isModelReady}
+          hasNoModels={hasNoModels}
           onGuestLimitReached={handleGuestLimitReached}
           initialPrompt={query || undefined}
         />
