@@ -506,7 +506,7 @@ render_backend_env() {
         emit VEC_INF_ACCOUNT "$LLMHUB_SLURM_ACCOUNT"
         emit VEC_INF_WORK_DIR "$LLMHUB_VEC_INF_WORK_DIR"
         emit VEC_INF_LOG_DIR "$LLMHUB_VEC_INF_LOG_DIR"
-        emit VEC_INF_ENV "${LLMHUB_VEC_INF_ENV}"   # unquoted on purpose — see delta.env
+        emit VEC_INF_ENV "${LLMHUB_VEC_INF_ENV}"
         [ -r "${VIC}/environment.yaml" ] && emit VEC_INF_CONFIG_DIR "$VIC"
         emit VEC_INF_EXECUTION_MODE "$LLMHUB_EXECUTION_MODE"
         emit VEC_INF_SHARED_WORK_ROOT "$LLMHUB_SHARED_WORK_ROOT"
