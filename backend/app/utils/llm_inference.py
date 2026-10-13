@@ -179,6 +179,7 @@ def _generate_env_str_repeated_flags(self: SlurmScriptGenerator) -> str:
 
 SlurmScriptGenerator._generate_env_str = _generate_env_str_repeated_flags
 
+
 def _impersonation_wrapper_command(cluster_username: str, *command: str) -> List[str]:
     """Build the sudo wrapper invocation.
 
