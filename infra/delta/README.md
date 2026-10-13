@@ -232,7 +232,7 @@ Per-stack overrides go in `$LLMHUB_DEPLOY_ROOT/local.env`, sourced after
 LLMHUB_VLLM_SIF=/work/nvme/<allocation>/$USER/vllm-v0.19.1-slingshot.sif   # a candidate built from devops/apptainers/delta
 ```
 
-Three things the rendered inference config encodes, each found by a failed job:
+Three things about the rendered inference config, each found by a failed job:
 
 - **The torch-inductor cache must be writable by whoever runs the job.**
   vLLM 0.19 compiles at startup and writes under `TORCHINDUCTOR_CACHE_DIR`. The
@@ -246,11 +246,13 @@ Three things the rendered inference config encodes, each found by a failed job:
   matching `unable to` before the server is up — on a healthy job. libfabric
   accepts only `warn|trace|info|debug` (anything else means warn), so the
   provider filter is the switch. (jobs 21500607, 21500755)
-- **`\"CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES\"` in `VEC_INF_ENV`.** The
-  backend appends the bare variable to Apptainer's comma-split `--env` list,
-  so any multi-GPU job (`0,1,2,3`) died with `1 must be formatted as key=value`
-  (job 21500226). Pre-seeding a CSV-quoted field stops the append and survives
-  both vec-inf's split/rejoin and Apptainer's parser. Upstream: LLMHub#56.
+- **No `CUDA_VISIBLE_DEVICES` in `VEC_INF_ENV`.** vec-inf passed every
+  variable in one comma-joined `--env`, which Apptainer splits on commas, so
+  any multi-GPU job (`0,1,2,3`) died with `1 must be formatted as key=value`
+  (job 21500226). The backend now emits one `--env` flag per variable, drops
+  any `CUDA_VISIBLE_DEVICES` field from `VEC_INF_ENV` (including the old
+  CSV-quoted workaround) and appends `CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES`
+  itself. LLMHub#56.
 
 ## Impersonation (jobs as `svcllmhub<netid>`)
 
