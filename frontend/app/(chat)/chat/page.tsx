@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { Loader2 } from 'lucide-react';
@@ -35,8 +35,17 @@ export default function ChatPage() {
     isSuccess,
     isError,
   } = useChatModels();
-  const hasSelectedModelRef = useRef(false);
-  const [isModelResolved, setIsModelResolved] = useState(false);
+  // The URL deployment (null: no ?deployment=) whose selection has been
+  // resolved. Deliberately starts `undefined` — not `null` — so that even a
+  // no-param URL starts unresolved and sends wait for the options fetch.
+  // Client navigation between query strings keeps this page mounted, so a
+  // different ?deployment= must re-enter the unresolved state; comparing
+  // against the current URL id does that during render, before ChatInner's
+  // effects could fire against a stale resolution.
+  const [resolvedDeploymentId, setResolvedDeploymentId] = useState<
+    string | null | undefined
+  >();
+  const isModelResolved = resolvedDeploymentId === deploymentIdFromUrl;
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
@@ -52,13 +61,12 @@ export default function ChatPage() {
   const isModelReady = isModelResolved || !session?.user;
 
   useEffect(() => {
-    // Select once, from this mount's successful fetch: a cached list may not yet
-    // include a deployment that just became ready, and later refetches must not
-    // override a model the user picked by hand.
-    if (hasSelectedModelRef.current || !isFetchedAfterMount || !isSuccess) {
+    // Select once per URL deployment, from this mount's successful fetch: a
+    // cached list may not yet include a deployment that just became ready, and
+    // later refetches must not override a model the user picked by hand.
+    if (isModelResolved || !isFetchedAfterMount || !isSuccess) {
       return;
     }
-    hasSelectedModelRef.current = true;
 
     const { modelId, deploymentUnavailable } = pickChatModel(
       chatModelOptions,
@@ -74,22 +82,28 @@ export default function ChatPage() {
     }
     // Sends (including the ?query= auto-send) wait for this: the picked model
     // is guaranteed to come from the fetched options.
-    setIsModelResolved(true);
+    setResolvedDeploymentId(deploymentIdFromUrl);
   }, [
     chatModelOptions,
     deploymentIdFromUrl,
     isFetchedAfterMount,
+    isModelResolved,
     isSuccess,
     setSelectedModel,
   ]);
 
   // Never block sends forever: when the options fetch fails, fall back to the
-  // current selection (default, previous, or URL deployment).
+  // current selection (default, previous, or URL deployment). The mount-time
+  // initializer only covers the first URL deployment, so select a later one here.
   useEffect(() => {
-    if (isError) {
-      setIsModelResolved(true);
+    if (!isError || isModelResolved) {
+      return;
     }
-  }, [isError]);
+    if (deploymentIdFromUrl) {
+      setSelectedModel(`vllm-deployment:${deploymentIdFromUrl}`);
+    }
+    setResolvedDeploymentId(deploymentIdFromUrl);
+  }, [deploymentIdFromUrl, isError, isModelResolved, setSelectedModel]);
 
   // Check authentication
   if (isLoading) {

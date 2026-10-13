@@ -27,7 +27,6 @@ vi.mock('@/hooks/use-auth', () => ({
   useSession: () => ({ data: { user: { id: 'user-1' } }, isLoading: false }),
 }));
 vi.mock('@/hooks/use-vllm-deployment', () => ({
-  useVllmDeployment: () => ({ deploymentId: null }),
   getVllmChatEndpoint: (id: string) => `/api/v1/deployment/${id}/chat/completions`,
 }));
 // Heavy UI that is irrelevant to sending from the composer.
@@ -45,11 +44,15 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const page = () => (
     <QueryClientProvider client={queryClient}>
       <ChatPage />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const result = render(page());
+  // Re-renders the same mounted page, as client navigation between query
+  // strings on /chat does.
+  return { ...result, navigate: () => result.rerender(page()) };
 }
 
 describe('ChatPage ?deployment= model selection', () => {
@@ -127,6 +130,41 @@ describe('ChatPage ?deployment= model selection', () => {
 
     await waitFor(() =>
       expect(useModelSelector.getState().selectedModel).toBe('always-on-model'),
+    );
+  });
+
+  it('selects a new ?deployment= after client navigation on the mounted page', async () => {
+    const { navigate } = renderPage();
+    const textarea = screen.getByPlaceholderText(
+      'Loading models...',
+    ) as HTMLTextAreaElement;
+
+    await act(async () => {
+      resolveChatModels([
+        { id: 'vllm-deployment:dep-1' },
+        { id: 'vllm-deployment:dep-2' },
+      ]);
+    });
+    await waitFor(() => expect(textarea.disabled).toBe(false));
+    expect(useModelSelector.getState().selectedModel).toBe(
+      'vllm-deployment:dep-1',
+    );
+
+    mocks.searchParamsString = 'deployment=dep-2';
+    navigate();
+
+    await waitFor(() =>
+      expect(useModelSelector.getState().selectedModel).toBe(
+        'vllm-deployment:dep-2',
+      ),
+    );
+    await waitFor(() => expect(textarea.disabled).toBe(false));
+    fireEvent.change(textarea, { target: { value: 'hello' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(routerReplace).toHaveBeenCalledTimes(1);
+    expect(useModelSelector.getState().selectedModel).toBe(
+      'vllm-deployment:dep-2',
     );
   });
 
