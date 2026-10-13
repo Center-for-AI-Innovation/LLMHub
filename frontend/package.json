@@ -130,7 +130,7 @@
   "pnpm": {
     "overrides": {
       "esbuild": "0.27.3",
-      "playwright": "1.58.2",
+      "playwright": "1.61.1",
       "cross-spawn@^7.0.0": "7.0.6",
       "brace-expansion@^1.1.11": "1.1.12",
       "brace-expansion@^2.0.1": "2.0.2",
