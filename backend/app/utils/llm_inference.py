@@ -242,10 +242,7 @@ class LLMInferenceDirectClient:
         in_cuda_value = False
         for field in env_value.split(","):
             name, separator, _ = field.partition("=")
-            if (
-                separator
-                and name.strip().strip("\\\"'") == "CUDA_VISIBLE_DEVICES"
-            ):
+            if separator and name.strip().strip("\\\"'") == "CUDA_VISIBLE_DEVICES":
                 in_cuda_value = True
                 continue
             if in_cuda_value and field.strip().isdigit():

@@ -275,8 +275,7 @@ def test_ensure_cuda_visible_devices_env_preserves_similarly_named_field():
     )
 
     assert env == (
-        "MY_CUDA_VISIBLE_DEVICES=0,"
-        "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+        "MY_CUDA_VISIBLE_DEVICES=0," "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
     )
 
 
@@ -371,7 +370,6 @@ def test_multi_gpu_container_launch_renders_one_env_flag_per_variable(monkeypatc
     assert command.count("--env") == 2
     assert '"' not in generator.env_str
     assert "\\" not in generator.env_str
-
 
 
 def test_get_model_cache_dirs_uses_model_weights_parent_dir(monkeypatch, tmp_path):
