@@ -250,9 +250,9 @@ Three things about the rendered inference config, each found by a failed job:
   variable in one comma-joined `--env`, which Apptainer splits on commas, so
   any multi-GPU job (`0,1,2,3`) died with `1 must be formatted as key=value`
   (job 21500226). The backend now emits one `--env` flag per variable, drops
-  any `CUDA_VISIBLE_DEVICES` field from `VEC_INF_ENV` (including the old
-  CSV-quoted workaround) and appends `CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES`
-  itself. LLMHub#56.
+  any `CUDA_VISIBLE_DEVICES` field from `VEC_INF_ENV` — bare, shell-quoted,
+  or a comma-separated index/GPU-UUID/MIG list — and appends
+  `CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES` itself. LLMHub#56.
 
 ## Impersonation (jobs as `svcllmhub<netid>`)
 
