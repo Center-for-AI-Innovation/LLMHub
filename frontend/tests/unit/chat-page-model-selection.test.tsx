@@ -98,6 +98,10 @@ describe('ChatPage ?deployment= model selection', () => {
 
   it('blocks sends until the options fetch resolves, then sends to the URL deployment', async () => {
     renderPage();
+    // The URL deployment is selected optimistically before the fetch settles.
+    expect(useModelSelector.getState().selectedModel).toBe(
+      'vllm-deployment:dep-1',
+    );
     const textarea = screen.getByPlaceholderText(
       'Loading models...',
     ) as HTMLTextAreaElement;

@@ -18,15 +18,6 @@ export default function ChatPage() {
   const query = searchParams?.get('query');
   const deploymentIdFromUrl = searchParams?.get('deployment') ?? null;
   const { setSelectedModel } = useModelSelector();
-  // Select the URL deployment before Chat first renders so the composer
-  // shows it immediately; sends still wait for the options fetch below to
-  // validate it. Setting the store from an effect would be too late: Chat's
-  // first render would still hold the previous model.
-  useState(() => {
-    if (deploymentIdFromUrl) {
-      setSelectedModel(`vllm-deployment:${deploymentIdFromUrl}`);
-    }
-  });
   const resetVersion = useNewChat((state) => state.resetVersion);
   const [activeChatId, setActiveChatId] = useState('new');
   const {
@@ -46,6 +37,15 @@ export default function ChatPage() {
     string | null | undefined
   >();
   const isModelResolved = resolvedDeploymentId === deploymentIdFromUrl;
+
+  // Optimistic pre-selection; validated (or replaced) by the pick effect
+  // once the options fetch settles.
+  useEffect(() => {
+    if (deploymentIdFromUrl) {
+      setSelectedModel(`vllm-deployment:${deploymentIdFromUrl}`);
+    }
+  }, [deploymentIdFromUrl, setSelectedModel]);
+
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
