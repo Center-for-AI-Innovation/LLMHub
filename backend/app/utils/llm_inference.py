@@ -713,20 +713,26 @@ class LLMInferenceDirectClient:
         """
         cuda_kv = "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
         fields = []
+        dropped = []
         in_cuda_value = False
-        for field in env_value.split(","):
+        for field in (env_value or "").split(","):
+            if not field.strip():
+                continue
             name, separator, _ = field.partition("=")
             if name.strip().strip("\\\"'") == "CUDA_VISIBLE_DEVICES":
                 in_cuda_value = True
-                continue
-            if (
-                in_cuda_value
-                and not separator
-                and _CUDA_DEVICE_TOKEN_RE.match(normalized_token(field))
-            ):
-                continue
-            in_cuda_value = False
-            fields.append(field)
+                dropped.append(field)
+            elif in_cuda_value and not separator:
+                dropped.append(field)
+            else:
+                in_cuda_value = False
+                fields.append(field)
+        if dropped:
+            logger.info(
+                "Overriding CUDA_VISIBLE_DEVICES from env (%s) with %s",
+                ",".join(dropped),
+                cuda_kv,
+            )
         fields.append(cuda_kv)
         return ",".join(fields)
 
