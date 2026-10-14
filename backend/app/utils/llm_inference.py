@@ -37,12 +37,6 @@ from vec_inf.client.models import LaunchOptions  # noqa: E402
 logger = get_logger("llm_inference")
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
-# Valid CUDA_VISIBLE_DEVICES device tokens: ordinal indices (a negative index
-# such as -1 hides all GPUs), GPU-<uuid>, MIG-<uuid>, and
-# MIG-GPU-<uuid>/<sw-gpu-instance-id>/<sw-compute-instance-id>.
-_CUDA_DEVICE_TOKEN_RE = re.compile(
-    r"^(?:-?\d+|GPU-[0-9a-fA-F-]+|MIG-[0-9A-Za-z-]+(?:/\d+)*)$"
-)
 # Characters bash still interprets inside double quotes, other than ``$``
 # (left alone so ``$CUDA_VISIBLE_DEVICES`` expands on the compute node).
 _SHELL_DQUOTE_SPECIAL_RE = re.compile(r'[\\"`]')
@@ -708,30 +702,21 @@ class LLMInferenceDirectClient:
     def _ensure_cuda_visible_devices_env(env_value: Optional[str]) -> str:
         """Ensure we pass Slurm-assigned GPUs into the container.
 
-        Any pre-existing ``CUDA_VISIBLE_DEVICES`` field in ``env_value``
-        (bare, shell-quoted, or backslash-quoted, e.g. a stale multi-GPU
-        workaround) is dropped so exactly one canonical field is appended.
-        Continuation fields of a literal multi-device value are dropped too
-        when they are valid CUDA device tokens -- decimal indices, negative
-        indices such as ``-1``, ``GPU-<uuid>``, and ``MIG-<uuid>`` /
-        ``MIG-GPU-<uuid>/<id>...`` -- with surrounding whitespace and quotes
-        normalized; any other bare field is left for vec-inf to reject.
-        The canonical field is deliberately
-        unquoted: container launches emit one ``--env`` flag per variable,
-        and pflag's single-``=`` fast path does not strip quotes.
+        Blank fields are dropped, since vec-inf would open them as env-file
+        paths. Any pre-existing ``CUDA_VISIBLE_DEVICES`` field (bare,
+        shell-quoted, or backslash-quoted, e.g. a stale multi-GPU workaround)
+        is dropped together with the bare (no ``=``) fields that follow it --
+        the tail of a literal multi-device value such as ``0,1,2`` -- and
+        exactly one canonical field is appended. The canonical field is
+        unquoted: vec-inf would keep any quotes as part of the value, and the
+        script generator quotes each ``--env`` flag itself.
         """
         cuda_kv = "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-        if not env_value:
-            return cuda_kv
-
-        def normalized_token(field: str) -> str:
-            return field.strip().strip("\\\"'")
-
         fields = []
         in_cuda_value = False
         for field in env_value.split(","):
             name, separator, _ = field.partition("=")
-            if normalized_token(name) == "CUDA_VISIBLE_DEVICES":
+            if name.strip().strip("\\\"'") == "CUDA_VISIBLE_DEVICES":
                 in_cuda_value = True
                 continue
             if (
