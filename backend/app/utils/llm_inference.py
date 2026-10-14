@@ -43,6 +43,10 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 _CUDA_DEVICE_TOKEN_RE = re.compile(
     r"^(?:-?\d+|GPU-[0-9a-fA-F-]+|MIG-[0-9A-Za-z-]+(?:/\d+)*)$"
 )
+# Characters bash still interprets inside double quotes, other than ``$``
+# (left alone so ``$CUDA_VISIBLE_DEVICES`` expands on the compute node).
+_SHELL_DQUOTE_SPECIAL_RE = re.compile(r'[\\"`]')
+
 _select_user_slurm_account = select_user_slurm_account
 
 
@@ -626,14 +630,15 @@ def _should_inject_project_pythonpath() -> bool:
 def _generate_env_str_repeated_flags(self: SlurmScriptGenerator) -> str:
     """Replacement for ``SlurmScriptGenerator._generate_env_str``.
 
-
     Upstream (vec-inf 0.9.0) emits a single ``--env K1=V1,K2=V2`` argument.
     Apptainer registers ``--env`` as a pflag StringToString, which parses any
     argument holding more than one ``=`` with encoding/csv -- so a comma inside
     a value (``CUDA_VISIBLE_DEVICES=0,1`` on a multi-GPU job) is split into a
     bare ``1`` and the launch dies with "1 must be formatted as key=value".
     pflag only skips csv when an argument holds exactly one ``=``, so emit one
-    ``--env`` flag per variable. Non-container mode is unchanged.
+    ``--env`` flag per variable, double-quoted so a value with spaces is not
+    word-split (``$VAR`` and ``$(...)`` still expand, as they did unquoted).
+    Non-container mode is unchanged.
     """
     env_dict: Dict[str, str] = self.params.get("env", {})
 
@@ -641,7 +646,12 @@ def _generate_env_str_repeated_flags(self: SlurmScriptGenerator) -> str:
         return ""
 
     if self.use_container:
-        return " ".join(f"--env {key}={val}" for key, val in env_dict.items())
+        return " ".join(
+            '--env "{}"'.format(
+                _SHELL_DQUOTE_SPECIAL_RE.sub(r"\\\g<0>", f"{key}={val}")
+            )
+            for key, val in env_dict.items()
+        )
     return "\n".join(f"export {key}={val}" for key, val in env_dict.items())
 
 
