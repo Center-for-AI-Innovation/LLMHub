@@ -20,7 +20,11 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
 
   const isModelLaunching = launchingModelId === modelId;
 
-  const handleLaunch = async (time: string, account?: string) => {
+  const handleLaunch = async (
+    time: string,
+    account?: string,
+    hfToken?: string,
+  ) => {
     if (!model) return;
 
     try {
@@ -30,6 +34,7 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
         model.family,
         time,
         account,
+        hfToken,
       );
       setIsDialogOpen(false);
     } catch (error) {
@@ -102,6 +107,7 @@ const ModelCard = memo(({ modelId }: { modelId: string }) => {
         modelName={displayModelName}
         isLaunching={isModelLaunching}
         onLaunch={handleLaunch}
+        gated={model.gated}
       />
     </div>
   );
