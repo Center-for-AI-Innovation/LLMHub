@@ -1064,16 +1064,57 @@ def test_cuda_visible_devices_bare_name_is_consumed(env_value):
     }
 
 
-def test_invalid_cuda_continuation_token_fails_loudly(monkeypatch, tmp_path):
-    """A typo inside a CUDA list is not a device token, so it stays behind."""
-    monkeypatch.chdir(tmp_path)
+def test_cuda_continuation_fields_are_dropped_until_next_key():
     env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
-        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,x,1"
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,x,1,FOO=bar"
     )
 
-    assert "x" in env.split(",")
-    with pytest.raises(FileNotFoundError, match="'x'"):
-        ModelLauncher.__new__(ModelLauncher)._process_env_vars(env)
+    assert env == "HF_HOME=/x,FOO=bar,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    ["HF_HOME=/x,", "HF_HOME=/x,,", "HF_HOME=/x, ,CUDA_VISIBLE_DEVICES=0,1, "],
+)
+def test_ensure_cuda_visible_devices_env_drops_blank_fields(env_value):
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+
+
+def test_request_env_extends_deployment_env(monkeypatch):
+    monkeypatch.setattr(settings, "VEC_INF_ENV", "HF_HUB_OFFLINE=1,FOO=deploy")
+    client = llm_inference.LLMInferenceDirectClient.__new__(
+        llm_inference.LLMInferenceDirectClient
+    )
+    client.slurm_account = None
+
+    options = client._build_launch_options(env="FOO=request")
+
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(options.env) == {
+        "HF_HUB_OFFLINE": "1",
+        "FOO": "request",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+def test_container_env_flags_are_double_quoted():
+    generator = SlurmScriptGenerator(
+        {
+            "num_nodes": 1,
+            "venv": CONTAINER_MODULE_NAME,
+            "model_name": "Qwen2.5-7B-Instruct",
+            "model_weights_parent_dir": "/projects/modelcache/public",
+            "env": {"FOO": 'a b"`\\', "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES"},
+        }
+    )
+
+    assert generator.env_str == (
+        '--env "FOO=a b\\"\\`\\\\" '
+        '--env "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"'
+    )
 
 
 def test_multi_gpu_container_launch_renders_one_env_flag_per_variable(monkeypatch):
@@ -1104,8 +1145,8 @@ def test_multi_gpu_container_launch_renders_one_env_flag_per_variable(monkeypatc
         env_str=generator.env_str, image_path=IMAGE_PATH["vllm"]
     )
 
-    assert "--env HF_HOME=/root/.cache/huggingface" in command
-    assert "--env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES" in command
-    assert command.count("--env") == 2
-    assert '"' not in generator.env_str
-    assert "\\" not in generator.env_str
+    assert generator.env_str == (
+        '--env "HF_HOME=/root/.cache/huggingface" '
+        '--env "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"'
+    )
+    assert generator.env_str in command
