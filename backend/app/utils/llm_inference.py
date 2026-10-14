@@ -655,6 +655,11 @@ def _generate_env_str_repeated_flags(self: SlurmScriptGenerator) -> str:
     return "\n".join(f"export {key}={val}" for key, val in env_dict.items())
 
 
+# Monkeypatches a private vec-inf method, so it relies on the exact
+# ``vec-inf==0.9.0`` pin in pyproject.toml: 0.9.0 renders all container env vars
+# as one comma-joined ``--env`` flag, which breaks multi-GPU Apptainer launches
+# (#56). Re-check this patch (method name, ``params["env"]``, ``use_container``)
+# before bumping vec-inf, and drop it once upstream emits one flag per variable.
 SlurmScriptGenerator._generate_env_str = _generate_env_str_repeated_flags
 
 
