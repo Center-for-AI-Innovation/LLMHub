@@ -804,7 +804,11 @@ class LLMInferenceDirectClient:
         if params.get("model_weights_parent_dir") is not None:
             mapped["model_weights_parent_dir"] = params["model_weights_parent_dir"]
 
-        env_value = params.get("env") or settings.VEC_INF_ENV
+        # Request env extends the deployment env; vec-inf keeps the last value
+        # for a repeated key, so request values win.
+        env_value = ",".join(
+            value for value in (settings.VEC_INF_ENV, params.get("env")) if value
+        )
         mapped["env"] = self._ensure_cuda_visible_devices_env(env_value)
 
         return LaunchOptions(**mapped)
