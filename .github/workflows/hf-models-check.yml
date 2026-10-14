@@ -1,0 +1,35 @@
+name: HF models check
+
+# Verifies every model in models.yaml resolves to a real Hugging Face repo
+# (explicit hf_model, or the model_family -> org fallback). Runs on PRs that
+# touch the relevant files, plus a weekly schedule to catch a repo being
+# renamed or deleted after the fact -- not just typos at PR time.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/config/models.yaml"
+      - "backend/app/utils/hf_family_orgs.py"
+      - "backend/scripts/check_hf_models.py"
+  schedule:
+    - cron: "0 13 * * 1" # every Monday
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check-hf-models:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install pyyaml huggingface_hub
+      - name: Check models.yaml against the real HF Hub
+        run: python scripts/check_hf_models.py

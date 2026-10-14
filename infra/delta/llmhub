@@ -464,7 +464,7 @@ a = d.setdefault("default_args", {})
 a.update(account=e["LLMHUB_SLURM_ACCOUNT"], partition=e["LLMHUB_LAUNCH_PARTITION"],
          resource_type=e["LLMHUB_LAUNCH_RESOURCE_TYPE"], time=e["LLMHUB_LAUNCH_TIME"],
          log_dir=e["LLMHUB_VEC_INF_LOG_DIR"], model_weights_parent_dir=e["LLMHUB_MODEL_WEIGHTS_PARENT_DIR"],
-         bind=f"{e['LLMHUB_HF_CACHE']}:/root/.cache/huggingface,{e['LLMHUB_TORCH_CACHE']}:/root/.cache/torch_inductor")
+         bind=f"{e['LLMHUB_HF_CACHE']}:{e['LLMHUB_HF_CACHE']}:ro,{e['LLMHUB_TORCH_CACHE']}:/root/.cache/torch_inductor")
 # Only when set, so a cluster that does not need it (Delta) renders exactly as before.
 if e.get("LLMHUB_CONTAINER_LOAD_CMD"):
     d.setdefault("containerization", {})["module_load_cmd"] = e["LLMHUB_CONTAINER_LOAD_CMD"]
@@ -513,6 +513,9 @@ render_backend_env() {
         emit VEC_INF_IMPERSONATE_SCRIPT "$LLMHUB_IMPERSONATE_SCRIPT"
         emit VEC_INF_IMPERSONATE_PYTHON "$SHIM_PY"
         emit VEC_INF_ACCOUNTS_SCRIPT "$LLMHUB_ACCOUNTS_SCRIPT"
+        emit MODEL_CACHE_DIR "$LLMHUB_HF_CACHE"
+        emit COMPILE_CACHE_DIR "$LLMHUB_TORCH_CACHE"
+        emit MODEL_STORE_ROOT "$LLMHUB_MODEL_STORE_ROOT"
         emit SYNC_INTERVAL "$LLMHUB_SYNC_INTERVAL"
         emit EXPIRY_CHECK_INTERVAL "$LLMHUB_EXPIRY_CHECK_INTERVAL"
         emit MAX_DEPLOYMENTS_PER_CYCLE "$LLMHUB_MAX_DEPLOYMENTS_PER_CYCLE"

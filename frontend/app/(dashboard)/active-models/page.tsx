@@ -79,10 +79,7 @@ function ActiveModelsPageInner() {
         [d.modelId, d.modelName].some((value) => {
           if (!value) return false;
           return targetIds.includes(value.toLowerCase());
-        }) &&
-        ['pending', 'launching', 'ready', 'running'].includes(
-          d.status.toLowerCase(),
-        ),
+        }) && isActiveDeploymentStatus(d.status),
     );
   }
 

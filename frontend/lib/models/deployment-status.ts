@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Download,
   type LucideIcon,
   Rocket,
   XCircle,
@@ -15,13 +16,20 @@ export type DeploymentStatusInfo = {
 };
 
 export function isActiveDeploymentStatus(status: string): boolean {
-  return ['pending', 'launching', 'ready', 'running'].includes(
+  return ['downloading', 'pending', 'launching', 'ready', 'running'].includes(
     status.toLowerCase(),
   );
 }
 
 export function getDeploymentStatusInfo(status: string): DeploymentStatusInfo {
   switch (status.toLowerCase()) {
+    case 'downloading':
+      return {
+        label: 'Downloading weights',
+        colorClass: 'bg-status-info/10 text-status-info',
+        icon: Download,
+        iconClassName: 'animate-pulse',
+      };
     case 'pending':
       return {
         label: 'Pending',

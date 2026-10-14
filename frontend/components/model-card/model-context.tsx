@@ -11,6 +11,7 @@ const ModelContext = React.createContext<{
     family?: string,
     time?: string,
     account?: string,
+    hfToken?: string,
   ) => Promise<void>;
   launchingModelId: string | null;
   openLogsPanel?: (deploymentId: string, modelName: string) => void;
