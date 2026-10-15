@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Qwen3.5-35B-A3B model config for the Magic Castle (Radiant) infrastructure, added by user request. ([#96](https://github.com/Center-for-AI-Innovation/LLMHub/pull/96))
+- Frontend unit tests for chat model selection (`pickChatModel` and the `/chat` page), using Testing Library and jsdom. ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109))
+
+### Changed
+- The model card's Chat button now links to `/chat?deployment=<deploymentId>`, and the chat page selects the model from that URL parameter. This replaces the old `?model=<modelId>` link and the session-stored preferred model. If the deployment isn't available, the page falls back to the default model and shows a notice. ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109))
+- Chat requests use the selected `vllm-deployment:<id>` model directly, instead of a separately tracked deployment ID from `useVllmDeployment`. ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109))
+
+### Fixed
+- Sending a message, including the `?query=` auto-send, now waits until the chat model has been resolved. Before, it could send to a default or stale model. The composer and model selector stay disabled until the model is resolved, and show a no-models message when no models are available. ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109))
 
 ## [1.1.0]
 
