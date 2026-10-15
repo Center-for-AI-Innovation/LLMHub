@@ -28,7 +28,7 @@ describe('POST /api/deployments', () => {
     vi.unstubAllGlobals();
   });
 
-  it('forwards the selected account and session-derived cluster username', async () => {
+  it('forwards the selected account and session-derived cluster username, ignoring one from the client', async () => {
     authMock.mockResolvedValue({
       user: { id: 'user-1', email: 'alice_13@illinois.edu' },
     });
@@ -91,5 +91,35 @@ describe('POST /api/deployments', () => {
       String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}'),
     );
     expect(payload.clusterUsername).toBe('svcllmhubrohan13');
+  });
+
+  it('drops a client-supplied cluster username when none can be derived', async () => {
+    authMock.mockResolvedValue({
+      // A local part starting with a digit is not a valid cluster login.
+      user: { id: 'user-1', email: '1-not-a-login@illinois.edu' },
+    });
+    addUserToDeploymentMock.mockResolvedValue({ id: 'auth-1' });
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'deployment-1' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await POST(
+      makeRequest({
+        modelId: 'Qwen/Qwen3-8B',
+        time: '00:30:00',
+        partition: 'gpuA40x4',
+        resource_type: 'A40',
+        clusterUsername: 'svcllmhubsomeoneelse',
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const payload = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body ?? '{}'),
+    );
+    expect(payload).not.toHaveProperty('clusterUsername');
   });
 });
