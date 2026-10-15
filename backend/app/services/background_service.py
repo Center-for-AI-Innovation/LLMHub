@@ -86,6 +86,10 @@ class BackgroundService:
             now = datetime.utcnow()
 
             try:
+                # Cheap when nothing is downloading, so it runs every loop and a
+                # job starts within seconds of its weights arriving.
+                await self._advance_downloading_deployments()
+
                 # Run status synchronization
                 if (now - self.last_sync).total_seconds() >= self.sync_interval:
                     await self._sync_deployment_statuses()
@@ -145,6 +149,11 @@ class BackgroundService:
         except Exception as e:
             logger.error(f"Error syncing models: {e}")
             raise  # Re-raise to trigger backoff
+
+    async def _advance_downloading_deployments(self):
+        """Submit jobs for deployments whose model weights finished downloading."""
+        with SessionLocal() as db:
+            self.model_service.advance_downloading_deployments(db)
 
     async def _sync_deployment_statuses(self):
         """Synchronize deployment statuses."""

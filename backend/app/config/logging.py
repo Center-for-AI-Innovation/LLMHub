@@ -9,9 +9,9 @@ logging.basicConfig(
 )
 
 # Create a logger
-logger = logging.getLogger("ai-inference-backend")
+logger = logging.getLogger("llmhub-backend")
 
 
 def get_logger(name: str) -> logging.Logger:
     """Get a logger with the given name."""
-    return logging.getLogger(f"ai-inference-backend.{name}")
+    return logging.getLogger(f"llmhub-backend.{name}")
