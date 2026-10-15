@@ -27,6 +27,7 @@ set -eo pipefail   # no -u: helpers pipe into head/grep, and SIGPIPE would abort
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------ args ----
+ORIG_ARGS=("$@")   # deploy re-runs the checked-out kit with these
 CMD=""; TARGET=""; REF_ARG=""; APPLY=0; STOP_ALL=0; WITH_SYNC=0; RECREATE=0; FOLLOW=0; KEEP=0
 usage() { sed -n '2,20p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
@@ -149,6 +150,22 @@ world_readable() {
     if [ -d "$p" ]; then [ $(( 8#$m & 5 )) -eq 5 ] || return 1; else [ $(( 8#$m & 4 )) -ne 0 ] || return 1; fi
     p="$(dirname "$p")"
     while [ "$p" != / ]; do m="$(stat -c %a "$p")"; [ $(( 8#$m & 1 )) -ne 0 ] || return 1; p="$(dirname "$p")"; done
+}
+# Can this account create entries in directory $1? That takes write AND search
+# (x) permission; -w alone passes a directory whose entries cannot be reached.
+can_create_in() { [ -d "$1" ] && [ -w "$1" ] && [ -x "$1" ]; }
+
+# How the backend resolves a user's Slurm accounts. From 1.1.0 it runs
+# `sacctmgr` itself, as the account running the backend; before that it ran
+# /sw/user/scripts/accounts (VEC_INF_ACCOUNTS_SCRIPT). Judged from the checkout;
+# with nothing checked out yet, assume a current release.
+backend_uses_sacctmgr() { [ ! -d "$BE" ] || [ -r "${BE}/app/utils/slurm_accounts.py" ]; }
+# The accounts sacctmgr associates with a user, minus the `noalloc` placeholder,
+# as the backend filters them. An unknown user exits 0 with no rows, so callers
+# must test for an empty result, not the exit status.
+sacctmgr_accounts() {
+    sacctmgr -nP show associations user="$1" format=Account 2>/dev/null \
+        | tr -d '|' | grep -vix 'noalloc' | grep . | sort -u | paste -sd, - || true
 }
 
 # Cluster stamps (GAP-013). /projects is the one filesystem Delta and DeltaAI
@@ -388,7 +405,7 @@ start_daemon() {  # pidfile log dir cmd…
 # ours (cwd inside the deployment). Never kills someone else's process.
 stop_service() {  # name pidfile port
     local name="$1" pidf="$2" port="$3" p i
-    p="$(cat "$pidf" 2>/dev/null)"
+    p="$(cat "$pidf" 2>/dev/null || true)"   # no pidfile is "not running", not an error under set -e
     if ! alive "$pidf"; then
         p="$(port_pid "$port")"
         if ours "$p"; then warn "${name}: pid ${p} on port ${port} is this deployment's but has no pidfile — stopping it"
@@ -501,12 +518,16 @@ render_backend_env() {
         emit API_V1_STR /api
         emit PROJECT_NAME "\"LLMHub Backend (${LLMHUB_PROFILE} ${LLMHUB_REF})\""
         emit BACKEND_CORS_ORIGINS "[${cors}]"
-        emit DATABASE_URL "$(db_url)"
+        # Name the driver the backend installs (psycopg2-binary). A bare
+        # postgresql:// means psycopg2 to SQLAlchemy 2.0 but psycopg 3 to 2.1,
+        # which the backend does not install -- and it pins only >=2.0.23.
+        # The frontend (node-postgres) keeps the bare URL: POSTGRES_URL below.
+        emit DATABASE_URL "$(db_url | sed 's#^postgresql://#postgresql+psycopg2://#')"
         emit SLURM_ACCOUNT "$LLMHUB_SLURM_ACCOUNT"
         emit VEC_INF_ACCOUNT "$LLMHUB_SLURM_ACCOUNT"
         emit VEC_INF_WORK_DIR "$LLMHUB_VEC_INF_WORK_DIR"
         emit VEC_INF_LOG_DIR "$LLMHUB_VEC_INF_LOG_DIR"
-        emit VEC_INF_ENV "${LLMHUB_VEC_INF_ENV}"   # unquoted on purpose — see delta.env
+        emit VEC_INF_ENV "${LLMHUB_VEC_INF_ENV}"
         [ -r "${VIC}/environment.yaml" ] && emit VEC_INF_CONFIG_DIR "$VIC"
         emit VEC_INF_EXECUTION_MODE "$LLMHUB_EXECUTION_MODE"
         emit VEC_INF_SHARED_WORK_ROOT "$LLMHUB_SHARED_WORK_ROOT"
@@ -568,12 +589,33 @@ cmd_deploy() {
 
     step "Source — ${LLMHUB_REF}"
     run mkdir -p "$LLMHUB_DEPLOY_ROOT" "$LLMHUB_LOG_DIR" "$LLMHUB_RUN_DIR" "$LLMHUB_VEC_INF_WORK_DIR" "$CACHE"
-    if [ -d "${LLMHUB_SRC_DIR}/.git" ]; then run g fetch -q --tags --prune origin
+    # A re-run (below) skips the fetch, so the ref resolves to the same commit.
+    if [ -n "${LLMHUB_KIT_REEXEC:-}" ]; then info "running the kit checked out at ${LLMHUB_KIT_REEXEC:0:9}"
+    elif [ -d "${LLMHUB_SRC_DIR}/.git" ]; then run g fetch -q --tags --prune origin
     else run git clone -q "$LLMHUB_REPO" "$LLMHUB_SRC_DIR"; fi
     if [ "$APPLY" = 1 ]; then
         [ -z "$(g status --porcelain | head -1)" ] || die "deployment tree is dirty — it must be a clean checkout, not a working copy"
         local rk; rk="$(resolve_ref "$LLMHUB_REF")"; REF_KIND="${rk%% *}"; SHA="${rk##* }"
+        [ -z "${LLMHUB_KIT_REEXEC:-}" ] || [ "$SHA" = "$LLMHUB_KIT_REEXEC" ] \
+            || die "re-run resolved '${LLMHUB_REF}' to ${SHA:0:9}, not the ${LLMHUB_KIT_REEXEC:0:9} it checked out"
+        local old; old="$(g rev-parse -q --verify HEAD 2>/dev/null || true)"
         run g checkout -q --detach "$SHA"
+        # This kit's config and functions were loaded before the checkout. When
+        # it IS the checkout's kit, re-run the new one at once, so the new ref's
+        # delta.env and render code apply and bash never reads a changed file.
+        # Only into a kit that knows LLMHUB_KIT_REEXEC: older kits re-fetch, and
+        # some predate the cluster stamps and would write Delta's roots from
+        # DeltaAI. A kit run from outside the checkout is kept: the operator chose it.
+        local own; own="$(cd "${LLMHUB_SRC_DIR}/infra/delta" 2>/dev/null && pwd -P || true)"
+        if [ -z "${LLMHUB_KIT_REEXEC:-}" ] && [ "$old" != "$SHA" ] && [ "$own" = "$(cd "$HERE" && pwd -P)" ]; then
+            if [ -x "${own}/llmhub" ] && grep -q 'LLMHUB_KIT_REEXEC' "${own}/llmhub"; then
+                info "re-running the kit from ${SHA:0:9}, so its own config and render code apply"
+                LLMHUB_KIT_REEXEC="$SHA" exec "${own}/llmhub" "${ORIG_ARGS[@]}"
+            fi
+            warn "${SHA:0:9}'s kit predates re-running after checkout — continuing with the kit loaded before the checkout"
+        elif [ "$own" != "$(cd "$HERE" && pwd -P)" ] && ! diff -rq "$HERE" "${LLMHUB_SRC_DIR}/infra/delta" >/dev/null 2>&1; then
+            warn "rendering with the kit at ${HERE}, which differs from ${SHA:0:9}'s infra/delta"
+        fi
         printf 'ref=%s\nkind=%s\nsha=%s\ndate=%s\nby=%s\n' "$LLMHUB_REF" "$REF_KIND" "$SHA" "$(date -Is)" "$ME" > "$DEPLOYED_FILE"
         ok "${REF_KIND} ${LLMHUB_REF} → ${SHA:0:9} ($(g log -1 --format='%cs %s' | cut -c1-70))"
     else
@@ -783,7 +825,7 @@ cmd_preflight() {
     [ -r "$DEPLOYED_FILE" ] && info "currently deployed: $(tr '\n' ' ' < "$DEPLOYED_FILE")"
     step "Filesystems"
     local p="$LLMHUB_DEPLOY_ROOT"; while [ ! -d "$p" ] && [ "$p" != / ]; do p="$(dirname "$p")"; done
-    [ -w "$p" ] && ok "deploy root writable (${p})" || bad "cannot write under ${p} — check getfacl, ls shows the ACL mask"
+    can_create_in "$p" && ok "deploy root writable (${p})" || bad "cannot create under ${p} (needs write and search permission) — check getfacl, ls shows the ACL mask"
     local free; free=$(( $(df -Pk "$p" | awk 'NR==2{print $4}') / 1048576 ))
     [ "$free" -ge 10 ] && ok "${free} G free at ${p}" || warn "only ${free} G free at ${p}"
     if command -v lfs >/dev/null 2>&1; then
@@ -799,7 +841,7 @@ cmd_preflight() {
     p="$LLMHUB_LOCAL_ROOT"; while [ ! -d "$p" ] && [ "$p" != / ]; do p="$(dirname "$p")"; done
     local fst; fst="$(stat -f -c %T "$p" 2>/dev/null)"
     if [ "$(hostname -s)" != "${LLMHUB_VM_HOST%%.*}" ]; then warn "not on ${LLMHUB_VM_HOST%%.*} — local root ${LLMHUB_LOCAL_ROOT} only exists there; run preflight on the VM before deploying"
-    elif [ ! -w "$p" ]; then bad "local root not writable (${p})"
+    elif ! can_create_in "$p"; then bad "local root not writable and searchable (${p})"
     elif [ "$fst" = tmpfs ]; then bad "local root ${p} is tmpfs — the database would live in RAM and vanish on reboot"
     else ok "local root ${p} on ${fst}, $(( $(df -Pk "$p" | awk 'NR==2{print $4}') / 1048576 )) G free (postgres + apptainer cache)"; fi
     step "Network (first deploy fetches Node, pnpm, Python, the postgres image and pip/npm packages)"
@@ -817,11 +859,28 @@ cmd_preflight() {
     if [ "$IMP" = 1 ]; then
         [ "$ME" = "$LLMHUB_SERVICE_USER" ] && ok "running as ${LLMHUB_SERVICE_USER} (the sudo edge svcdeltallmhub → svcllmhub* belongs to the backend)" \
             || bad "impersonate mode is service-user-only; you are ${ME}"
-        [ -w "$LLMHUB_SHARED_WORK_ROOT" ] && ok "${LLMHUB_SHARED_WORK_ROOT} writable (per-user workspaces)" || bad "${LLMHUB_SHARED_WORK_ROOT} not writable by ${ME}"
+        # A first deploy creates it (render_vec_inf_config), so judge the nearest
+        # existing ancestor -- as the shared-root check below does.
+        local wr="$LLMHUB_SHARED_WORK_ROOT"; while [ ! -d "$wr" ] && [ "$wr" != / ]; do wr="$(dirname "$wr")"; done
+        if [ "$wr" = "$LLMHUB_SHARED_WORK_ROOT" ]; then
+            can_create_in "$wr" && ok "${wr} writable (per-user workspaces)" || bad "${wr} not writable and searchable by ${ME}"
+        else
+            can_create_in "$wr" && ok "${LLMHUB_SHARED_WORK_ROOT} will be created by deploy (under writable ${wr})" || bad "cannot create ${LLMHUB_SHARED_WORK_ROOT}: ${wr} not writable and searchable by ${ME}"
+        fi
         local sr="$LLMHUB_SHARED_ROOT"; while [ ! -d "$sr" ] && [ "$sr" != / ]; do sr="$(dirname "$sr")"; done
-        [ -w "$sr" ] && ok "shared root ${LLMHUB_SHARED_ROOT} (under writable ${sr})" || bad "cannot write under ${sr} for the shared root"
+        can_create_in "$sr" && ok "shared root ${LLMHUB_SHARED_ROOT} (under writable ${sr})" || bad "cannot create under ${sr} for the shared root (needs write and search permission)"
         world_readable "$sr" && ok "${sr} is world-readable" || bad "${sr} is not world-readable — svcllmhub* could not reach the shared root"
-        local acc="${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; [ -x "$acc" ] && ok "accounts script ${acc}" || bad "accounts script ${acc} missing"
+        if backend_uses_sacctmgr; then
+            if ! command -v sacctmgr >/dev/null; then
+                bad "sacctmgr not on PATH — the backend resolves each user's Slurm account with it"
+            elif [ -n "$LLMHUB_TEST_CLUSTER_USER" ]; then
+                local accs; accs="$(sacctmgr_accounts "$LLMHUB_TEST_CLUSTER_USER")"
+                [ -n "$accs" ] && ok "sacctmgr: ${LLMHUB_TEST_CLUSTER_USER} → ${accs}" \
+                    || bad "sacctmgr finds no Slurm account for ${LLMHUB_TEST_CLUSTER_USER} — its launches would be refused"
+            else ok "sacctmgr $(command -v sacctmgr) (set LLMHUB_TEST_CLUSTER_USER to test a lookup)"; fi
+        else
+            local acc="${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; [ -x "$acc" ] && ok "accounts script ${acc}" || bad "accounts script ${acc} missing"
+        fi
         if [ -x "${LLMHUB_SHIM_ENV}/bin/python" ]; then
             world_readable "${LLMHUB_SHIM_ENV}/bin/python" && ok "shim env present ($(cut -c1-9 "${LLMHUB_SHIM_ENV}/DEPLOYED_SHA" 2>/dev/null))" || bad "shim env present but not world-readable"
         else info "shim env not built yet — deploy builds it"; fi
@@ -845,6 +904,10 @@ cmd_preflight() {
     if [ -r "$LLMHUB_SECRETS_FILE" ]; then
         [ "$(stat -c %a "$LLMHUB_SECRETS_FILE")" = 600 ] && ok "secrets file mode 0600" || bad "secrets file must be mode 0600"
         load_secrets; [ -n "$CILOGON_CLIENT_ID" ] && ok "CILogon configured" || warn "CILogon not configured — frontend runs with local accounts only"
+        if [ -n "$CILOGON_CLIENT_ID" ] && [ -n "$OAUTH_MAPFILE_PATH" ]; then
+            [ -r "$OAUTH_MAPFILE_PATH" ] && ok "sign-in mapfile ${OAUTH_MAPFILE_PATH} readable" \
+                || bad "sign-in mapfile ${OAUTH_MAPFILE_PATH} not readable — every CILogon sign-in would be refused"
+        fi
     else warn "no secrets file yet — deploy generates one (auth secret + API-key pepper); CILogon/S3 stay unset"; fi
     printf '\n'; _c 1; printf 'Result: %d pass, %d warn, %d fail' "$P" "$W" "$F"; _c 0; printf '\n'
     [ "$F" -eq 0 ]
@@ -923,8 +986,16 @@ cmd_launch_test() {
     done
     if ! { [ "$st" = ready ] || [ "$st" = running ]; } || [ -z "$ep" ]; then
         bad "server not ready: status=${st} ${err:+error=$err}"
-        info "job log: ${cu:+${LLMHUB_SHARED_WORK_ROOT}/${cu}}${cu:-${LLMHUB_VEC_INF_LOG_DIR}}/${model%%-*}/${model}.${job}/   (GET ${api}/${id}/logs)"
-        [ "$KEEP" = 1 ] || { curl -s -o /dev/null -X DELETE "${api}/${id}" 2>/dev/null; info "shutdown requested"; }
+        local jl="$LLMHUB_VEC_INF_LOG_DIR"; [ -n "$cu" ] && jl="${LLMHUB_SHARED_WORK_ROOT}/${cu}"
+        info "job log: ${jl}/${model%%-*}/${model}.${job}/   (GET ${api}/${id}/logs)"
+        if [ "$KEEP" != 1 ]; then
+            curl -s -o /dev/null -X DELETE "${api}/${id}" 2>/dev/null; info "shutdown requested"
+            # The backend treats a deployment it has marked `failed` as terminal and
+            # skips scancel -- but vec-inf derives `failed` from stderr text, so the
+            # SLURM job may still be running and holding its GPUs.
+            sleep 5; local js; js="$(squeue -h -j "$job" -o %T 2>/dev/null)"
+            [ -z "$js" ] || warn "SLURM job ${job} is still ${js} -- the backend did not cancel it. Cancel with: ${cu:+sudo -u ${cu} }scancel ${job}"
+        fi
         exit 1
     fi
     ok "server up: ${ep} (job ${job} on $(squeue -h -j "$job" -o '%N' 2>/dev/null))"
@@ -965,7 +1036,8 @@ cmd_check_impersonation() {
     getent passwd "$u" >/dev/null && ok "account ${u}: groups $(id -nG "$u" 2>/dev/null | tr ' ' ',')" || { bad "no account ${u}"; F=1; }
     local img; img="$(grep -m1 '^  vllm_image_path:' "${VIC}/environment.yaml" 2>/dev/null | awk '{print $2}' || true)"
     [ -r "${VIC}/environment.yaml" ] || { bad "no rendered config at ${VIC} — deploy has not completed"; F=1; }
-    for p in "$SHIM_PY" "${VIC}/environment.yaml" "${VIC}/models.yaml" "$img" "$LLMHUB_HF_CACHE" "${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"; do
+    local acc=""; backend_uses_sacctmgr || acc="${LLMHUB_ACCOUNTS_SCRIPT:-/sw/user/scripts/accounts}"   # 1.1.0+: sacctmgr, checked by the backend's own script below
+    for p in "$SHIM_PY" "${VIC}/environment.yaml" "${VIC}/models.yaml" "$img" "$LLMHUB_HF_CACHE" "$acc"; do
         [ -n "$p" ] || continue
         if [ ! -e "$p" ]; then bad "$p is missing"; F=1
         elif world_readable "$p"; then ok "$p"; else bad "$p is NOT world-readable"; F=1; fi

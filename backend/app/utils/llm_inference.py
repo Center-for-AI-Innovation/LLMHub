@@ -30,12 +30,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 settings.apply_vec_inf_environ()
 
 # Python SDK for vec-inf (imported AFTER env vars are set)
+from vec_inf.client._slurm_script_generator import SlurmScriptGenerator  # noqa: E402
 from vec_inf.client.api import VecInfClient  # noqa: E402
 from vec_inf.client.models import LaunchOptions  # noqa: E402
 
 logger = get_logger("llm_inference")
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# Characters bash still interprets inside double quotes, other than ``$``
+# (left alone so ``$CUDA_VISIBLE_DEVICES`` expands on the compute node).
+_SHELL_DQUOTE_SPECIAL_RE = re.compile(r'[\\"`]')
+
 _select_user_slurm_account = select_user_slurm_account
 
 
@@ -616,6 +621,42 @@ def _should_inject_project_pythonpath() -> bool:
     return not (isinstance(configured, str) and configured.strip())
 
 
+def _generate_env_str_repeated_flags(self: SlurmScriptGenerator) -> str:
+    """Replacement for ``SlurmScriptGenerator._generate_env_str``.
+
+    Upstream (vec-inf 0.9.0) emits a single ``--env K1=V1,K2=V2`` argument.
+    Apptainer registers ``--env`` as a pflag StringToString, which parses any
+    argument holding more than one ``=`` with encoding/csv -- so a comma inside
+    a value (``CUDA_VISIBLE_DEVICES=0,1`` on a multi-GPU job) is split into a
+    bare ``1`` and the launch dies with "1 must be formatted as key=value".
+    pflag only skips csv when an argument holds exactly one ``=``, so emit one
+    ``--env`` flag per variable, double-quoted so a value with spaces is not
+    word-split (``$VAR`` and ``$(...)`` still expand, as they did unquoted).
+    Non-container mode is unchanged.
+    """
+    env_dict: Dict[str, str] = self.params.get("env", {})
+
+    if not env_dict:
+        return ""
+
+    if self.use_container:
+        return " ".join(
+            '--env "{}"'.format(
+                _SHELL_DQUOTE_SPECIAL_RE.sub(r"\\\g<0>", f"{key}={val}")
+            )
+            for key, val in env_dict.items()
+        )
+    return "\n".join(f"export {key}={val}" for key, val in env_dict.items())
+
+
+# Monkeypatches a private vec-inf method, so it relies on the exact
+# ``vec-inf==0.9.0`` pin in pyproject.toml: 0.9.0 renders all container env vars
+# as one comma-joined ``--env`` flag, which breaks multi-GPU Apptainer launches
+# (#56). Re-check this patch (method name, ``params["env"]``, ``use_container``)
+# before bumping vec-inf, and drop it once upstream emits one flag per variable.
+SlurmScriptGenerator._generate_env_str = _generate_env_str_repeated_flags
+
+
 def _impersonation_wrapper_command(cluster_username: str, *command: str) -> List[str]:
     """Build the sudo wrapper invocation.
 
@@ -659,15 +700,41 @@ class LLMInferenceDirectClient:
 
     @staticmethod
     def _ensure_cuda_visible_devices_env(env_value: Optional[str]) -> str:
-        """Ensure we pass Slurm-assigned GPUs into the container."""
+        """Ensure we pass Slurm-assigned GPUs into the container.
+
+        Blank fields are dropped, since vec-inf would open them as env-file
+        paths. Any pre-existing ``CUDA_VISIBLE_DEVICES`` field (bare,
+        shell-quoted, or backslash-quoted, e.g. a stale multi-GPU workaround)
+        is dropped together with the bare (no ``=``) fields that follow it --
+        the tail of a literal multi-device value such as ``0,1,2`` -- and
+        exactly one canonical field is appended. The canonical field is
+        unquoted: vec-inf would keep any quotes as part of the value, and the
+        script generator quotes each ``--env`` flag itself.
+        """
         cuda_kv = "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-        if not env_value:
-            return cuda_kv
-
-        if "CUDA_VISIBLE_DEVICES=" in env_value:
-            return env_value
-
-        return f"{env_value},{cuda_kv}"
+        fields = []
+        dropped = []
+        in_cuda_value = False
+        for field in (env_value or "").split(","):
+            if not field.strip():
+                continue
+            name, separator, _ = field.partition("=")
+            if name.strip().strip("\\\"'") == "CUDA_VISIBLE_DEVICES":
+                in_cuda_value = True
+                dropped.append(field)
+            elif in_cuda_value and not separator:
+                dropped.append(field)
+            else:
+                in_cuda_value = False
+                fields.append(field)
+        if dropped:
+            logger.info(
+                "Overriding CUDA_VISIBLE_DEVICES from env (%s) with %s",
+                ",".join(dropped),
+                cuda_kv,
+            )
+        fields.append(cuda_kv)
+        return ",".join(fields)
 
     def _build_launch_options(self, **params: Optional[Union[str, int, bool]]):
         """Map API payload params to LaunchOptions."""
@@ -737,7 +804,11 @@ class LLMInferenceDirectClient:
         if params.get("model_weights_parent_dir") is not None:
             mapped["model_weights_parent_dir"] = params["model_weights_parent_dir"]
 
-        env_value = params.get("env") or settings.VEC_INF_ENV
+        # Request env extends the deployment env; vec-inf keeps the last value
+        # for a repeated key, so request values win.
+        env_value = ",".join(
+            value for value in (settings.VEC_INF_ENV, params.get("env")) if value
+        )
         mapped["env"] = self._ensure_cuda_visible_devices_env(env_value)
 
         return LaunchOptions(**mapped)
