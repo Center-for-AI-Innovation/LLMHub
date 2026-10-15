@@ -440,6 +440,11 @@ user (stored in `$LLMHUB_DEPLOY_ROOT/test-user.env`), and turning CILogon on
 turns local sign-up off. Once the user exists, later runs find it in the
 database.
 
+With CILogon on, `OAUTH_MAPFILE_PATH` (default `/sw/grid-security/oauth-mapfile`)
+gates sign-in: the login email must appear in the mapfile's first column.
+Plus-address test accounts (`netid+svcllmhubnetid@…`) are rewritten like model
+launch before the lookup. Set `OAUTH_MAPFILE_PATH=` in `local.env` to disable.
+
 ## Inference jobs and the vLLM image
 
 `smoke` never launches a model. `POST /api/models/deployments` submits a real
