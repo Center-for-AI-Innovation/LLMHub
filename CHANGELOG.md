@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Documentation site: a Material for MkDocs site in `docs/`, styled after the Illinois Chat docs, published to GitHub Pages (`https://center-for-ai-innovation.github.io/LLMHub/`) by `.github/workflows/docs.yml` on pushes to `main`. Covers Getting Started, Deploying Models, the public API, Self-Hosting (local, Delta/DeltaAI, Magic Castle), How It Works, Contributing, and a release blog.
 - Delta post-login authorization via `/sw/grid-security/oauth-mapfile`: when `OAUTH_MAPFILE_PATH` is set, CILogon sign-in requires an exact first-column email match; plus-address test service accounts are rewritten the same way as model launch. ([#114](https://github.com/Center-for-AI-Innovation/LLMHub/issues/114))
 - Qwen3.5-35B-A3B model config for the Magic Castle (Radiant) infrastructure, added by user request. ([#96](https://github.com/Center-for-AI-Innovation/LLMHub/pull/96))
 
