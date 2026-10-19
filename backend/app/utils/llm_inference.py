@@ -3,16 +3,18 @@ import os
 import pwd
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from huggingface_hub import snapshot_download
+from huggingface_hub.file_download import repo_folder_name
 
-from app.config.config import settings
+from app.config.config import VecInfExecutionMode, settings
 from app.config.logging import get_logger
 from app.utils.cluster_users import normalize_cluster_username
 from app.utils.infrastructure import get_vec_inf_log_base_dir
@@ -25,37 +27,20 @@ from app.utils.slurm_accounts import (
 # vec-inf loads/caches config at import time.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-
-def _apply_vec_inf_environment() -> None:
-    """Set vec-inf env vars before importing the SDK."""
-    if getattr(settings, "VEC_INF_CONFIG_DIR", None) and not os.getenv(
-        "VEC_INF_CONFIG_DIR"
-    ):
-        os.environ["VEC_INF_CONFIG_DIR"] = str(settings.VEC_INF_CONFIG_DIR)
-    if not os.getenv("VEC_INF_ACCOUNT") and (
-        getattr(settings, "VEC_INF_ACCOUNT", None)
-        or getattr(settings, "SLURM_ACCOUNT", None)
-    ):
-        os.environ["VEC_INF_ACCOUNT"] = str(
-            getattr(settings, "VEC_INF_ACCOUNT", None) or settings.SLURM_ACCOUNT
-        )
-    if getattr(settings, "VEC_INF_WORK_DIR", None) and not os.getenv(
-        "VEC_INF_WORK_DIR"
-    ):
-        os.environ["VEC_INF_WORK_DIR"] = str(settings.VEC_INF_WORK_DIR)
-    if getattr(settings, "VEC_INF_LOG_DIR", None) and not os.getenv("VEC_INF_LOG_DIR"):
-        os.environ["VEC_INF_LOG_DIR"] = str(settings.VEC_INF_LOG_DIR)
-
-
-_apply_vec_inf_environment()
+settings.apply_vec_inf_environ()
 
 # Python SDK for vec-inf (imported AFTER env vars are set)
+from vec_inf.client._slurm_script_generator import SlurmScriptGenerator  # noqa: E402
 from vec_inf.client.api import VecInfClient  # noqa: E402
 from vec_inf.client.models import LaunchOptions  # noqa: E402
 
 logger = get_logger("llm_inference")
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# Characters bash still interprets inside double quotes, other than ``$``
+# (left alone so ``$CUDA_VISIBLE_DEVICES`` expands on the compute node).
+_SHELL_DQUOTE_SPECIAL_RE = re.compile(r'[\\"`]')
+
 _select_user_slurm_account = select_user_slurm_account
 
 
@@ -106,16 +91,12 @@ def _restrict_acl_to_cluster_user(
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
         raise RuntimeError(
-            f"Failed to grant {cluster_username} access to launch payload: "
-            f"{stderr or exc}"
+            f"Failed to restrict {path} to {cluster_username}: {stderr or exc}"
         ) from exc
 
 
 def _resolve_impersonated_workspace_root() -> Optional[Path]:
-    raw_root = (
-        getattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
-        or get_vec_inf_log_base_dir()
-    )
+    raw_root = settings.resolve_workspace_root() or get_vec_inf_log_base_dir()
     if not isinstance(raw_root, str) or not raw_root.strip():
         return None
     return Path(raw_root).expanduser()
@@ -127,6 +108,22 @@ def _resolve_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]
     if root is None:
         return None
     return root / cluster_username
+
+
+def _ensure_log_dir_acl(cluster_username: str) -> None:
+    """Grant the impersonated user (and service account) ACL on VEC_INF_LOG_DIR."""
+    raw_log_dir = settings.VEC_INF_LOG_DIR
+    if not isinstance(raw_log_dir, str) or not raw_log_dir.strip():
+        return
+
+    log_dir = Path(raw_log_dir).expanduser()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    service_account = pwd.getpwuid(os.geteuid()).pw_name
+    _grant_acl_access(
+        log_dir,
+        [cluster_username, service_account],
+        f"log dir {log_dir} for {cluster_username}",
+    )
 
 
 def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
@@ -142,6 +139,7 @@ def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
         [cluster_username, service_account],
         f"workspace {workspace_dir} for {cluster_username}",
     )
+    _ensure_log_dir_acl(cluster_username)
 
     return workspace_dir
 
@@ -149,15 +147,13 @@ def _ensure_impersonated_workspace_dir(cluster_username: str) -> Optional[Path]:
 def _get_shared_cache_dirs() -> List[Path]:
     return [
         Path(cache_dir).expanduser()
-        for cache_dir in (settings.MODEL_CACHE_DIR, settings.COMPILE_CACHE_DIR)
+        for cache_dir in (settings.COMPILE_CACHE_DIR,)
         if cache_dir
     ]
 
 
 def _ensure_shared_cache_dir_access(cluster_username: str) -> None:
-    """Grant cache write access. Expects a validated username."""
-    # TODO: Remove this temporary user write access once model cache population is
-    # managed manually and launch-time downloads are no longer needed.
+    """Grant compile-cache write access, never model-cache write access."""
     service_account = pwd.getpwuid(os.geteuid()).pw_name
     for cache_dir in _get_shared_cache_dirs():
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -253,8 +249,14 @@ def _check_store_root_private() -> None:
     if not isinstance(store_root, str) or not store_root.strip():
         return
     root = Path(store_root).expanduser()
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    exposure = _store_root_exposure(root)
+    # Callers catch RuntimeError and record a failed deployment; anything else
+    # (a failed mkdir, getfacl exiting non-zero, an ACL line we can't parse)
+    # would otherwise surface as an HTTP 500.
+    try:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        exposure = _store_root_exposure(root)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        raise RuntimeError(f"Cannot check MODEL_STORE_ROOT {root}: {exc}") from exc
     if exposure:
         raise RuntimeError(
             f"MODEL_STORE_ROOT {root} is open to other accounts ({exposure}); "
@@ -263,12 +265,48 @@ def _check_store_root_private() -> None:
         )
 
 
-_gated_downloads_in_progress: set = set()
-_gated_downloads_lock = threading.Lock()
+_downloads_in_progress: set = set()
+# Why the last download for a key failed, until a new one starts.
+_download_failures: Dict[str, str] = {}
+_downloads_lock = threading.Lock()
+
+
+def _claim_download(key: str) -> bool:
+    """Mark ``key`` as downloading; return False if a download is already running."""
+    with _downloads_lock:
+        if key in _downloads_in_progress:
+            return False
+        _downloads_in_progress.add(key)
+        _download_failures.pop(key, None)
+        return True
+
+
+def _finish_download(key: str, error: Optional[str]) -> None:
+    with _downloads_lock:
+        _downloads_in_progress.discard(key)
+        if error is not None:
+            _download_failures[key] = error
+
+
+def _download_state(key: str, ready: bool) -> Tuple[str, Optional[str]]:
+    """Return ``(state, error)``; state is ready, downloading, failed or missing.
+
+    ``missing`` means neither the weights nor a running download are there, e.g.
+    after a backend restart cut a download short.
+    """
+    if ready:
+        return "ready", None
+    with _downloads_lock:
+        if key in _downloads_in_progress:
+            return "downloading", None
+        if key in _download_failures:
+            return "failed", _download_failures[key]
+    return "missing", None
 
 
 def _download_gated_model(store_dir: Path, repo_id: str, hf_token: str) -> None:
     partial_dir = store_dir.with_name(store_dir.name + ".partial")
+    error = None
     try:
         partial_dir.parent.mkdir(parents=True, exist_ok=True)
         # Reruns resume from partial_dir; original/ holds a duplicate raw checkpoint.
@@ -287,46 +325,169 @@ def _download_gated_model(store_dir: Path, repo_id: str, hf_token: str) -> None:
         logger.info("Downloaded gated model %s into %s", repo_id, store_dir)
     except Exception as exc:
         logger.error("Gated model download failed for %s: %s", repo_id, exc)
+        error = str(exc)
     finally:
-        with _gated_downloads_lock:
-            _gated_downloads_in_progress.discard(str(store_dir))
+        _finish_download(str(store_dir), error)
 
 
 def start_gated_model_download(
     model_name: str, repo_id: Optional[str], hf_token: Optional[str]
-) -> Optional[str]:
-    """Start a background download of a gated model missing from ``MODEL_STORE_ROOT``.
+) -> bool:
+    """Start downloading a gated model missing from ``MODEL_STORE_ROOT``.
 
-    Returns a message for the user while weights are downloading, or None when
-    they are already in the store (or no store/repo is configured).
+    Returns True when the launch has to wait for a download, False when there is
+    nothing to download (already stored, or no store/repo/token to download
+    with). Raises RuntimeError when the store can't be used.
     """
     try:
         store_dir = _resolve_model_store_dir(model_name)
     except ValueError:
-        return None
+        return False
     if store_dir is None or not repo_id or not hf_token:
-        return None
+        return False
     try:
         _check_store_root_private()
+        if store_dir.is_dir():
+            return False
     except (OSError, RuntimeError) as exc:
         logger.error("Refusing gated model download: %s", exc)
-        return f"Cannot store gated model weights: {exc}"
-    if store_dir.is_dir():
-        return None
+        raise RuntimeError(f"Cannot store gated model weights: {exc}") from exc
 
-    with _gated_downloads_lock:
-        already_running = str(store_dir) in _gated_downloads_in_progress
-        _gated_downloads_in_progress.add(str(store_dir))
-    if not already_running:
+    if _claim_download(str(store_dir)):
         threading.Thread(
             target=_download_gated_model,
             args=(store_dir, repo_id, hf_token),
             daemon=True,
         ).start()
-    return (
-        f"Downloading gated model weights for {model_name}. "
-        "Launch again in a few minutes."
+    return True
+
+
+def gated_model_download_state(model_name: str) -> Tuple[str, Optional[str]]:
+    """Where a gated model's download stands; see ``_download_state``.
+
+    Reports ready when no store is configured, so the launch goes ahead and
+    fails on the missing store with a clear message.
+    """
+    try:
+        store_dir = _resolve_model_store_dir(model_name)
+    except ValueError:
+        return "ready", None
+    if store_dir is None:
+        return "ready", None
+    try:
+        ready = store_dir.is_dir()
+    except OSError as exc:
+        return "failed", f"Cannot read the protected model store: {exc}"
+    return _download_state(str(store_dir), ready)
+
+
+# Written into a repo's cache dir once a download finishes, so an interrupted one
+# isn't mistaken for a complete model. Eviction deletes the repo dir and it with it.
+_PUBLIC_CACHE_COMPLETE_MARKER = ".llmhub-complete"
+
+
+def _strip_group_other_write(root: Path) -> None:
+    """Remove group and other write from everything under ``root``.
+
+    huggingface_hub creates lock files and shared-blob ``.refs`` manifests 0666 so
+    several accounts can share a cache. This cache has one writer: a writable
+    manifest lets anyone get a blob still in use collected by eviction, and a
+    writable lock lets anyone stall downloads.
+    """
+    for path in [root, *root.rglob("*")]:
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        if mode & 0o022:
+            path.chmod(mode & ~0o022)
+
+
+def _download_public_model(cache_dir: Path, repo_dir: Path, repo_id: str) -> None:
+    error = None
+    try:
+        # token=False: never use the service account's own credential, so nothing
+        # private or gated can land in the shared cache.
+        snapshot_download(
+            repo_id=repo_id,
+            cache_dir=cache_dir,
+            token=False,
+            ignore_patterns=["original/*"],
+        )
+        _strip_group_other_write(cache_dir)
+        (repo_dir / _PUBLIC_CACHE_COMPLETE_MARKER).touch()
+        logger.info("Downloaded public model %s into %s", repo_id, cache_dir)
+    except Exception as exc:
+        logger.error("Public model download failed for %s: %s", repo_id, exc)
+        error = str(exc)
+    finally:
+        _finish_download(str(repo_dir), error)
+
+
+def _resolve_public_cache_repo_dir(
+    repo_id: Optional[str],
+) -> Optional[Tuple[Path, Path]]:
+    """Return ``(cache_dir, repo_dir)`` for ``repo_id``, or None with no cache set.
+
+    Raises ValueError for a repo id that would escape the cache.
+    """
+    cache_dir_setting = getattr(settings, "MODEL_CACHE_DIR", None)
+    if not repo_id or not isinstance(cache_dir_setting, str):
+        return None
+    if not cache_dir_setting.strip():
+        return None
+    cache_dir = Path(cache_dir_setting).expanduser()
+    repo_dir = _join_contained(
+        cache_dir, repo_folder_name(repo_id=repo_id, repo_type="model"), "repo_id"
     )
+    return cache_dir, repo_dir
+
+
+def start_public_model_download(repo_id: Optional[str]) -> bool:
+    """Start downloading a public model missing from ``MODEL_CACHE_DIR``.
+
+    Jobs get the cache read-only and run offline, so the backend (as the service
+    account) is the only thing that downloads into it. Returns True when the
+    launch has to wait for a download, False when the model is already cached
+    (or no cache/repo is configured, in which case jobs fetch their own
+    weights). Raises RuntimeError when the cache can't be used.
+    """
+    try:
+        dirs = _resolve_public_cache_repo_dir(repo_id)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid Hugging Face repo id: {exc}") from exc
+    if dirs is None:
+        return False
+    cache_dir, repo_dir = dirs
+    try:
+        if (repo_dir / _PUBLIC_CACHE_COMPLETE_MARKER).is_file():
+            return False
+    except OSError as exc:
+        logger.error("Cannot read model cache %s: %s", cache_dir, exc)
+        raise RuntimeError(f"Cannot read the model cache: {exc}") from exc
+
+    if _claim_download(str(repo_dir)):
+        threading.Thread(
+            target=_download_public_model,
+            args=(cache_dir, repo_dir, repo_id),
+            daemon=True,
+        ).start()
+    return True
+
+
+def public_model_download_state(repo_id: Optional[str]) -> Tuple[str, Optional[str]]:
+    """Where a public model's download stands; see ``_download_state``."""
+    try:
+        dirs = _resolve_public_cache_repo_dir(repo_id)
+    except ValueError as exc:
+        return "failed", f"Invalid Hugging Face repo id: {exc}"
+    if dirs is None:
+        return "ready", None
+    _cache_dir, repo_dir = dirs
+    try:
+        ready = (repo_dir / _PUBLIC_CACHE_COMPLETE_MARKER).is_file()
+    except OSError as exc:
+        return "failed", f"Cannot read the model cache: {exc}"
+    return _download_state(str(repo_dir), ready)
 
 
 def _hardlink_tree(src: Path, dst: Path) -> None:
@@ -367,9 +528,17 @@ def resolve_gated_model_store_dir(model_name: str) -> Path:
         source_dir = _resolve_model_store_dir(model_name)
     except ValueError as exc:
         raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
-    if source_dir is not None:
-        _check_store_root_private()
-    if source_dir is None or not source_dir.is_dir():
+    if source_dir is None:
+        raise RuntimeError(
+            "MODEL_STORE_ROOT is not set; gated models can only launch from the "
+            "protected model store"
+        )
+    _check_store_root_private()
+    try:
+        staged = source_dir.is_dir()
+    except OSError as exc:
+        raise RuntimeError(f"Cannot read the protected model store: {exc}") from exc
+    if not staged:
         raise RuntimeError(
             f"Model {model_name!r} not found in the protected model store "
             f"(MODEL_STORE_ROOT={store_root!r}); direct-mode gated launches "
@@ -393,54 +562,122 @@ def ensure_gated_model_weights_for_user(cluster_username: str, model_name: str) 
         source_dir = _resolve_model_store_dir(model_name)
     except ValueError as exc:
         raise RuntimeError(f"Invalid model name for shared model store: {exc}") from exc
-    if source_dir is not None:
-        _check_store_root_private()
-    if source_dir is None or not source_dir.is_dir():
+    if source_dir is None:
+        raise RuntimeError(
+            "MODEL_STORE_ROOT is not set; gated models can only launch from the "
+            "protected model store"
+        )
+    _check_store_root_private()
+    try:
+        staged = source_dir.is_dir()
+    except OSError as exc:
+        raise RuntimeError(f"Cannot read the shared model store: {exc}") from exc
+    if not staged:
         raise RuntimeError(
             f"Model {model_name!r} not found in the shared model store "
             f"(MODEL_STORE_ROOT={getattr(settings, 'MODEL_STORE_ROOT', None)!r})"
         )
 
-    workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
-    if workspace_dir is None:
-        raise RuntimeError(
-            "Cannot prepare user-scoped model weights: no impersonated workspace "
-            "root configured (VEC_INF_SHARED_WORK_ROOT / vec-inf log dir)"
-        )
-
-    weights_parent_dir = workspace_dir / "model-weights"
-    # The workspace's owning group is shared by many accounts; keep it out of the links.
-    weights_parent_dir.mkdir(exist_ok=True)
-    _restrict_acl_to_cluster_user(weights_parent_dir, cluster_username, directory=True)
     try:
-        dest_dir = _join_contained(weights_parent_dir, model_name, "model_name")
-    except ValueError as exc:
-        raise RuntimeError(f"Invalid model name for user workspace: {exc}") from exc
-    _hardlink_tree(source_dir, dest_dir)
+        workspace_dir = _ensure_impersonated_workspace_dir(cluster_username)
+        if workspace_dir is None:
+            raise RuntimeError(
+                "Cannot prepare user-scoped model weights: no impersonated "
+                "workspace root configured (VEC_INF_SHARED_WORK_ROOT / vec-inf "
+                "log dir)"
+            )
+
+        weights_parent_dir = workspace_dir / "model-weights"
+        # The workspace's owning group is shared by many accounts; keep it out of
+        # the links.
+        weights_parent_dir.mkdir(exist_ok=True)
+        _restrict_acl_to_cluster_user(
+            weights_parent_dir, cluster_username, directory=True
+        )
+        try:
+            dest_dir = _join_contained(weights_parent_dir, model_name, "model_name")
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid model name for user workspace: {exc}") from exc
+        _hardlink_tree(source_dir, dest_dir)
+    except OSError as exc:
+        # os.link raises EXDEV when MODEL_STORE_ROOT and the workspace root are on
+        # different filesystems; hard links need both on the same one.
+        raise RuntimeError(
+            f"Failed to link {model_name!r} into {cluster_username}'s workspace: "
+            f"{exc}"
+        ) from exc
     return weights_parent_dir
 
 
 def _get_impersonation_python() -> str:
-    configured = getattr(settings, "VEC_INF_IMPERSONATE_PYTHON", None) or os.getenv(
-        "VEC_INF_IMPERSONATE_PYTHON"
-    )
+    configured = settings.VEC_INF_IMPERSONATE_PYTHON
     if isinstance(configured, str) and configured.strip():
         return configured.strip()
     return sys.executable
 
 
 def _should_inject_project_pythonpath() -> bool:
-    configured = getattr(settings, "VEC_INF_IMPERSONATE_PYTHON", None) or os.getenv(
-        "VEC_INF_IMPERSONATE_PYTHON"
-    )
+    configured = settings.VEC_INF_IMPERSONATE_PYTHON
     return not (isinstance(configured, str) and configured.strip())
+
+
+def _generate_env_str_repeated_flags(self: SlurmScriptGenerator) -> str:
+    """Replacement for ``SlurmScriptGenerator._generate_env_str``.
+
+    Upstream (vec-inf 0.9.0) emits a single ``--env K1=V1,K2=V2`` argument.
+    Apptainer registers ``--env`` as a pflag StringToString, which parses any
+    argument holding more than one ``=`` with encoding/csv -- so a comma inside
+    a value (``CUDA_VISIBLE_DEVICES=0,1`` on a multi-GPU job) is split into a
+    bare ``1`` and the launch dies with "1 must be formatted as key=value".
+    pflag only skips csv when an argument holds exactly one ``=``, so emit one
+    ``--env`` flag per variable, double-quoted so a value with spaces is not
+    word-split (``$VAR`` and ``$(...)`` still expand, as they did unquoted).
+    Non-container mode is unchanged.
+    """
+    env_dict: Dict[str, str] = self.params.get("env", {})
+
+    if not env_dict:
+        return ""
+
+    if self.use_container:
+        return " ".join(
+            '--env "{}"'.format(
+                _SHELL_DQUOTE_SPECIAL_RE.sub(r"\\\g<0>", f"{key}={val}")
+            )
+            for key, val in env_dict.items()
+        )
+    return "\n".join(f"export {key}={val}" for key, val in env_dict.items())
+
+
+# Monkeypatches a private vec-inf method, so it relies on the exact
+# ``vec-inf==0.9.0`` pin in pyproject.toml: 0.9.0 renders all container env vars
+# as one comma-joined ``--env`` flag, which breaks multi-GPU Apptainer launches
+# (#56). Re-check this patch (method name, ``params["env"]``, ``use_container``)
+# before bumping vec-inf, and drop it once upstream emits one flag per variable.
+SlurmScriptGenerator._generate_env_str = _generate_env_str_repeated_flags
+
+
+def _impersonation_wrapper_command(cluster_username: str, *command: str) -> List[str]:
+    """Build the sudo wrapper invocation.
+
+    Always pass ``--no-login-shell`` so the impersonated user's bashrc/profile
+    cannot alter the launch environment.
+    """
+    wrapper_path = Path(settings.VEC_INF_IMPERSONATE_SCRIPT)
+    return [
+        str(wrapper_path),
+        "--no-login-shell",
+        cluster_username,
+        "--",
+        *command,
+    ]
 
 
 class LLMInferenceDirectClient:
     """Direct vec-inf client used both locally and inside the launch shim."""
 
     def __init__(self):
-        vec_inf_config_dir = getattr(settings, "VEC_INF_CONFIG_DIR", None)
+        vec_inf_config_dir = settings.VEC_INF_CONFIG_DIR
         if vec_inf_config_dir:
             logger.info("Using VEC_INF_CONFIG_DIR: %s", vec_inf_config_dir)
             self._verify_config_files(vec_inf_config_dir)
@@ -449,29 +686,55 @@ class LLMInferenceDirectClient:
                 "VEC_INF_CONFIG_DIR not set, using vec-inf default config location"
             )
 
-        # MODEL_CONFIG_PATH can still be used for explicit models.yaml path override
-        config_path = getattr(settings, "MODEL_CONFIG_PATH", None)
+        # MODEL_CONFIG_PATH / VEC_INF_MODEL_CONFIG can override models.yaml
+        config_path = settings.VEC_INF_MODEL_CONFIG or settings.MODEL_CONFIG_PATH
         if config_path:
             logger.info("Using custom model config path: %s", config_path)
-            if not os.getenv("VEC_INF_MODEL_CONFIG"):
+            if not os.environ.get("VEC_INF_MODEL_CONFIG"):
                 os.environ["VEC_INF_MODEL_CONFIG"] = str(config_path)
                 logger.info("Set VEC_INF_MODEL_CONFIG to: %s", config_path)
 
         # Initialize VecInfClient - it will use VEC_INF_CONFIG_DIR if set
         self.client = VecInfClient()
-        self.slurm_account = os.getenv("SLURM_ACCOUNT") or settings.SLURM_ACCOUNT
+        self.slurm_account = settings.SLURM_ACCOUNT or settings.VEC_INF_ACCOUNT
 
     @staticmethod
     def _ensure_cuda_visible_devices_env(env_value: Optional[str]) -> str:
-        """Ensure we pass Slurm-assigned GPUs into the container."""
+        """Ensure we pass Slurm-assigned GPUs into the container.
+
+        Blank fields are dropped, since vec-inf would open them as env-file
+        paths. Any pre-existing ``CUDA_VISIBLE_DEVICES`` field (bare,
+        shell-quoted, or backslash-quoted, e.g. a stale multi-GPU workaround)
+        is dropped together with the bare (no ``=``) fields that follow it --
+        the tail of a literal multi-device value such as ``0,1,2`` -- and
+        exactly one canonical field is appended. The canonical field is
+        unquoted: vec-inf would keep any quotes as part of the value, and the
+        script generator quotes each ``--env`` flag itself.
+        """
         cuda_kv = "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
-        if not env_value:
-            return cuda_kv
-
-        if "CUDA_VISIBLE_DEVICES=" in env_value:
-            return env_value
-
-        return f"{env_value},{cuda_kv}"
+        fields = []
+        dropped = []
+        in_cuda_value = False
+        for field in (env_value or "").split(","):
+            if not field.strip():
+                continue
+            name, separator, _ = field.partition("=")
+            if name.strip().strip("\\\"'") == "CUDA_VISIBLE_DEVICES":
+                in_cuda_value = True
+                dropped.append(field)
+            elif in_cuda_value and not separator:
+                dropped.append(field)
+            else:
+                in_cuda_value = False
+                fields.append(field)
+        if dropped:
+            logger.info(
+                "Overriding CUDA_VISIBLE_DEVICES from env (%s) with %s",
+                ",".join(dropped),
+                cuda_kv,
+            )
+        fields.append(cuda_kv)
+        return ",".join(fields)
 
     def _build_launch_options(self, **params: Optional[Union[str, int, bool]]):
         """Map API payload params to LaunchOptions."""
@@ -541,7 +804,11 @@ class LLMInferenceDirectClient:
         if params.get("model_weights_parent_dir") is not None:
             mapped["model_weights_parent_dir"] = params["model_weights_parent_dir"]
 
-        env_value = params.get("env") or getattr(settings, "VEC_INF_ENV", None)
+        # Request env extends the deployment env; vec-inf keeps the last value
+        # for a repeated key, so request values win.
+        env_value = ",".join(
+            value for value in (settings.VEC_INF_ENV, params.get("env")) if value
+        )
         mapped["env"] = self._ensure_cuda_visible_devices_env(env_value)
 
         return LaunchOptions(**mapped)
@@ -639,11 +906,11 @@ class LLMInferenceDirectClient:
 
     def _resolve_user_models_config_path(self) -> Optional[str]:
         """Return the path to the infrastructure-specific models.yaml, or None."""
-        explicit = os.getenv("VEC_INF_MODEL_CONFIG")
+        explicit = settings.VEC_INF_MODEL_CONFIG or settings.MODEL_CONFIG_PATH
         if explicit and Path(explicit).exists():
             return explicit
 
-        config_dir = os.getenv("VEC_INF_CONFIG_DIR")
+        config_dir = settings.VEC_INF_CONFIG_DIR
         if config_dir:
             candidate = Path(config_dir) / "models.yaml"
             if candidate.exists():
@@ -673,8 +940,8 @@ class LLMInferenceDirectClient:
         if models_file.exists():
             logger.info("Found models.yaml at: %s", models_file)
         else:
-            model_config_override = os.getenv("VEC_INF_MODEL_CONFIG") or getattr(
-                settings, "MODEL_CONFIG_PATH", None
+            model_config_override = (
+                settings.VEC_INF_MODEL_CONFIG or settings.MODEL_CONFIG_PATH
             )
             if model_config_override and Path(model_config_override).exists():
                 logger.info(
@@ -725,9 +992,7 @@ class LLMInferenceClient:
     """Launch wrapper that can impersonate the submitting cluster user."""
 
     def __init__(self):
-        self.execution_mode = str(
-            getattr(settings, "VEC_INF_EXECUTION_MODE", "direct") or "direct"
-        )
+        self.execution_mode = settings.VEC_INF_EXECUTION_MODE
         self.direct_client = LLMInferenceDirectClient()
 
     @staticmethod
@@ -801,13 +1066,7 @@ class LLMInferenceClient:
             return {"success": False, "error": str(exc)}
 
         params = dict(params)
-        wrapper_path = Path(
-            getattr(
-                settings,
-                "VEC_INF_IMPERSONATE_SCRIPT",
-                PROJECT_ROOT / "scripts" / "impersonate-wrapper.py",
-            )
-        )
+        wrapper_path = Path(settings.VEC_INF_IMPERSONATE_SCRIPT)
         if not wrapper_path.exists():
             return {
                 "success": False,
@@ -851,10 +1110,10 @@ class LLMInferenceClient:
                 ),
             }
 
-        # The payload can carry a secret (hf_token, via params["env"]). Command-line
-        # arguments are visible to any user on the host via `ps`/`/proc/<pid>/cmdline`
-        # for the process's lifetime, so write it to a file instead and pass only the
-        # path. The file lands in the impersonated user's workspace.
+        # Pass the payload as a file, not on the command line: arguments are visible
+        # to any user on the host via `ps`/`/proc/<pid>/cmdline`. It no longer carries
+        # the HF token (launches keep it out of the job, see launch_model), so this is
+        # defense in depth. The file lands in the impersonated user's workspace.
         payload = self._build_launch_payload(
             model_name, enable_cloudflare_tunnel, params
         )
@@ -870,36 +1129,33 @@ class LLMInferenceClient:
             f.write(payload)
 
         try:
-            command = [str(wrapper_path)]
-            if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
-                command.append("--no-login-shell")
-            command.extend(
-                [
-                    cluster_username,
-                    "--",
-                    _get_impersonation_python(),
-                    "-m",
-                    "app.utils.vec_inf_launch_shim",
-                    str(payload_path),
-                ]
+            command = _impersonation_wrapper_command(
+                cluster_username,
+                _get_impersonation_python(),
+                "-m",
+                "app.utils.vec_inf_launch_shim",
+                str(payload_path),
             )
 
             env = os.environ.copy()
             if _should_inject_project_pythonpath():
                 env = self._prepend_pythonpath(env)
-            if getattr(settings, "VEC_INF_ENV", None):
+            if settings.VEC_INF_ENV:
                 env["VEC_INF_ENV"] = str(settings.VEC_INF_ENV)
             env["VEC_INF_LOG_DIR"] = str(workspace_dir)
             env["VEC_INF_WORK_DIR"] = str(params.get("work_dir") or workspace_dir)
             if params.get("account"):
                 env["VEC_INF_ACCOUNT"] = str(params["account"])
                 env["SLURM_ACCOUNT"] = str(params["account"])
+            # Do not use PROJECT_ROOT as cwd: Settings(env_file=".env") would try to
+            # open the service account's unreadable .env as svcllmhub*. Imports come
+            # from VEC_INF_IMPERSONATE_PYTHON's site-packages (or PYTHONPATH).
             result = subprocess.run(
                 command,
                 text=True,
                 capture_output=True,
                 env=env,
-                cwd=str(PROJECT_ROOT),
+                cwd=str(workspace_dir),
             )
         finally:
             payload_path.unlink(missing_ok=True)
@@ -931,29 +1187,23 @@ class LLMInferenceClient:
         except ValueError as exc:
             return {"success": False, "error": str(exc)}
 
-        wrapper_path = Path(
-            getattr(
-                settings,
-                "VEC_INF_IMPERSONATE_SCRIPT",
-                PROJECT_ROOT / "scripts" / "impersonate-wrapper.py",
-            )
-        )
+        wrapper_path = Path(settings.VEC_INF_IMPERSONATE_SCRIPT)
         if not wrapper_path.exists():
             return {
                 "success": False,
                 "error": f"Impersonation wrapper not found: {wrapper_path}",
             }
 
-        command = [str(wrapper_path)]
-        if not getattr(settings, "VEC_INF_IMPERSONATE_LOGIN_SHELL", True):
-            command.append("--no-login-shell")
-        command.extend([cluster_username, "--", "scancel", str(slurm_job_id)])
+        command = _impersonation_wrapper_command(
+            cluster_username, "scancel", str(slurm_job_id)
+        )
 
+        workspace_dir = _resolve_impersonated_workspace_dir(cluster_username)
         result = subprocess.run(
             command,
             text=True,
             capture_output=True,
-            cwd=str(PROJECT_ROOT),
+            cwd=str(workspace_dir or Path.cwd()),
         )
 
         if result.returncode != 0:
@@ -972,7 +1222,7 @@ class LLMInferenceClient:
         cluster_username: Optional[str] = None,
         **params,
     ):
-        if self.execution_mode == "impersonate":
+        if self.execution_mode == VecInfExecutionMode.IMPERSONATE:
             return self._launch_model_impersonated(
                 model_name,
                 enable_cloudflare_tunnel=enable_cloudflare_tunnel,
@@ -992,7 +1242,7 @@ class LLMInferenceClient:
         return self.direct_client.get_model_metrics(slurm_job_id)
 
     def shutdown_model(self, slurm_job_id: str, cluster_username: Optional[str] = None):
-        if self.execution_mode == "impersonate":
+        if self.execution_mode == VecInfExecutionMode.IMPERSONATE:
             return self._shutdown_model_impersonated(slurm_job_id, cluster_username)
         return self.direct_client.shutdown_model(slurm_job_id)
 

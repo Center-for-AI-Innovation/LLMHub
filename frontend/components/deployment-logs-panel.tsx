@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Clock,
   Copy,
+  Download,
   FileText,
   Loader2,
   RefreshCw,
@@ -28,6 +29,7 @@ import { useDeploymentLogs } from '@/hooks/use-models';
 import { cn } from '@/lib/utils';
 
 export type DeploymentStatus =
+  | 'downloading'
   | 'pending'
   | 'launching'
   | 'ready'
@@ -55,6 +57,13 @@ const statusConfig: Record<
     animate?: boolean;
   }
 > = {
+  downloading: {
+    label: 'Downloading weights',
+    icon: Download,
+    color: 'text-status-info',
+    bgColor: 'bg-status-info/10',
+    animate: true,
+  },
   pending: {
     label: 'Pending',
     icon: Clock,
@@ -384,7 +393,20 @@ export function DeploymentLogsPanel({
               </div>
             ) : logs.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-3">
-                {statusKey === 'pending' || statusKey === 'launching' ? (
+                {statusKey === 'downloading' ? (
+                  <>
+                    <Download className="size-8 text-status-info animate-pulse" />
+                    <div className="text-center">
+                      <p className="text-sm text-status-info font-medium">
+                        Downloading model weights
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        The job starts automatically once the download
+                        finishes.
+                      </p>
+                    </div>
+                  </>
+                ) : statusKey === 'pending' || statusKey === 'launching' ? (
                   <>
                     <div className="relative">
                       <Clock className="size-8 text-secondary/60" />

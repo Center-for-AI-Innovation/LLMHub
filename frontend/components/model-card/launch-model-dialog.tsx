@@ -246,7 +246,7 @@ export function LaunchModelDialog({
               <Input
                 id="launch-hf-token"
                 type="password"
-                autoComplete="off"
+                autoComplete="new-password"
                 value={hfToken}
                 onChange={(e) => setHfToken(e.target.value)}
                 placeholder="hf_..."

@@ -30,14 +30,15 @@ ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois
 cd /path/to/LLMHub/infra/delta
 
 # A personal staging stack (ports 5533/8100/3100), tracking a branch:
-./llmhub preflight --profile dev --ref main
-./llmhub deploy    --profile staging --ref port/backend-pr-32           # dry run: prints the plan
-./llmhub deploy    --profile staging --ref port/backend-pr-32 --apply   # ~10 min first time
+./llmhub preflight --profile staging --ref main
+./llmhub deploy    --profile staging --ref main           # dry run: prints the plan
+./llmhub deploy    --profile staging --ref main --apply   # ~10 min first time
 ./llmhub smoke     --profile staging
 
-# Production (ports 5433/8000/3000) runs as the service user and pins a tag:
+# Production (ports 5433/8000/3000) runs as the service user, on its own VM,
+# and pins a release tag -- read "Deploying production" first:
 /sw/admin/scripts/impersonate svcdeltallmhub
-./llmhub deploy --apply --ref v0.1.1
+./llmhub deploy --apply --ref <release tag>
 ```
 
 Then from your workstation:
@@ -106,6 +107,71 @@ touch `/projects` (pnpm refuses a symlinked `node_modules`). Both
 survive a VM reboot; after one, run `./llmhub start`. After a VM *rebuild* the
 local root is gone and `deploy --apply` recreates it.
 
+## Deploying production
+
+`production` is the default profile, and it has the same shape as `dev`. But it
+has not yet been deployed anywhere, and the kit's other defaults still point at
+the dev VM. On a new VM:
+
+**The VM needs what the dev VM has.** `/data` must be a local xfs volume owned by
+`svcdeltallmhub:delta_bfmz`, mode 0770. The VM must also have:
+
+- `/sw` mounted read-write (deploy writes `/sw/llmhub/llmhub-production`)
+- `/projects` and `/work`
+- Apptainer
+- a Slurm client that can submit jobs, and `sacctmgr` on the `PATH` the
+  backend starts with — from 1.1.0 the backend runs it to find each user's
+  Slurm accounts. `preflight` looks up `LLMHUB_TEST_CLUSTER_USER` to prove it.
+- outbound HTTPS to PyPI, nodejs.org, npm, GitHub and Docker Hub
+- the sudoers rule that impersonation uses: `svcdeltallmhub` → the per-user
+  accounts, NOPASSWD. Delta sudo has `requiretty`, which the backend satisfies
+  by running sudo under a PTY.
+
+**Write `local.env` before the first deploy.** Create the deploy root as
+`svcdeltallmhub`:
+
+```bash
+R=/projects/bfmz/svcdeltallmhub/llmhub-production; mkdir -p $R
+cat > $R/local.env <<'EOF'
+LLMHUB_VM_HOST=<production VM>.delta.ncsa.illinois.edu
+LLMHUB_EXECUTION_MODE=impersonate
+LLMHUB_TEST_CLUSTER_USER=svcllmhub<netid>
+EOF
+```
+
+- **`LLMHUB_VM_HOST`:** the default is `dt-svc-llmaas01`, and `deploy` refuses
+  to run on any other host.
+- **`LLMHUB_EXECUTION_MODE`:** without it the stack starts in direct mode with no
+  error, and every job runs as `svcdeltallmhub` on `LLMHUB_SLURM_ACCOUNT`.
+- **`LLMHUB_CLUSTER`:** the cluster is detected *before* `local.env` is read. On a
+  VM with no Slurm client and a host name that does not start with `dt-`, export
+  `LLMHUB_CLUSTER=delta` on the command line.
+
+**Always pass `--ref` with a release tag.** The built-in default, `v0.1.1`, comes
+from before impersonation: the backend at that tag defines none of the
+`VEC_INF_*` impersonation settings, so they are dropped. The tag must also include
+`frontend/lib/cluster-username.ts`, which is how the frontend sends
+`clusterUsername`. `v1.0.0` has the backend half but not this.
+
+```bash
+./llmhub preflight --ref <tag>
+./llmhub deploy    --ref <tag>            # dry run
+./llmhub deploy    --ref <tag> --apply
+./llmhub check-impersonation svcllmhub<netid>   # real sudo probe, no GPU -- must pass first
+./llmhub launch-test                     # before enabling CILogon -- see below
+```
+
+**Who the service can launch as.** Scope the sudoers rule to the accounts the
+service may launch jobs as, and restrict the CILogon client to the Illinois
+identity provider.
+
+**Nothing restarts the stack after a reboot.** Ordinary users cannot use
+`crontab`, and their services do not linger. On a VM you administer, a systemd
+unit that runs `./llmhub start` as `svcdeltallmhub` closes this gap.
+
+**Production follows the `/sw/llmhub/vllm.sif` symlink**, so re-pointing it
+changes production at once. Dev's image is pinned, so dev does not move.
+
 ## DeltaAI
 
 The same kit deploys to DeltaAI's VM, `dtai-svc-llmaas01.delta.ncsa.illinois.edu`
@@ -123,7 +189,7 @@ is sourced before `delta.env`'s defaults and holds only what differs:
 | partition / GPU type | `gpuA100x4-interactive` / `nvidia_a100` | `ghx4-interactive` / `nvidia_gh200_120gb` |
 | dev image pin | `vllm-v0.19.1-slingshot-v3.sif` | `vllm-v0.28.0-slingshot-deltaai.sif` |
 | torch-inductor cache (service user) | `…/public/torch_inductor` | `…/public/torch_inductor-deltaai` |
-| job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=single_node_vni,disable_rdzv_get` |
+| job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=single_node_vni,disable_rdzv_get`; on 1-node jobs also `APPTAINERENV_NCCL_NET_PLUGIN=none` |
 | fit-estimator hardware table (`LLMHUB_HARDWARE_TABLE`) | `delta` | `delta-ai-ncsa` |
 | VM | `dt-svc-llmaas01` | `dtai-svc-llmaas01` |
 
@@ -164,10 +230,13 @@ Four things that look wrong on DeltaAI and are not:
   from the host name, and a short `dtai-svc-llmaas01` matches no pattern. That
   is cosmetic: `VEC_INF_CONFIG_DIR` in `backend/.env` is an absolute override,
   and `deploy` refuses to run a dev or production stack without it.
-- **A single-node job logs `Using network Socket`.** vec-inf starts single-node
-  servers from the batch step, which has no Slingshot VNI; single-node
-  collectives run over NVLink, so it does not matter. Multi-node goes through
-  `srun` and selects CXI.
+- **A single-node job runs without the OFI network plugin.** vec-inf starts
+  single-node servers from the batch step, which has no Slingshot VNI, so the
+  plugin could not open CXI anyway (collectives run over NVLink in-node) — and
+  trying prints `cxip_nic_get_rgroup_vni(): Failed to find valid default rgroup
+  and vni`, which vec-inf reads as fatal and which no `FI_LOG_PROV` value
+  silences. `module_load_cmd` switches it off for 1-node jobs only. Multi-node
+  goes through `srun`, gets a VNI and selects CXI.
 
 ## Things about the service VMs the script encodes
 
@@ -199,7 +268,8 @@ and the same Python 3.9.
 - **The backend's `Settings` forbids unknown keys** — a key the deployed
   version does not define aborts startup (`Extra inputs are not permitted`).
   `deploy` writes only keys present in that checkout's `config.py`, so one
-  config serves v0.1.1 and the impersonation branch alike.
+  config serves every release. It also means a key that release lacks is
+  dropped without warning.
 - **The schema belongs to the frontend.** Drizzle migrations create the tables
   the backend reads; `pnpm build` runs them, which is why PostgreSQL is
   started before the build and why the build is part of `deploy`.
@@ -233,7 +303,26 @@ Per-stack overrides go in `$LLMHUB_DEPLOY_ROOT/local.env`, sourced after
 LLMHUB_VLLM_SIF=/work/nvme/<allocation>/$USER/vllm-v0.19.1-slingshot.sif   # a candidate built from devops/apptainers/delta
 ```
 
-Three things the rendered inference config encodes, each found by a failed job:
+Three things about the rendered inference config, each found by a failed job:
+
+- **The Hugging Face model cache is service-populated and read-only in jobs.**
+  Only the backend service account writes to `LLMHUB_HF_CACHE`. The first launch
+  of a public model that isn't cached yet starts a download as that account; the
+  deployment shows "Downloading weights" and its job is submitted once the
+  download finishes. Inference jobs get a read-only bind
+  and run with Hub offline mode, so impersonated accounts cannot download into
+  or modify weights another account will load. The bind only covers the
+  container: also strip the host ACL entries earlier launches granted, e.g. for
+  each `svcllmhub*` account,
+  `setfacl -R -x u:<account> "$LLMHUB_HF_CACHE"` and
+  `setfacl -R -d -x u:<account> "$LLMHUB_HF_CACHE"`, then check with `getfacl`
+  that only the service account can write.
+- **Audit old gated weights before enabling this configuration.** Move or
+  delete gated repositories already present in `/projects/modelcache/public`
+  and `/projects/modelcache/public/huggingface`; existing files in those
+  public locations bypass the protected store. The backend keeps new gated
+  downloads under `MODEL_STORE_ROOT` (default `/projects/modelcache/restricted`),
+  which must remain accessible only to the service account.
 
 - **The torch-inductor cache must be writable by whoever runs the job.**
   vLLM 0.19 compiles at startup and writes under `TORCHINDUCTOR_CACHE_DIR`. The
@@ -247,18 +336,21 @@ Three things the rendered inference config encodes, each found by a failed job:
   matching `unable to` before the server is up — on a healthy job. libfabric
   accepts only `warn|trace|info|debug` (anything else means warn), so the
   provider filter is the switch. (jobs 21500607, 21500755)
-- **`\"CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES\"` in `VEC_INF_ENV`.** The
-  backend appends the bare variable to Apptainer's comma-split `--env` list,
-  so any multi-GPU job (`0,1,2,3`) died with `1 must be formatted as key=value`
-  (job 21500226). Pre-seeding a CSV-quoted field stops the append and survives
-  both vec-inf's split/rejoin and Apptainer's parser. Upstream: LLMHub#56.
+- **No `CUDA_VISIBLE_DEVICES` in `VEC_INF_ENV`.** vec-inf passed every
+  variable in one comma-joined `--env`, which Apptainer splits on commas, so
+  any multi-GPU job (`0,1,2,3`) died with `1 must be formatted as key=value`
+  (job 21500226). The backend now emits one `--env` flag per variable, drops
+  any `CUDA_VISIBLE_DEVICES` field from `VEC_INF_ENV` — bare, shell-quoted,
+  or a comma-separated device list — and appends
+  `CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES` itself. LLMHub#56.
 
 ## Impersonation (jobs as `svcllmhub<netid>`)
 
 `LLMHUB_EXECUTION_MODE=impersonate` (put it in `local.env`) makes the backend
 launch each job as the requesting user's service account: it creates
 `/projects/llmhub/<user>` with ACLs, resolves that account's SLURM allocation
-with `/sw/user/scripts/accounts`, and runs
+with `sacctmgr` (run as the account running the backend; releases before 1.1.0
+used `/sw/user/scripts/accounts`), and runs
 `sudo -u <user> -i -- <python> -m app.utils.vec_inf_launch_shim` under a PTY.
 Two consequences the kit encodes:
 
@@ -295,19 +387,19 @@ one stack per profile per VM):
 ```bash
 ssh -o HostKeyAlgorithms=ecdsa-sha2-nistp256 dt-svc-llmaas01.delta.ncsa.illinois.edu   # ON THE VM — deploy refuses elsewhere
 /sw/admin/scripts/impersonate svcdeltallmhub
-cd <checkout of this branch>/infra/delta      # svcdeltallmhub must be able to read it (it is in delta_bfmz)
+cd <checkout of main>/infra/delta      # svcdeltallmhub must be able to read it (it is in delta_bfmz)
 R=/projects/bfmz/svcdeltallmhub/llmhub-dev; mkdir -p $R
-printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhubdadams\n' > $R/local.env
-# no LLMHUB_VLLM_SIF override: the default /sw/llmhub/vllm.sif is world-readable,
-# so the image is used in place and no copy is made under the shared root.
-./llmhub preflight --profile staging --ref port/backend-pr-32
+printf 'LLMHUB_EXECUTION_MODE=impersonate\nLLMHUB_TEST_CLUSTER_USER=svcllmhub<netid>\n' > $R/local.env
+# no LLMHUB_VLLM_SIF override: the image is readable by everyone,
+# so it is used in place and no copy is made under the shared root.
+./llmhub preflight --profile dev --ref main
 ./llmhub deploy --apply --profile dev --ref main    # + shim env and shared config under /sw/llmhub
-./llmhub check-impersonation svcllmhubdadams --profile dev          # no GPU; must pass first
-./llmhub launch-test --profile dev                                   # job runs as svcllmhubdadams
+./llmhub check-impersonation svcllmhub<netid> --profile dev         # no GPU; must pass first
+./llmhub launch-test --profile dev                                   # job runs as svcllmhub<netid>
 ```
 
-The frontend does not yet send `clusterUsername`; `launch-test` exercises the
-API path. Impersonated job logs are under `/projects/llmhub/<user>/`.
+`launch-test` calls the backend API directly with `LLMHUB_TEST_CLUSTER_USER`.
+Impersonated job logs are under `/projects/llmhub/<user>/`.
 
 ## Secrets
 
@@ -323,17 +415,36 @@ user API key.
 
 Local accounts are the default. CILogon needs four things, in this order:
 
-1. A TLS front on the VM at the public name — `httpd` is installed, `mod_ssl`
-   is not; the cert/key for `llmhub-dev.delta.ncsa.illinois.edu` are in `/data`
-   (check the expiry). Ports below 1024 need root, so this is an admin step:
-   proxy `/` → `127.0.0.1:<frontend port>`; the backend stays internal.
+1. A TLS front on the VM at the public name. Ports below 1024 need root, so
+   this is an admin step: proxy `/` → `127.0.0.1:<frontend port>`, and keep the
+   backend internal. On `dt-svc-llmaas01`, `httpd` is installed but `mod_ssl`
+   is not. The cert/key in `/data` there are for
+   `llmhub-dev.delta.ncsa.illinois.edu` and expired 2026-09-30. A production
+   name needs its own.
 2. A CILogon OIDC client registered for the redirect URI
    `<public origin>/api/auth/oauth2/callback/cilogon`.
 3. `LLMHUB_PUBLIC_URL=https://<public name>` in `local.env` — one origin only;
    CILogon will not redirect to `localhost`, so the tunnel and CILogon are
    mutually exclusive.
 4. `CILOGON_CLIENT_ID`, `CILOGON_CLIENT_SECRET` (and the discovery URL / skin
-   if not the defaults) in `secrets.env`, then `./llmhub render`.
+   if not the defaults) in `secrets.env`, then `./llmhub deploy --apply`.
+   Use `deploy`, not `render`: `LLMHUB_PUBLIC_URL` is baked into the frontend
+   build. After that, `render` is enough for a change to secrets only.
+
+With CILogon on, `OAUTH_MAPFILE_PATH` (default `/sw/grid-security/oauth-mapfile`)
+gates sign-in: the login email must appear in the mapfile's first column.
+Plus-address test accounts (`netid+svcllmhubnetid@…`) are rewritten like model
+launch before the lookup. Set `OAUTH_MAPFILE_PATH=` in `local.env` to disable.
+
+Run `launch-test` at least once **before** step 4. It signs up a local test
+user (stored in `$LLMHUB_DEPLOY_ROOT/test-user.env`), and turning CILogon on
+turns local sign-up off. Once the user exists, later runs find it in the
+database.
+
+With CILogon on, `OAUTH_MAPFILE_PATH` (default `/sw/grid-security/oauth-mapfile`)
+gates sign-in: the login email must appear in the mapfile's first column.
+Plus-address test accounts (`netid+svcllmhubnetid@…`) are rewritten like model
+launch before the lookup. Set `OAUTH_MAPFILE_PATH=` in `local.env` to disable.
 
 ## Inference jobs and the vLLM image
 

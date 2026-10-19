@@ -12,7 +12,6 @@ import {
   Share2,
   Terminal,
 } from 'lucide-react';
-import { setPreferredChatModel } from '@/lib/chat-navigation';
 import { modelCardGradient } from '@/lib/models/utils';
 import { ModelCardIcon } from './model-card-icon';
 import { ModelSpecChips } from './model-metadata-chips';
@@ -159,17 +158,8 @@ const ActiveModelCard = memo(({
           disabled={!isDeploymentReady}
           asChild={isDeploymentReady}
         >
-          {isDeploymentReady ? (
-            <Link
-              href={`/chat?model=${model.id}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                const preferredModelId = deployment?.id
-                  ? `vllm-deployment:${deployment.id}`
-                  : 'always-on-model';
-                setPreferredChatModel(preferredModelId);
-              }}
-            >
+          {isDeploymentReady && deployment ? (
+            <Link href={`/chat?deployment=${deployment.id}`}>
               Chat
               <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
             </Link>

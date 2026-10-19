@@ -7,8 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from vec_inf.client._helper import ModelLauncher
+from vec_inf.client._slurm_script_generator import SlurmScriptGenerator
+from vec_inf.client._slurm_templates import SLURM_SCRIPT_TEMPLATE
+from vec_inf.client._slurm_vars import CONTAINER_MODULE_NAME, IMAGE_PATH
 
-from app.config.config import settings
+from app.config.config import VecInfExecutionMode, settings
 from app.utils import llm_inference
 
 
@@ -46,7 +50,7 @@ class FakeDirectClient:
 
 def test_launch_model_uses_direct_mode(monkeypatch):
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "direct")
+    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.DIRECT)
 
     client = llm_inference.LLMInferenceClient()
     result = client.launch_model("Qwen/Qwen3-8B", cluster_username=None, num_gpus=2)
@@ -58,7 +62,9 @@ def test_launch_model_uses_direct_mode(monkeypatch):
 
 def test_launch_model_requires_cluster_username_when_impersonating(monkeypatch):
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(
+        settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.IMPERSONATE
+    )
     monkeypatch.setattr(
         settings, "VEC_INF_IMPERSONATE_SCRIPT", "/tmp/impersonate-wrapper"
     )
@@ -121,12 +127,17 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(
+        settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.IMPERSONATE
+    )
     monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
     monkeypatch.setattr(
         llm_inference,
         "_ensure_impersonated_workspace_dir",
         lambda _: workspace_dir,
+    )
+    monkeypatch.setattr(
+        llm_inference, "_ensure_shared_cache_dir_access", lambda _username: None
     )
     monkeypatch.setattr(
         llm_inference,
@@ -148,18 +159,19 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     payload = captured["payload"]
 
     assert result["success"] is True
-    assert captured["command"][:4] == [
+    assert captured["command"][:5] == [
         str(wrapper_path),
+        "--no-login-shell",
         "alice",
         "--",
         llm_inference._get_impersonation_python(),
     ]
-    assert captured["command"][4:6] == ["-m", "app.utils.vec_inf_launch_shim"]
-    # The secret-bearing payload travels as a file path, never inline in argv
+    assert captured["command"][5:7] == ["-m", "app.utils.vec_inf_launch_shim"]
+    # The payload travels as a file path, never inline in argv
     # (argv is visible to any user on the host via ps/`/proc/<pid>/cmdline`).
     assert captured["command"][-1] != json.dumps(payload)
     assert captured["command"][-1].startswith(str(workspace_dir))
-    assert captured["kwargs"]["cwd"] == str(llm_inference.PROJECT_ROOT)
+    assert captured["kwargs"]["cwd"] == str(workspace_dir)
     assert captured["kwargs"]["env"]["VEC_INF_ACCOUNT"] == "bgns-delta-gpu"
     assert captured["kwargs"]["env"]["SLURM_ACCOUNT"] == "bgns-delta-gpu"
     assert captured["kwargs"]["env"]["VEC_INF_LOG_DIR"].endswith("/alice")
@@ -249,12 +261,17 @@ def test_launch_model_uses_provided_slurm_account(monkeypatch, tmp_path):
         )
 
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(
+        settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.IMPERSONATE
+    )
     monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
     monkeypatch.setattr(
         llm_inference,
         "_ensure_impersonated_workspace_dir",
         lambda _: workspace_dir,
+    )
+    monkeypatch.setattr(
+        llm_inference, "_ensure_shared_cache_dir_access", lambda _username: None
     )
     monkeypatch.setattr(
         llm_inference,
@@ -297,12 +314,17 @@ def test_launch_model_rejects_unassociated_slurm_account(monkeypatch, tmp_path):
     wrapper_path.chmod(0o755)
 
     monkeypatch.setattr(llm_inference, "LLMInferenceDirectClient", FakeDirectClient)
-    monkeypatch.setattr(settings, "VEC_INF_EXECUTION_MODE", "impersonate")
+    monkeypatch.setattr(
+        settings, "VEC_INF_EXECUTION_MODE", VecInfExecutionMode.IMPERSONATE
+    )
     monkeypatch.setattr(settings, "VEC_INF_IMPERSONATE_SCRIPT", str(wrapper_path))
     monkeypatch.setattr(
         llm_inference,
         "_ensure_impersonated_workspace_dir",
         lambda _: tmp_path / "alice",
+    )
+    monkeypatch.setattr(
+        llm_inference, "_ensure_shared_cache_dir_access", lambda _username: None
     )
     monkeypatch.setattr(
         llm_inference,
@@ -542,17 +564,15 @@ def test_gated_store_refuses_a_group_readable_root(monkeypatch, tmp_path):
         llm_inference.resolve_gated_model_store_dir("Gated-7B")
     with pytest.raises(RuntimeError, match="open to other accounts"):
         llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
-    message = llm_inference.start_gated_model_download(
-        "Other-7B", "org/other", "user-token"
-    )
-    assert "open to other accounts" in message
+    with pytest.raises(RuntimeError, match="open to other accounts"):
+        llm_inference.start_gated_model_download("Other-7B", "org/other", "user-token")
 
 
 def test_gated_store_root_is_created_owner_only(monkeypatch, tmp_path):
     store_root = tmp_path / "missing" / "store"
     monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
     monkeypatch.setattr(llm_inference.threading, "Thread", _NoopThread)
-    monkeypatch.setattr(llm_inference, "_gated_downloads_in_progress", set())
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
 
     llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
 
@@ -590,11 +610,123 @@ class _NoopThread:
         pass
 
 
-def test_shared_cache_dirs_come_from_settings_only(monkeypatch):
+def test_shared_cache_dirs_never_include_the_model_cache(monkeypatch):
     monkeypatch.setattr(settings, "MODEL_CACHE_DIR", "/cache/huggingface")
-    monkeypatch.setattr(settings, "COMPILE_CACHE_DIR", None)
+    monkeypatch.setattr(settings, "COMPILE_CACHE_DIR", "/cache/torch_inductor")
 
-    assert llm_inference._get_shared_cache_dirs() == [Path("/cache/huggingface")]
+    assert llm_inference._get_shared_cache_dirs() == [Path("/cache/torch_inductor")]
+
+
+def test_public_model_downloads_into_cache_then_is_found(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
+
+    def fake_snapshot_download(repo_id, cache_dir, token, ignore_patterns):
+        assert (repo_id, cache_dir, token) == ("org/public", tmp_path, False)
+        snapshot = Path(cache_dir) / "models--org--public" / "snapshots" / "abc"
+        snapshot.mkdir(parents=True)
+        (snapshot / "config.json").write_text("{}")
+
+    class InlineThread:
+        def __init__(self, target, args, daemon):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(llm_inference, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
+
+    assert llm_inference.start_public_model_download("org/public") is True
+    assert llm_inference.start_public_model_download("org/public") is False
+    assert llm_inference.public_model_download_state("org/public") == ("ready", None)
+
+
+def test_public_download_leaves_nothing_group_or_other_writable(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
+
+    def fake_snapshot_download(repo_id, cache_dir, token, ignore_patterns):
+        # What huggingface_hub 2.x leaves in its shared blob store.
+        prefix = Path(cache_dir) / "blobs" / "ab"
+        prefix.mkdir(parents=True)
+        for name in ("abcd.refs", "abcd.lock"):
+            (prefix / name).touch()
+            (prefix / name).chmod(0o666)
+        (prefix / "abcd").touch()
+        (prefix / "abcd").chmod(0o444)
+        (Path(cache_dir) / "models--org--public").mkdir()
+
+    class InlineThread:
+        def __init__(self, target, args, daemon):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(llm_inference, "snapshot_download", fake_snapshot_download)
+    monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
+
+    llm_inference.start_public_model_download("org/public")
+
+    prefix = tmp_path / "blobs" / "ab"
+    assert (prefix / "abcd.refs").stat().st_mode & 0o777 == 0o644
+    assert (prefix / "abcd.lock").stat().st_mode & 0o777 == 0o644
+    assert (prefix / "abcd").stat().st_mode & 0o777 == 0o444
+    assert (tmp_path / "models--org--public" / ".llmhub-complete").is_file()
+
+
+def test_failed_public_download_is_reported_then_retried(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
+    monkeypatch.setattr(llm_inference, "_download_failures", {})
+    (tmp_path / "models--org--public" / "snapshots" / "abc").mkdir(parents=True)
+
+    def failing_snapshot_download(**kwargs):
+        raise OSError("connection reset")
+
+    class InlineThread:
+        def __init__(self, target, args, daemon):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(llm_inference, "snapshot_download", failing_snapshot_download)
+    monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
+
+    # A partial snapshot without the marker is not a cached model.
+    assert llm_inference.start_public_model_download("org/public") is True
+    assert llm_inference.public_model_download_state("org/public") == (
+        "failed",
+        "connection reset",
+    )
+
+    # Launching again starts a fresh download, which clears the old failure.
+    monkeypatch.setattr(llm_inference.threading, "Thread", _NoopThread)
+    assert llm_inference.start_public_model_download("org/public") is True
+    assert llm_inference.public_model_download_state("org/public") == (
+        "downloading",
+        None,
+    )
+
+
+def test_public_download_cut_short_by_a_restart_reads_as_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(llm_inference, "_downloads_in_progress", set())
+    monkeypatch.setattr(llm_inference, "_download_failures", {})
+
+    assert llm_inference.public_model_download_state("org/public") == (
+        "missing",
+        None,
+    )
+
+
+def test_public_download_is_skipped_without_a_model_cache(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_CACHE_DIR", None)
+
+    assert llm_inference.start_public_model_download("org/public") is False
+    assert llm_inference.public_model_download_state("org/public") == ("ready", None)
 
 
 def test_gated_model_downloads_into_store_then_is_found(monkeypatch, tmp_path):
@@ -615,18 +747,19 @@ def test_gated_model_downloads_into_store_then_is_found(monkeypatch, tmp_path):
     monkeypatch.setattr(llm_inference, "snapshot_download", fake_snapshot_download)
     monkeypatch.setattr(llm_inference.threading, "Thread", InlineThread)
 
-    message = llm_inference.start_gated_model_download(
-        "Gated-7B", "org/gated", "user-token"
+    assert (
+        llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
+        is True
     )
 
-    assert "Downloading" in message
     config = tmp_path / "Gated-7B" / "config.json"
     assert config.stat().st_mode & 0o777 == 0o644
     assert not (tmp_path / "Gated-7B.partial").exists()
     assert (
         llm_inference.start_gated_model_download("Gated-7B", "org/gated", "user-token")
-        is None
+        is False
     )
+    assert llm_inference.gated_model_download_state("Gated-7B") == ("ready", None)
 
 
 @pytest.mark.skipif(
@@ -662,3 +795,358 @@ def test_launch_options_derive_parallel_sizes_from_gpu_request():
     assert options.gpus_per_node == 4
     assert options.vllm_args == ("--tensor-parallel-size=4,--pipeline-parallel-size=2")
     assert client._build_launch_options().vllm_args is None
+
+
+def test_gated_store_functions_say_when_the_store_is_not_configured(monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", None)
+
+    with pytest.raises(RuntimeError, match="MODEL_STORE_ROOT is not set"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+    with pytest.raises(RuntimeError, match="MODEL_STORE_ROOT is not set"):
+        llm_inference.resolve_gated_model_store_dir("Gated-7B")
+
+
+def _private_store(tmp_path, monkeypatch):
+    store_root = tmp_path / "store"
+    (store_root / "Gated-7B").mkdir(parents=True)
+    (store_root / "Gated-7B" / "config.json").write_text("{}")
+    store_root.chmod(0o700)
+    monkeypatch.setattr(settings, "MODEL_STORE_ROOT", str(store_root))
+    return store_root
+
+
+def _fake_getfacl(monkeypatch, *, raises=None, stdout=""):
+    real_run = subprocess.run
+
+    def _run(command, *args, **kwargs):
+        if command and command[0] == "getfacl":
+            if raises is not None:
+                raise raises
+            return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(llm_inference.subprocess, "run", _run)
+
+
+@pytest.mark.parametrize(
+    "fake",
+    [
+        {"raises": subprocess.CalledProcessError(1, ["getfacl"], stderr="denied")},
+        {"stdout": "this is not an ACL line\n"},
+    ],
+    ids=["getfacl-fails", "unparseable-acl"],
+)
+def test_store_check_failures_become_runtime_errors(monkeypatch, tmp_path, fake):
+    """Callers only catch RuntimeError; anything else would be an HTTP 500."""
+    _private_store(tmp_path, monkeypatch)
+    _fake_getfacl(monkeypatch, **fake)
+
+    with pytest.raises(RuntimeError, match="Cannot check MODEL_STORE_ROOT"):
+        llm_inference.resolve_gated_model_store_dir("Gated-7B")
+    with pytest.raises(RuntimeError, match="Cannot check MODEL_STORE_ROOT"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+    with pytest.raises(RuntimeError, match="Cannot check MODEL_STORE_ROOT"):
+        llm_inference.start_gated_model_download("Other-7B", "org/other", "user-token")
+
+
+def test_cross_filesystem_hard_link_becomes_a_runtime_error(monkeypatch, tmp_path):
+    """os.link raises EXDEV when the store and workspace are on different
+    filesystems, an easy misconfiguration."""
+    import errno
+
+    _private_store(tmp_path, monkeypatch)
+    workspace_dir = tmp_path / "alice"
+    workspace_dir.mkdir()
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", lambda _: workspace_dir
+    )
+    monkeypatch.setattr(
+        llm_inference, "_restrict_acl_to_cluster_user", lambda *a, **k: None
+    )
+
+    def _exdev(src, dst):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr(llm_inference.os, "link", _exdev)
+
+    with pytest.raises(RuntimeError, match="Failed to link 'Gated-7B'.*cross-device"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+
+
+def test_workspace_mkdir_failure_becomes_a_runtime_error(monkeypatch, tmp_path):
+    _private_store(tmp_path, monkeypatch)
+
+    def _no_permission(_):
+        raise PermissionError(13, "Permission denied", "/projects/llmhub/dev/alice")
+
+    monkeypatch.setattr(
+        llm_inference, "_ensure_impersonated_workspace_dir", _no_permission
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to link.*Permission denied"):
+        llm_inference.ensure_gated_model_weights_for_user("alice", "Gated-7B")
+
+
+def test_resolve_workspace_root_prefers_shared_then_work_then_log(monkeypatch):
+    monkeypatch.setattr(settings, "VEC_INF_SHARED_WORK_ROOT", "/shared")
+    monkeypatch.setattr(settings, "VEC_INF_WORK_DIR", "/work")
+    monkeypatch.setattr(settings, "VEC_INF_LOG_DIR", "/logs")
+    assert settings.resolve_workspace_root() == "/shared"
+
+    monkeypatch.setattr(settings, "VEC_INF_SHARED_WORK_ROOT", None)
+    assert settings.resolve_workspace_root() == "/work"
+
+    monkeypatch.setattr(settings, "VEC_INF_WORK_DIR", None)
+    assert settings.resolve_workspace_root() == "/logs"
+
+
+def test_ensure_cuda_visible_devices_env_appends_canonical_field():
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        "HF_HOME=/root/.cache/huggingface"
+    )
+
+    assert env == (
+        "HF_HOME=/root/.cache/huggingface," "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    )
+
+
+def test_ensure_cuda_visible_devices_env_without_existing_value():
+    for env_value in (None, ""):
+        env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+            env_value
+        )
+
+        assert env == "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+
+
+def test_ensure_cuda_visible_devices_env_drops_duplicate_field():
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        "HF_HOME=/root/.cache/huggingface,CUDA_VISIBLE_DEVICES=0,1"
+    )
+
+    assert env.count("CUDA_VISIBLE_DEVICES=") == 1
+    assert env.endswith("CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES")
+
+
+def test_ensure_cuda_visible_devices_env_preserves_similarly_named_field():
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        "MY_CUDA_VISIBLE_DEVICES=0"
+    )
+
+    assert env == (
+        "MY_CUDA_VISIBLE_DEVICES=0," "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    )
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,1",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,1,2",
+    ],
+)
+def test_literal_cuda_visible_devices_list_is_replaced(env_value):
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(env) == {
+        "HF_HOME": "/x",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+@pytest.mark.parametrize(
+    ("env_value", "stray_field"),
+    [
+        ("HF_HOME=/x,1,CUDA_VISIBLE_DEVICES=0,1,2", "1"),
+        ("HF_HOME=/x,3,CUDA_VISIBLE_DEVICES=0,1", "3"),
+        ("HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,1,PYTHON_PATH=/x,/y", "/y"),
+    ],
+)
+def test_stray_bare_field_outside_cuda_value_fails_loudly(
+    monkeypatch, tmp_path, env_value, stray_field
+):
+    """Bare fields outside CUDA_VISIBLE_DEVICES are typos, not GPU indices.
+
+    vec-inf reads a field without ``=`` as an env-file path, so the launch
+    fails instead of silently dropping the value.
+    """
+    monkeypatch.chdir(tmp_path)
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert stray_field in env.split(",")
+    with pytest.raises(FileNotFoundError, match=f"'{stray_field}'"):
+        ModelLauncher.__new__(ModelLauncher)._process_env_vars(env)
+
+
+def test_ensure_cuda_visible_devices_env_strips_stale_quoted_workaround():
+    stale = (
+        "HF_HOME=/root/.cache/huggingface,"
+        '\\"CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES\\"'
+    )
+
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(stale)
+
+    assert "\\" not in env
+    assert env.count("CUDA_VISIBLE_DEVICES=") == 1
+    assert env.endswith("CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES")
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,1,2,3",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=-1",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=GPU-a1b2,GPU-c3d4",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=MIG-39d1a7f3-9b1e,MIG-84e5ac57-3a91",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=MIG-GPU-abc123/1/0,MIG-GPU-def456/2/1",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,GPU-a1b2,MIG-GPU-def456/2/1",
+    ],
+)
+def test_cuda_visible_devices_device_tokens_are_consumed(env_value):
+    """Issue #56: UUID and MIG tails must not leak as bare vec-inf fields."""
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(env) == {
+        "HF_HOME": "/x",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        'HF_HOME=/x,CUDA_VISIBLE_DEVICES="0,1,2,3"',
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES='0,1'",
+        'HF_HOME=/x,CUDA_VISIBLE_DEVICES="GPU-a1b2,GPU-c3d4"',
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES='MIG-39d1a7f3-9b1e,MIG-84e5ac57-3a91'",
+        'HF_HOME=/x,\\"CUDA_VISIBLE_DEVICES=0,1,2\\"',
+    ],
+)
+def test_cuda_visible_devices_quoted_lists_are_consumed(env_value):
+    """Quoted pre-seeds leave quote-bearing tails that must be consumed."""
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(env) == {
+        "HF_HOME": "/x",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    [
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES",
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES,0,1",
+        "HF_HOME=/x,'CUDA_VISIBLE_DEVICES'",
+    ],
+)
+def test_cuda_visible_devices_bare_name_is_consumed(env_value):
+    """A bare field is an env-file path for vec-inf, so it must be dropped."""
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(env) == {
+        "HF_HOME": "/x",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+def test_cuda_continuation_fields_are_dropped_until_next_key():
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        "HF_HOME=/x,CUDA_VISIBLE_DEVICES=0,x,1,FOO=bar"
+    )
+
+    assert env == "HF_HOME=/x,FOO=bar,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+
+
+@pytest.mark.parametrize(
+    "env_value",
+    ["HF_HOME=/x,", "HF_HOME=/x,,", "HF_HOME=/x, ,CUDA_VISIBLE_DEVICES=0,1, "],
+)
+def test_ensure_cuda_visible_devices_env_drops_blank_fields(env_value):
+    env = llm_inference.LLMInferenceDirectClient._ensure_cuda_visible_devices_env(
+        env_value
+    )
+
+    assert env == "HF_HOME=/x,CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+
+
+def test_request_env_extends_deployment_env(monkeypatch):
+    monkeypatch.setattr(settings, "VEC_INF_ENV", "HF_HUB_OFFLINE=1,FOO=deploy")
+    client = llm_inference.LLMInferenceDirectClient.__new__(
+        llm_inference.LLMInferenceDirectClient
+    )
+    client.slurm_account = None
+
+    options = client._build_launch_options(env="FOO=request")
+
+    assert ModelLauncher.__new__(ModelLauncher)._process_env_vars(options.env) == {
+        "HF_HUB_OFFLINE": "1",
+        "FOO": "request",
+        "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES",
+    }
+
+
+def test_container_env_flags_are_double_quoted():
+    generator = SlurmScriptGenerator(
+        {
+            "num_nodes": 1,
+            "venv": CONTAINER_MODULE_NAME,
+            "model_name": "Qwen2.5-7B-Instruct",
+            "model_weights_parent_dir": "/projects/modelcache/public",
+            "env": {"FOO": 'a b"`\\', "CUDA_VISIBLE_DEVICES": "$CUDA_VISIBLE_DEVICES"},
+        }
+    )
+
+    assert generator.env_str == (
+        '--env "FOO=a b\\"\\`\\\\" '
+        '--env "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"'
+    )
+
+
+def test_multi_gpu_container_launch_renders_one_env_flag_per_variable(monkeypatch):
+    """Issue #56: the CUDA field must survive Apptainer's --env CSV parsing."""
+    stale_workaround = (
+        "HF_HOME=/root/.cache/huggingface,"
+        '\\"CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES\\"'
+    )
+    monkeypatch.setattr(settings, "VEC_INF_ENV", stale_workaround)
+
+    client = llm_inference.LLMInferenceDirectClient.__new__(
+        llm_inference.LLMInferenceDirectClient
+    )
+    client.slurm_account = None
+    options = client._build_launch_options(num_gpus=4, venv=CONTAINER_MODULE_NAME)
+
+    env_dict = ModelLauncher.__new__(ModelLauncher)._process_env_vars(options.env)
+    generator = SlurmScriptGenerator(
+        {
+            "num_nodes": 1,
+            "venv": CONTAINER_MODULE_NAME,
+            "model_name": "Qwen2.5-7B-Instruct",
+            "model_weights_parent_dir": "/projects/modelcache/public",
+            "env": env_dict,
+        }
+    )
+    command = SLURM_SCRIPT_TEMPLATE["container_command"].format(
+        env_str=generator.env_str, image_path=IMAGE_PATH["vllm"]
+    )
+
+    assert generator.env_str == (
+        '--env "HF_HOME=/root/.cache/huggingface" '
+        '--env "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"'
+    )
+    assert generator.env_str in command
