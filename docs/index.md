@@ -6,8 +6,9 @@ and LLMHub runs it on the cluster's GPUs; then chat with it in the browser,
 share it with your group, or call it from your own code through an
 OpenAI-compatible API.
 
-It's built for the University of Illinois community. You need a Delta account
-and a GPU allocation to launch models.
+It's being built for researchers at the University of Illinois and is in
+limited release. To use it you need a Delta account, a GPU allocation, and an
+account enabled for LLMHub.
 
 <div class="grid cards" markdown>
 

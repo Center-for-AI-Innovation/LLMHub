@@ -11,14 +11,14 @@ OpenAI-compatible API.
 
 **Who can use it?**
 
-Anyone at the University of Illinois with a Delta account and a GPU
-allocation to charge.
+You need a Delta account, a GPU allocation to charge, and an account that's
+been enabled for LLMHub. LLMHub is in limited release, so ask the LLMHub
+administrators about access.
 
 **What does it cost?**
 
-LLMHub itself is free. The GPU time your models use is charged to the Slurm
-allocation you pick at launch, for as long as the model runs. Stop models
-when you're done.
+The GPU time your models use is charged to the Slurm allocation you pick at
+launch, for as long as the model runs. Stop models when you're done.
 
 **Is my data private?**
 
@@ -59,8 +59,9 @@ token when you launch. See [Gated models](model-library.md#gated-models).
 **My model has said "Downloading weights" for a long time.**
 
 It's the first launch of that model on the cluster, so LLMHub is downloading
-it. The largest models can take tens of minutes. Once it's downloaded, every later
-launch (yours or anyone's) skips this step. Stopping the deployment while it
+it. The largest models can take tens of minutes. Once it's downloaded, later
+launches skip this step, unless nobody has used the model for a few months
+and it has been cleaned out. Stopping the deployment while it
 downloads cancels the launch.
 
 **My model has said "Pending" for a long time.**

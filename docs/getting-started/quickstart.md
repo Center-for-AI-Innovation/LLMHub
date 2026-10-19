@@ -4,8 +4,9 @@ This guide takes you from signing in to chatting with a model you launched
 yourself, and then shutting it down. It takes about ten minutes, most of it
 waiting for the cluster.
 
-You need a Delta account with a GPU allocation. LLMHub runs your model as a
-Slurm job on Delta and charges the GPU time to one of your allocations.
+You need a Delta account, a GPU allocation, and an account enabled for
+LLMHub. LLMHub runs your model as a Slurm job on Delta and charges the GPU
+time to one of your allocations.
 
 ## 1. Sign in
 
