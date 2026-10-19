@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Chat } from '@/components/chat';
 import { Loader2 } from 'lucide-react';
@@ -8,20 +8,44 @@ import { useSession } from '@/hooks/use-auth';
 import { toast } from 'sonner';
 import { useModelSelector } from '@/hooks/use-model-selector';
 import { useChatModels } from '@/hooks/use-models';
-import { consumePreferredChatModel } from '@/lib/chat-navigation';
 import { useNewChat } from '@/hooks/use-new-chat';
+import { pickChatModel } from '@/lib/chat-model-selection';
 import { getLoginPath } from '@/lib/auth/paths';
 import { navigateToLogin } from '@/lib/auth/navigation';
 
 export default function ChatPage() {
   const searchParams = useSearchParams();
   const query = searchParams?.get('query');
+  const deploymentIdFromUrl = searchParams?.get('deployment') ?? null;
   const { setSelectedModel } = useModelSelector();
   const resetVersion = useNewChat((state) => state.resetVersion);
   const [activeChatId, setActiveChatId] = useState('new');
-  const { data: chatModelOptions = [] } = useChatModels();
-  const preferredModelRef = useRef<string | null>(null);
-  const hasInitializedSelectedModelRef = useRef(false);
+  const {
+    data: chatModelOptions = [],
+    isFetchedAfterMount,
+    isSuccess,
+    isError,
+  } = useChatModels();
+  // The URL deployment (null: no ?deployment=) whose selection has been
+  // resolved. Deliberately starts `undefined` — not `null` — so that even a
+  // no-param URL starts unresolved and sends wait for the options fetch.
+  // Client navigation between query strings keeps this page mounted, so a
+  // different ?deployment= must re-enter the unresolved state; comparing
+  // against the current URL id does that during render, before ChatInner's
+  // effects could fire against a stale resolution.
+  const [resolvedDeploymentId, setResolvedDeploymentId] = useState<
+    string | null | undefined
+  >();
+  const isModelResolved = resolvedDeploymentId === deploymentIdFromUrl;
+
+  // Optimistic pre-selection; validated (or replaced) by the pick effect
+  // once the options fetch settles.
+  useEffect(() => {
+    if (deploymentIdFromUrl) {
+      setSelectedModel(`vllm-deployment:${deploymentIdFromUrl}`);
+    }
+  }, [deploymentIdFromUrl, setSelectedModel]);
+
   const currentPath = searchParams?.toString()
     ? `/chat?${searchParams.toString()}`
     : '/chat';
@@ -32,38 +56,64 @@ export default function ChatPage() {
     navigateToLogin(getLoginPath(currentPath));
   };
 
+  // Guests always chat with the hardcoded always-on model, so they never wait
+  // on the options fetch.
+  const isModelReady = isModelResolved || !session?.user;
+  // A successful fetch with zero options: no model to send to. Keep the
+  // composer disabled with a no-models message instead of a "Loading..." one.
+  const hasNoModels =
+    !isModelReady &&
+    isFetchedAfterMount &&
+    isSuccess &&
+    chatModelOptions.length === 0;
+
   useEffect(() => {
-    if (chatModelOptions.length === 0) {
+    // Select once per URL deployment, from this mount's successful fetch: a
+    // cached list may not yet include a deployment that just became ready, and
+    // later refetches must not override a model the user picked by hand.
+    if (isModelResolved || !isFetchedAfterMount || !isSuccess) {
       return;
     }
 
-    if (preferredModelRef.current === null) {
-      preferredModelRef.current = consumePreferredChatModel();
+    const { modelId, deploymentUnavailable } = pickChatModel(
+      chatModelOptions,
+      deploymentIdFromUrl,
+    );
+    if (!modelId) {
+      // No options: nothing to select or fall back to. Stay unresolved so
+      // sends stay disabled; a later refetch with options resolves here.
+      return;
     }
-    const preferredModel = preferredModelRef.current;
-    if (preferredModel) {
-      const modelExists = chatModelOptions.some(
-        (chatModel) => chatModel.id === preferredModel,
+    setSelectedModel(modelId);
+    if (deploymentUnavailable) {
+      toast.info(
+        "That deployment isn't available. It may have stopped, or you may not have access.",
       );
-      if (modelExists) {
-        setSelectedModel(preferredModel);
-        preferredModelRef.current = null;
-        hasInitializedSelectedModelRef.current = true;
-        return;
-      }
-
-      preferredModelRef.current = null;
     }
+    // Sends (including the ?query= auto-send) wait for this: the picked model
+    // is guaranteed to come from the fetched options.
+    setResolvedDeploymentId(deploymentIdFromUrl);
+  }, [
+    chatModelOptions,
+    deploymentIdFromUrl,
+    isFetchedAfterMount,
+    isModelResolved,
+    isSuccess,
+    setSelectedModel,
+  ]);
 
-    if (hasInitializedSelectedModelRef.current) {
+  // Never block sends forever: when the options fetch fails, fall back to the
+  // current selection (default, previous, or URL deployment). The mount-time
+  // initializer only covers the first URL deployment, so select a later one here.
+  useEffect(() => {
+    if (!isError || isModelResolved) {
       return;
     }
-
-    // Default to the first option, which is already prioritized by /api/chat/models:
-    // recent deployment -> always-on -> dev model.
-    setSelectedModel(chatModelOptions[0].id);
-    hasInitializedSelectedModelRef.current = true;
-  }, [chatModelOptions, setSelectedModel]);
+    if (deploymentIdFromUrl) {
+      setSelectedModel(`vllm-deployment:${deploymentIdFromUrl}`);
+    }
+    setResolvedDeploymentId(deploymentIdFromUrl);
+  }, [deploymentIdFromUrl, isError, isModelResolved, setSelectedModel]);
 
   // Check authentication
   if (isLoading) {
@@ -92,6 +142,8 @@ export default function ChatPage() {
           selectedVisibilityType="private"
           isReadonly={false}
           isGuestMode={!session?.user}
+          isModelReady={isModelReady}
+          hasNoModels={hasNoModels}
           onGuestLimitReached={handleGuestLimitReached}
           initialPrompt={query || undefined}
         />

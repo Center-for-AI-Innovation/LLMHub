@@ -7,11 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- Documentation site: a Material for MkDocs site in `docs/`, styled after the Illinois Chat docs, published to GitHub Pages (`https://center-for-ai-innovation.github.io/LLMHub/`) by `.github/workflows/docs.yml` on pushes to `main`. Covers Getting Started, Deploying Models, the public API, Self-Hosting (local, Delta/DeltaAI, Magic Castle), How It Works, Contributing, and a release blog.
-- Delta post-login authorization via `/sw/grid-security/oauth-mapfile`: when `OAUTH_MAPFILE_PATH` is set, CILogon sign-in requires an exact first-column email match; plus-address test service accounts are rewritten the same way as model launch. ([#114](https://github.com/Center-for-AI-Innovation/LLMHub/issues/114))
-- Qwen3.5-35B-A3B model config for the Magic Castle (Radiant) infrastructure, added by user request. ([#96](https://github.com/Center-for-AI-Innovation/LLMHub/pull/96))
 
-## [1.1.0]
+- Documentation site: a Material for MkDocs site in `docs/`, styled after the Illinois Chat docs, published to GitHub Pages (`https://center-for-ai-innovation.github.io/LLMHub/`) by `.github/workflows/docs.yml` on pushes to `main`. Covers Getting Started, Deploying Models, the public API, Self-Hosting (local, Delta/DeltaAI, Magic Castle), How It Works, Contributing, and a release blog.
+
+## [1.1.0] - 2026-10-19
 
 ### Added
 
@@ -24,6 +23,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Launching a model whose weights aren't downloaded yet no longer fails with "launch again in a few minutes". The deployment shows as "Downloading weights" in Active Models and its job is submitted automatically once the download finishes; a failed download fails the deployment with the reason. Stopping it while it downloads cancels the launch. If the backend restarts mid-download, public downloads resume; gated ones fail and ask for a relaunch, since the user's token is never stored.
 - The model catalog and active-deployment cards show a "Gated" chip on models whose weights are gated on Hugging Face (or whose gating status couldn't be confirmed), with a tooltip saying a personal Hugging Face token is needed to launch.
 - Qwen3.5-35B-A3B model config for the Magic Castle (Radiant) infrastructure, added by user request. ([#96](https://github.com/Center-for-AI-Innovation/LLMHub/pull/96))
+- Delta post-login authorization via `/sw/grid-security/oauth-mapfile`: when `OAUTH_MAPFILE_PATH` is set, CILogon sign-in requires an exact first-column email match; plus-address test service accounts are rewritten the same way as model launch. ([#114](https://github.com/Center-for-AI-Innovation/LLMHub/issues/114))
+- Frontend unit tests for chat model selection (`pickChatModel` and the `/chat` page), using Testing Library and jsdom. ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109))
 
 ### Changed
 
@@ -34,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Impersonated accounts get write access only on `COMPILE_CACHE_DIR`, never on `MODEL_CACHE_DIR`. ACLs granted on `MODEL_CACHE_DIR` by earlier launches are not removed automatically.
 - Delta kit: inference jobs get the Hugging Face cache read-only and run with `HF_HUB_OFFLINE=1`, so only the backend writes to it. The kit writes the cache and model store settings to the backend `.env`.
 - After login, users land on the model catalog (`/model-library`) instead of chat. Clicking the logo still returns to the landing page.
+- The model card's Chat button now links to `/chat?deployment=<deploymentId>`, and the chat page selects the model from that URL parameter. This replaces the old `?model=<modelId>` link and the session-stored preferred model. If the deployment isn't available, the page falls back to the default model and shows a notice. ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109))
+- Chat requests use the selected `vllm-deployment:<id>` model directly, instead of a separately tracked deployment ID from `useVllmDeployment`. ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109))
 
 ### Fixed
 
@@ -57,6 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Pinned `sqlalchemy<2.1`. SQLAlchemy 2.1 maps `postgresql://` to the psycopg (v3) driver, but only psycopg2 is installed, so a fresh install's backend failed at startup with `No module named 'psycopg'`.
 - Bumped `huggingface_hub` minimum to `0.25.0`, the version that actually introduced `auth_check()` and the `huggingface_hub.errors` module this feature depends on.
 - Added the missing `0003_snapshot.json` and corrected the `0003_add_model_gated` migration's out-of-order timestamp (older than `0002`'s, which Drizzle uses as a migration watermark) and its absence from `frontend/lib/db/schema.ts`.
+- Sending a message, including the `?query=` auto-send, now waits until the chat model has been resolved. Before, it could send to a default or stale model. The composer and model selector stay disabled until the model is resolved, and show a no-models message when no models are available. ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109))
 - Deployment kit (`infra/delta/`), found by the first DeltaAI deploy:
   - The backend's `DATABASE_URL` now names the `psycopg2` driver. SQLAlchemy 2.1 maps a bare `postgresql://` to psycopg 3, which the backend does not install, so a fresh install failed at import with `No module named 'psycopg'`.
   - DeltaAI single-node inference jobs run with the OFI network plugin off. vec-inf starts them outside `srun`, with no Slingshot VNI, and the plugin's `Failed to find valid default rgroup and vni` warning made vec-inf mark healthy launches FAILED. Multi-node jobs keep the plugin.
