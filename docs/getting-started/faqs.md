@@ -70,26 +70,30 @@ The job is waiting in the Slurm queue for a free GPU. How long depends on how
 busy the cluster is. The lifetime you picked doesn't start counting until the
 model is running.
 
-**My model failed while launching.**
+**My model failed.**
 
-Open **Logs** on its card. The cause is usually in the last few lines of the
-*stderr* tab, and the failure email repeats it. Common ones:
+If the launch is refused right away, the reason appears in a *Model launch
+failed* message on the library page. If it fails later, its card disappears
+from **Your Active Models** and you get an email with the reason. Common
+ones:
 
 - *CUDA out of memory* or *KV cache … is larger than the available memory*:
   the model doesn't fit on the GPUs it was given. Tell the administrators,
   since launch settings are set per model.
-- *401* or *403* from huggingface.co: a gated model, with a missing or invalid
-  token.
+- A problem with your Hugging Face token: the launch is refused right away,
+  with the reason.
 
 **Can I run several models at once?**
 
-Yes. Each one is a separate job, charged separately. You just can't run two
-copies of the same model.
+That depends on the limits of the cluster partition LLMHub launches on; some
+allow only one job per person at a time. You can never run two copies of the
+same model. See [Limits](../deploying/launching.md#limits).
 
 **Can I give my model more time?**
 
-Not while it's running. When it shuts down, launch it again with a longer
-lifetime (up to 23 h 59 min).
+Not while it's running. When it shuts down, launch it again. The longest
+lifetime you can get depends on the cluster partition; see
+[Limits](../deploying/launching.md#limits).
 
 **What happens when the lifetime runs out?**
 

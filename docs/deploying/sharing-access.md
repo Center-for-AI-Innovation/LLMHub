@@ -1,46 +1,53 @@
 # Sharing & access
 
-A model deployment is visible and usable only by its owner — unless you
-share it. Sharing lets teammates chat with **your** deployment (and call it
-via the API) without launching — and paying for — their own copy.
+A deployment is private to the person who launched it until they share it.
+Sharing lets colleagues chat with your model and call it through the API,
+without launching (and paying for) their own copy.
 
 ## Sharing a deployment
 
-1. On the deployment card, click **Share**.
-2. Enter the email address(es) of the users you want to invite.
-3. Send the invites.
+1. On **Your Active Models**, click **Share** on the card. Only the person
+   who launched the deployment sees this button.
+2. Type at least two letters of a colleague's name or email, and pick them
+   from the results. You can add several people.
+3. Click **Share access**.
 
-Users see pending invites and, once accepted, the shared deployment appears
-in their model picker alongside their own.
+You can only find people who have already signed in to LLMHub at least once.
+If a colleague isn't in the results, ask them to sign in first.
 
-## Permissions
+The dialog lists everyone with access under **People with access**, marked
+**Owner** or **Member**.
 
-There are two permission levels:
+## What the people you share with get
 
-| Permission | Can do |
-|---|---|
-| **Owner** | Everything: chat, API, logs, share, stop the deployment. |
-| **User** | Chat and call the API; view status. Cannot stop, re-share, or manage the deployment. |
+- An email saying they've been given access.
+- The deployment on their **Your Active Models** page and in their chat
+  model picker.
+- The **Chat**, **API** and **Logs** buttons. They can't stop or re-share
+  it.
 
-The launcher is always the owner. You can grant the owner permission to
-another user (e.g. a group lead).
+Each person has their own chats with the model. Sharing a deployment doesn't
+share anyone's conversations, and each person calls the API with their own
+key.
 
-## What sharing does *not* do
+## Things to know
 
-- Sharing does **not** share your chats — each user gets their own
-  conversations with the model.
-- Sharing does **not** share your API key — each user generates their own
-  (see [Authentication](../api/authentication.md)).
-- Stopping the deployment ends it for everyone sharing it.
+- **There's no way to remove someone's access yet.** Access ends when the
+  deployment does. Only share with people you're happy to give access for
+  its whole lifetime.
+- **It's your job on your allocation.** You pay for the GPU time whether one
+  person uses the model or twenty, and the people you share with pay
+  nothing.
+- **Stopping the deployment ends it for everyone.** People you've shared
+  with don't get an email when you stop it.
 
-## Access checks
+## A pattern for research groups
 
-Access is enforced server-side on every call: the chat proxy and the public
-API both verify that the requesting user owns the deployment or has been
-granted access before forwarding anything to vLLM.
+One person, usually whoever holds the allocation, launches the model and
+shares it with the group. Everyone chats with that one deployment, and the
+GPU time is charged once.
 
-## Typical pattern for a research group
+## Sharing a conversation instead
 
-The group lead (or whoever holds the GPU allocation) launches the model once
-under the group account and shares it with the group's members. Everyone
-chats with the single deployment, and the GPU cost stays on one allocation.
+To show someone a conversation rather than give them the model, make the chat
+public from the sidebar. See [Chat history](../getting-started/using-chat.md#chat-history).

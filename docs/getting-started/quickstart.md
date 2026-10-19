@@ -26,7 +26,8 @@ administrators.
 3. In the **Set Model Lifetime** dialog:
 
     - **Hours / Minutes**: how long the model should stay up once it's
-      running. The default is 30 minutes and the maximum is 23 h 59 min.
+      running. The default is 30 minutes. The cluster partition may cap how
+      long you can ask for; see [Limits](../deploying/launching.md#limits).
       Time spent waiting in the queue doesn't count.
     - **Slurm account**: the allocation the GPU time is charged to. LLMHub
       picks a GPU account for you if you have one; change it if you have
@@ -45,7 +46,7 @@ The card's status shows how far along it is:
 | **Pending** | The Slurm job is waiting in the queue for a GPU. |
 | **Launching** | The job is running and the model server is starting up. This usually takes a few minutes. |
 | **Running** | The model is ready. |
-| **Failed** | Something went wrong. The logs and the failure email say why. |
+| **Failed** | Something went wrong. The card drops off the page, and an email tells you why. |
 
 You get an email when the model is ready, and another if it fails.
 

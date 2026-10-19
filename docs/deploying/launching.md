@@ -1,60 +1,77 @@
 # Launching a model
 
-Open the **model library**, pick a model, and click **Launch**. The launch
-dialog shows the settings the cluster admin has configured as defaults; you
-adjust what you need.
+Open the **Model Library**, find a model, and click **Run Now**. The
+**Set Model Lifetime** dialog opens.
 
-## Launch settings
+## The launch dialog
 
-### Walltime
+### Lifetime
 
-How long the deployment stays up. When the walltime expires the job is shut
-down automatically and the GPUs are freed. Pick the shortest walltime that
-covers your session — you can always launch again.
+**Hours** and **Minutes** set how long the model stays up once it's running.
+The default is 30 minutes. Time spent downloading or waiting in the queue
+doesn't count.
 
-!!! tip
-    Walltime is a safety net, not a target. Stop the deployment yourself when
-    you're done; the walltime only protects shared GPUs from forgotten jobs.
-
-### Partition and resource type
-
-Which GPU partition the job runs on. Most users should keep the default. If
-your cluster exposes several GPU types, the model card indicates which types
-the model's launch config supports.
+Pick the shortest lifetime that covers what you need. You're charged for as
+long as the model runs, and you can't extend a running deployment, but you
+can always launch it again.
 
 ### Slurm account
 
-The allocation the GPU-hours are charged to. LLMHub lists the accounts you
-belong to — pick the one for the right project. Users with a single account
-don't see this choice.
+The allocation the GPU time is charged to. The list shows the Slurm accounts
+your Delta user belongs to, and LLMHub preselects a GPU account if you have
+one. If you work on several projects, check that the right one is selected.
 
-### GPUs and nodes
+If the dialog says *"No Slurm accounts are associated with your cluster
+user"*, you have no allocation LLMHub can charge.
 
-Larger models need more GPUs. Each model's catalog entry carries tuned
-parallelism settings (see
-[GPU resources & parallelism](gpu-resources.md)); the dialog reflects them.
-Only change these if you know the model's requirements.
+### Hugging Face access token
 
-### Gated models
+Shown only for models with a **Gated** chip. Paste a token from an account
+that has accepted the model's license. It's used for this launch only and
+never stored. See [Gated models](../getting-started/model-library.md#gated-models).
 
-If the model is gated on Hugging Face, you'll also be asked for a Hugging
-Face access token. See [Gated models](../getting-started/model-library.md#gated-models)
-for what happens with it.
+### What you can't change
+
+The partition, GPU type, number of GPUs, and context length are set per
+model in the catalog, using settings tested on the cluster. See
+[GPUs & cost](gpu-resources.md).
 
 ## After you click Launch
 
-The card appears under **Active models** and moves through the deployment
-statuses:
+If LLMHub can't start the launch, for example because of a bad Hugging Face
+token or a lifetime longer than the partition allows, you stay on the library
+page and a **Model launch failed** message explains why.
 
-- `downloading` — fetching weights into the shared cache (first launch only).
-  Stopping the deployment here cancels the download and the launch.
-- `pending`, `launching` — queued on, or starting on, the cluster.
-- `ready`, `running` — you can chat and call the API.
-- `failed` — check the logs from the card; common causes are an expired
-  token on a gated model, an account problem, or the cluster being full.
-- `shutdown`, `completed` — the job ended (walltime or manual stop).
+Otherwise LLMHub takes you to **Your Active Models** with the new
+deployment's logs open. Its status moves through **Downloading weights**
+(first launch on the cluster only), **Pending**, **Launching** and
+**Running**. You get an email when it's running, and the **Chat** and **API**
+buttons become available.
+
+## Limits
+
+These come from the cluster, not from LLMHub, and can differ between
+clusters and partitions:
+
+- **Lifetime.** The partition sets a maximum run time. A request for more is
+  refused at launch.
+- **How many models at once.** Some partitions allow only one job per person,
+  running or queued. On those, a second launch is refused, or waits, until
+  the first deployment ends.
+- **One copy per model.** Separately, LLMHub never runs two copies of the same
+  model for the same person. Launching a model you already have running
+  fails with *"This model is already running for this user."*
+
+The LLMHub administrators can tell you the current limits for your cluster.
 
 ## Stopping a deployment
 
-Click **Stop** on the active model card. This cancels the Slurm job and
-frees the GPUs immediately. Your chats and artifacts are kept.
+On **Your Active Models**, click **Stop** on the card. The model shuts down
+right away, without asking for confirmation, and the GPUs are released. Only
+the person who launched it can stop it, and stopping it ends it for anyone
+it's shared with.
+
+Stopping doesn't send an email. Your chats are kept.
+
+If you don't stop it, it shuts down within a few minutes of its lifetime
+running out, and you get an email.

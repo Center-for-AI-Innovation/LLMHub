@@ -1,46 +1,38 @@
 # Requesting new models
 
-The model library is curated per cluster: every entry carries a launch
-configuration — GPU footprint, tensor/pipeline parallelism, context length,
-walltime defaults — tuned to that cluster's hardware. That is why you can't
-launch an arbitrary Hugging Face repo yourself, and why requesting a model
-is the path for something new.
+The catalog is curated. Every model in it has launch settings (partition,
+GPUs, context length) that the administrators have checked on the cluster.
+That's why you can't launch an arbitrary model from Hugging Face yourself.
 
-## What to include in a request
+!!! note "Not ready yet"
+
+    The **Request New Model** button in the Model Library doesn't work yet;
+    it only says *Coming soon*. Until it does, use one of the routes below.
+
+## How to ask
 
 Open an issue on
-[GitHub](https://github.com/Center-for-AI-Innovation/LLMHub/issues) (or
-contact your cluster's administrators) with:
+[GitHub](https://github.com/Center-for-AI-Innovation/LLMHub/issues), or
+contact the LLMHub administrators, with:
 
-1. **The Hugging Face repo id** — e.g. `Qwen/Qwen3-14B`.
-2. **Why you need it** — the task, or what's missing in the current catalog.
-3. **Expected usage** — occasional chat, a course with many students, or an
-   always-running service. This influences the GPU size and walltime
-   defaults.
-4. **Your cluster** — Delta, DeltaAI, Magic Castle (Radiant), etc. Catalogs
-   differ per infrastructure.
+1. **The Hugging Face repository**, for example `Qwen/Qwen3-14B`.
+2. **What you need it for**, and why the models already in the catalog don't
+   do the job.
+3. **How you'll use it:** occasional chat, a class, or something that runs
+   for long stretches. This affects what settings make sense.
 
-## What happens next
+## What the administrators look at
 
-An administrator adds a catalog entry (the repo's
-`backend/config/models.yaml`, or the infrastructure-specific
-`backend/config/infrastructures/<cluster>/models.yaml`) with tuned launch
-settings. Once merged and deployed, the model appears in your cluster's
-library.
+- **Whether it fits.** The model has to fit on the cluster's GPUs, and very
+  large models need several nodes.
+- **Whether vLLM can run it.** LLMHub serves models with vLLM, so the model's
+  architecture must be one vLLM supports, in the version the cluster uses.
+- **The license.** Gated models are fine, but each user then needs to accept
+  the license on Hugging Face and supply their own token. See
+  [Gated models](../getting-started/model-library.md#gated-models).
 
-Things the admin will consider:
+Smaller or newer versions of a family already in the catalog are usually the
+quickest to add.
 
-- **License & gating** — permissively licensed models are simplest; gated
-  models work too, but each user must accept the license on Hugging Face
-  and provide their own token (see
-  [Gated models](../getting-started/model-library.md#gated-models)).
-- **Weights size vs. cluster GPUs** — the model must fit the cluster's GPU
-  flavors with some parallelism setting.
-- **Vision vs. text** — vision-language models need a vLLM build with the
-  right support in the cluster's Apptainer image.
-
-## Fast paths
-
-- **A model that exists on another LLMHub cluster** — say so; porting an
-  existing entry to another infrastructure's config is usually quick.
-- **A smaller variant of a listed model** — often just a config entry.
+Asking for a model doesn't guarantee it will be added, or say when. That's
+up to the administrators.

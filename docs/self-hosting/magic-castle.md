@@ -29,7 +29,7 @@ This page orients you; the guide is the manual.
   partition, account, GPU defaults, image paths, and its own model catalog.
 - **One GPU per node**: because each compute node has a single A100,
   larger models run with **pipeline parallelism = 2** across both nodes
-  (see [GPU resources & parallelism](../deploying/gpu-resources.md)).
+  (see [GPUs & cost](../deploying/gpu-resources.md)).
 - **Apptainer from CVMFS**: the module system and vLLM image come from
   Compute Canada's CVMFS; the image is built on the cluster by
   `devops/apptainers/build_vllm_sif.sbatch`.

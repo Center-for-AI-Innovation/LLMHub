@@ -102,7 +102,7 @@ nav:
   - Deploying Models:
       - deploying/index.md
       - Launching a model: deploying/launching.md
-      - GPU resources & parallelism: deploying/gpu-resources.md
+      - GPUs & cost: deploying/gpu-resources.md
       - Logs & monitoring: deploying/logs-monitoring.md
       - Sharing & access: deploying/sharing-access.md
       - Requesting new models: deploying/requesting-models.md

@@ -1,60 +1,69 @@
-# GPU resources & parallelism
+# GPUs & cost
 
-Models are served by [vLLM](https://docs.vllm.ai), and vLLM can split a
-model across multiple GPUs in two ways. LLMHub's model catalog carries the
-right setting for each model, so most users never need to think about this —
-but it helps to understand what the launch dialog is asking when it is.
+Every model in the catalog comes with a fixed launch setup: which GPU
+partition it runs on, how many GPUs it uses, and the longest context it
+accepts. The administrators choose these settings so the model fits and
+starts reliably, and you can't change them in the launch dialog.
 
-## How models are split across GPUs
+## How many GPUs a model uses
 
-**Tensor parallelism (TP)** splits each layer of the model across GPUs in
-the same node. All GPUs work on every token. This is what "GPUs per node"
-means in a launch config, and it is what the `--tensor-parallel-size` flag
-configures on the vLLM server.
+The model card shows it two ways:
 
-**Pipeline parallelism (PP)** splits the model's layers into stages, one
-stage per node. Tokens flow through the stages like an assembly line. This
-is what "nodes" means, configured as `--pipeline-parallel-size`.
+- the **GPUs** chip, with the number of GPUs per node, and
+- the **Small** (1 GPU), **Medium** (2) or **Large** (more than 2) chip.
 
-```text
-Tensor parallel (2 GPUs, 1 node)      Pipeline parallel (2 nodes, 1 GPU each)
+The biggest models span several nodes and use that many GPUs on *each* one.
+Llama 3.2 90B Vision and Mixtral 8x22B run on 2 nodes, and Llama 3.1 405B on
+8, so their **GPUs** chip of 4 means 8 and 32 GPUs in all.
 
- ┌───────── node ─────────┐            ┌── node 1 ──┐   ┌── node 2 ──┐
- │  GPU 0   │   GPU 1     │            │  layers    │ → │  layers    │
- │  ┌────┬──┼──┬────┐     │            │  1 … n/2   │   │  n/2 … n   │
- │  │  each token  │      │            │   GPU 0    │   │   GPU 0    │
- │  └────┴──┼──┴────┘     │            └────────────┘   └────────────┘
- └────────────────────────┘
-```
+In the current catalog, sizes map to GPUs roughly like this:
 
-A model's catalog entry pins `gpus_per_node` (tensor parallelism) and
-`num_nodes` (pipeline parallelism). An explicit GPU/node request sets
-`--tensor-parallel-size` / `--pipeline-parallel-size` on the vLLM server,
-which multi-GPU launches require.
+| Model size | GPUs |
+|---|---|
+| Up to about 14B parameters | 1 |
+| About 26B–34B | 2 |
+| About 38B–72B | 4 |
+| 90B and larger | 4 per node, on 2 or more nodes |
 
-## Rules of thumb
+There are exceptions both ways: mixture-of-experts models like Mixtral 8x7B
+need more GPUs than their name suggests, and gpt-oss-120b needs only 2.
 
-- **A model's config is curated** — the GPUs and parallelism it lists are
-  what fits the model's weights and expected traffic on that cluster's
-  hardware. Deviate only on the advice of the cluster admin.
-- **Bigger models need more GPUs.** Roughly: 7–8B parameters fit on one
-  modern 80 GB GPU; 30–70B models want 2–4 GPUs; larger or long-context
-  models want more.
-- **Tensor parallelism within a node is faster than pipeline parallelism
-  across nodes** for the same GPU count — use TP when the node has enough
-  GPUs, PP when the model must span nodes.
-- **GPU type matters.** Configs are per-infrastructure: the same model may
-  have a different footprint on an A100 cluster than on an L40S cluster.
+A long context window also takes GPU memory, so the same model can need more
+GPUs when it's set up for long inputs.
 
-## Multi-node requirements
+## What you're charged
 
-Pipeline-parallel launches span multiple nodes, so the cluster needs a fast
-interconnect (InfiniBand or similar) and the vLLM container image must
-support multi-node launch. On NCSA's Magic Castle (Radiant) deployment, for
-example, larger models run with pipeline parallelism = 2 across the two
-single-GPU nodes.
+GPU time is charged to the Slurm account you pick in the launch dialog, at
+the cluster's normal rates. You're charged for every GPU in the job, from the
+moment it starts running on the cluster until it ends:
 
-## Charging
+> 2 GPUs × 3 hours = 6 GPU-hours
+>
+> 2 nodes × 4 GPUs × 1 hour = 8 GPU-hours
 
-GPU-hours are charged to the Slurm account you pick at launch, for the whole
-job: a 2-GPU deployment running for 2 hours costs 4 GPU-hours.
+That includes the few minutes the model takes to load before it's ready.
+Downloading weights and waiting in the queue cost nothing.
+
+To keep costs down:
+
+- Pick the smallest model that does the job.
+- Ask for a short lifetime, and click **Stop** when you're done.
+- Share one deployment with your group instead of everyone launching their
+  own. See [Sharing & access](sharing-access.md).
+
+## How a model is split across GPUs
+
+*You don't need this to use LLMHub. It's here in case you're curious.*
+
+Models too big for one GPU are split up by
+[vLLM](https://docs.vllm.ai), the server LLMHub runs them with:
+
+- **Tensor parallelism** splits every layer across the GPUs of one node, and
+  they all work on each token together. This is how most multi-GPU models in
+  the catalog run.
+- **Pipeline parallelism** gives each node a slice of the layers, and tokens
+  pass from one node to the next. LLMHub uses it only for models too big for
+  a single node.
+
+Splitting within one node is faster, so a model only spans nodes when it has
+to.

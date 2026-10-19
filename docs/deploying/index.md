@@ -1,8 +1,8 @@
 # Deploying models
 
-This section covers the lifecycle of a model deployment: launching it,
-understanding the GPU resources it uses, monitoring it, sharing it, and
-getting new models added to the catalog.
+A *deployment* is one copy of a model running on the cluster for you. This
+section covers its whole life: launching it, what it costs, watching it,
+sharing it, and asking for models the catalog doesn't have yet.
 
 ```mermaid
 sequenceDiagram
@@ -11,23 +11,36 @@ sequenceDiagram
     participant Slurm
     participant vLLM
 
-    You->>LLMHub: Launch model (walltime, GPUs, account)
-    LLMHub->>Slurm: Submit job
-    Slurm->>vLLM: Start container on GPU node(s)
+    You->>LLMHub: Run Now (lifetime, Slurm account)
+    LLMHub->>LLMHub: Check access, download weights if needed
+    LLMHub->>Slurm: Submit job, charged to your account
+    Slurm->>vLLM: Start the model server on GPU node(s)
     vLLM-->>LLMHub: Ready
-    You->>LLMHub: Chat / API calls
-    Note over Slurm,vLLM: Walltime expires or you stop it
-    Slurm-->>vLLM: Job ends, GPUs freed
+    LLMHub-->>You: Email: model is ready
+    You->>LLMHub: Chat and API calls
+    Note over Slurm,vLLM: You stop it, or its lifetime runs out
+    Slurm-->>vLLM: Job ends, GPUs released
 ```
 
-## The deployment lifecycle
+## The life of a deployment
 
-| Phase | What happens |
-|---|---|
-| Launch | LLMHub validates the request, resolves your Slurm account, and submits the job. |
-| Download (first time) | Model weights are fetched into the cluster's shared cache. Cached models skip this. |
-| Queue & start | Slurm schedules the job; the vLLM container starts on the GPU node(s). |
-| Ready / running | The OpenAI-compatible endpoint is up; chat and API calls work. |
-| Shutdown | You stop the deployment, or its walltime expires. GPUs are freed. |
+| Stage | What happens | Status shown |
+|---|---|---|
+| Launch | LLMHub checks your Hugging Face access for gated models, and refuses the launch right away if something is wrong. | — |
+| Download | The first launch of a model on the cluster downloads its weights. Models already on the cluster skip this. | **Downloading weights** |
+| Queue | The Slurm job waits for free GPUs. | **Pending** |
+| Start | The model server loads the weights onto the GPUs. Usually a few minutes. | **Launching** |
+| Ready | Chat and the API work. You get an email, and the lifetime starts counting. | **Running** |
+| End | You click **Stop**, or the lifetime runs out (you get an email), or the job fails (you get an email with the reason). The GPUs are released. | Card disappears |
 
-Continue with [Launching a model](launching.md).
+## In this section
+
+- [Launching a model](launching.md): the launch dialog, limits, and stopping
+- [GPUs & cost](gpu-resources.md): how many GPUs a model uses, and what you're
+  charged
+- [Logs & monitoring](logs-monitoring.md): the Active Models page, logs and
+  email notifications
+- [Sharing & access](sharing-access.md): letting colleagues use your
+  deployment
+- [Requesting new models](requesting-models.md): getting a model added to
+  the catalog
