@@ -6,12 +6,12 @@ Active Models**.
 
 ## Choosing a model
 
-The model picker sits next to the send button. It lists:
+The model picker sits next to the send button. It lists the running
+deployments you can use, your own and any shared with you, most recently
+updated first.
 
-1. **Running deployments you can use**: your own and any shared with you,
-   most recently updated first.
-2. **The always-on model**: a model that's always available, so you can chat
-   without launching anything. It's listed last.
+Some LLMHub sites also run an **always-on model**, listed last, that you can
+chat with without launching anything. LLMHub on Delta doesn't have one yet.
 
 Only models that are running appear. If a deployment is still downloading,
 queued or starting, launch it and wait for **Running** first.
@@ -88,9 +88,9 @@ share the deployment instead. See
 
 ## Guest chat
 
-Without signing in, you can send 5 messages to the always-on model. Guest
-chats aren't saved and can't use attachments. Sign in to launch models and
-keep your history.
+On sites with an always-on model, visitors who haven't signed in can send it
+5 messages. Guest chats aren't saved and can't use attachments. LLMHub on
+Delta has no always-on model, so there you need to sign in to chat.
 
 ## Not ready yet
 

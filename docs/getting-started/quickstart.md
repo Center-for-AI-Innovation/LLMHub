@@ -17,11 +17,6 @@ If sign-in fails with *"Your identity is not authorized to use LLM Hub on
 this cluster"*, your account isn't enabled for LLMHub yet. Contact the LLMHub
 administrators.
 
-!!! tip "Just want to try it?"
-
-    You can chat without signing in. Guests get 5 messages with the always-on
-    model, and their chats aren't saved. Sign in to launch your own models.
-
 ## 2. Launch a model
 
 1. In the **Model Library**, find a model. For a first try, pick a small one:

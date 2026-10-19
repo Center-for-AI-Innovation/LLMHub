@@ -12,8 +12,7 @@ OpenAI-compatible API.
 **Who can use it?**
 
 Anyone at the University of Illinois with a Delta account and a GPU
-allocation to charge. Without signing in you can try a few messages with the
-always-on model.
+allocation to charge.
 
 **What does it cost?**
 
@@ -100,8 +99,8 @@ are kept.
 
 **The model picker says "No models available".**
 
-Nothing is running that you can use, and the always-on model isn't available.
-Launch a model from the [Model library](model-library.md).
+Nothing is running that you can use. Launch a model from the
+[Model library](model-library.md), and wait until its card says **Running**.
 
 **I get "Deployment is not ready" or "Selected model is unavailable".**
 
