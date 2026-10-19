@@ -85,7 +85,7 @@ isort .
 - [SQLAlchemy](https://www.sqlalchemy.org/)
 - [Pydantic](https://pydantic-docs.helpmanual.io/)
 - [llm-inference](https://github.com/VectorInstitute/vector-inference)
-- [uv](https://github.com/astral-sh/uv) - Fast Python package installer and resolver 
+- [uv](https://github.com/astral-sh/uv) - Fast Python package installer and resolver
 
 ## GPU fit estimator & launch gate
 

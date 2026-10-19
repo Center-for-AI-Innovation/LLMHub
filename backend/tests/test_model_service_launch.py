@@ -928,6 +928,10 @@ def test_fit_warning_explains_a_later_job_failure():
     assert message.startswith("Slurm job failed. This may be why:")
     assert message.endswith("Config exceeds A40 VRAM (over by 3.0 GiB)")
 
+    # vLLM's own errors end in a period; don't double it.
+    message = _job_failure_message(warned, "See the docs for more details.")
+    assert message.startswith("See the docs for more details. This may be why:")
+
     for allocation in ({}, None, {"fitWarning": None}):
         quiet = SimpleNamespace(resourceAllocation=allocation)
         assert _job_failure_message(quiet, "Slurm job failed") == "Slurm job failed"

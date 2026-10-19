@@ -55,7 +55,7 @@ def _job_failure_message(deployment: ModelDeployment, message: str) -> str:
     if not warning:
         return message
     return (
-        f"{message}. This may be why: the memory check at launch estimated "
+        f"{message.rstrip('.')}. This may be why: the memory check at launch estimated "
         f"the config would not fit. {warning}"
     )
 
