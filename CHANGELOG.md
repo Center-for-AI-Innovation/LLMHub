@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- GPU fit estimation, by Ajay Kumdam (from #46): a vLLM memory model calibrated on Delta, a launch-time memory check that warns, without blocking, when a config probably won't fit (the warning names the shortfall and a context length that would fit, and is added to the error if the job then fails), and `POST /api/fit-estimate` and `POST /api/validate-config`. Gated repos are sized only with the requesting user's own token, and configs the model cannot size launch unvalidated with a logged warning. Each cluster has its own hardware table next to its vec-inf config, keyed by partition and, where a partition mixes GPU types, by GRES type; Delta's and DeltaAI's are calibrated against new vLLM 0.19.1 and 0.28 startup probes on their current drivers (the July vLLM 0.11 calibration no longer matched after Delta's 2026-08-12 driver update), with measured VRAM; Campus Cluster's is a best guess from public docs. `backend/scripts/probe_vllm_overhead.py` re-measures a cluster after an image or driver change. The Delta kit copies the right table into the config it renders. ([#106](https://github.com/Center-for-AI-Innovation/LLMHub/issues/106))
+
 ## [1.1.0] - 2026-10-19
 
 ### Added

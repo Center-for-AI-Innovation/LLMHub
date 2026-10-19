@@ -12,6 +12,9 @@ class ModelSpecs(BaseModel):
     gpus: int
     nodes: int
     contextLength: int
+    # Resolved effective --max-num-seqs (catalog value or the vLLM default);
+    # written by the model sync and read by the launch dialog.
+    maxNumSeqs: int | None = None
     parallelism: bool
 
 

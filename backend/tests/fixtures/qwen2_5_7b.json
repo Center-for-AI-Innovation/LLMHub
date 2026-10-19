@@ -1,0 +1,23 @@
+{
+  "model_id": "Qwen/Qwen2.5-7B-Instruct",
+  "_note": "Cached HF config.json (fetched 2026-07-04) plus safetensors total_size from model.safetensors.index.json (metadata only). Used for offline calibration regression.",
+  "weights_bytes": 15231233024,
+  "weights_source": "safetensors_index",
+  "vllm_weights_gib": 14.25,
+  "estimator_calibrated_weights_gib": 14.32,
+  "per_token_kv_bytes": 57344,
+  "config": {
+    "architectures": ["Qwen2ForCausalLM"],
+    "hidden_act": "silu",
+    "hidden_size": 3584,
+    "intermediate_size": 18944,
+    "max_position_embeddings": 32768,
+    "model_type": "qwen2",
+    "num_attention_heads": 28,
+    "num_hidden_layers": 28,
+    "num_key_value_heads": 4,
+    "tie_word_embeddings": false,
+    "torch_dtype": "bfloat16",
+    "vocab_size": 152064
+  }
+}

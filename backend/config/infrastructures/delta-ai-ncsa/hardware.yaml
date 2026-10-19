@@ -1,0 +1,70 @@
+# NCSA DeltaAI GPU partitions for the fit estimator (same schema as
+# infrastructures/delta/hardware.yaml; see its header for field meanings).
+#
+# Partitions, GRES and walltimes: `sinfo -h -o "%R|%G|%l"` on dtai-svc-llmaas01,
+# 2026-10-02. Every partition has one GPU type (gpu:nvidia_gh200_120gb:4).
+#
+# vram_gib_per_gpu: 95.08 GiB measured -- vLLM's "Free memory on device
+#   (93.57/95.08 GiB)" in job 3279399 (vLLM 0.28, 2026-09-30). Despite the GRES
+#   name, these are the 96 GB GH200s.
+# Overhead (see the Delta table for the formula): CALIBRATED for the aarch64
+#   vLLM 0.28 image on driver 595.71.05, 2026-10-02:
+#   tests/fixtures/vllm_probes/deltaai-v0.28.0.json. 0.28 behaves differently
+#   from 0.19.1: ~2.35 GiB base, only ~0.00065 GiB/seq, no small-batch bump,
+#   and less per GPU as TP grows, so no floor and no TP buffer. Values sit
+#   0.25 GiB above every probe. vLLM 0.28 defaults to 0.92 utilization.
+# su_per_gpu_hour: omitted until DeltaAI's billing rates are confirmed; the
+#   survey then shows no cost.
+
+partitions:
+  - partition: ghx4
+    gpus_per_node: 4
+    gpu_type: NVIDIA GH200
+    resource_type: nvidia_gh200_120gb
+    compute_capability: 9.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 95.08
+    framework_overhead_gib: 2.6
+    overhead_per_seq_gib: 0.00065
+    tp_communication_buffer_gib: 0.0
+    gpu_memory_utilization: 0.92
+    max_walltime: "2-00:00:00"
+
+  - partition: ghx4-interactive
+    gpus_per_node: 4
+    gpu_type: NVIDIA GH200
+    resource_type: nvidia_gh200_120gb
+    compute_capability: 9.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 95.08
+    framework_overhead_gib: 2.6
+    overhead_per_seq_gib: 0.00065
+    tp_communication_buffer_gib: 0.0
+    gpu_memory_utilization: 0.92
+    max_walltime: "2:00:00"
+
+  - partition: full
+    gpus_per_node: 4
+    gpu_type: NVIDIA GH200
+    resource_type: nvidia_gh200_120gb
+    compute_capability: 9.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 95.08
+    framework_overhead_gib: 2.6
+    overhead_per_seq_gib: 0.00065
+    tp_communication_buffer_gib: 0.0
+    gpu_memory_utilization: 0.92
+    max_walltime: "1-00:00:00"
+
+  - partition: test
+    gpus_per_node: 4
+    gpu_type: NVIDIA GH200
+    resource_type: nvidia_gh200_120gb
+    compute_capability: 9.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 95.08
+    framework_overhead_gib: 2.6
+    overhead_per_seq_gib: 0.00065
+    tp_communication_buffer_gib: 0.0
+    gpu_memory_utilization: 0.92
+    max_walltime: "2:00:00"
