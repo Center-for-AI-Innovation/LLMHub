@@ -56,7 +56,6 @@ the territory.
 | `CILOGON_CLIENT_ID` / `CILOGON_CLIENT_SECRET` | CILogon OIDC app credentials. |
 | `CILOGON_DISCOVERY_URL` | OIDC discovery endpoint. |
 | `CILOGON_SKIN` | CILogon sign-in skin. |
-| `OAUTH_MAPFILE_PATH` | Optional post-login authorization: only emails listed in the mapfile's first column may sign in. Unset = local email/password auth. |
 
 ### Database & backend
 

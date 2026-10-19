@@ -1,50 +1,78 @@
 # Model library
 
-The model library is the catalog of models available on your cluster. After
-signing in you land here; it is also reachable from the sidebar.
+The **Model Library** is the catalog of models you can launch. It's where you
+land after signing in, and it's in the sidebar.
 
 ## Reading a model card
 
-Each card shows:
+Each card shows the model's name, a short description of its family, and a
+row of chips:
 
-- **Model name and family** — e.g. Qwen3, Llama, Mistral, DeepSeek-R1
-  distills.
-- **Type** — text-only (`LLM`) or vision-language (`VLM`) model.
-- **Size / variant** — parameter count and variant, e.g. `14B`.
-- **Specs** — GPU footprint, context length, and other launch defaults.
-- **Gated badge** — the model's weights are gated on Hugging Face; see below.
+| Chip | Meaning |
+|---|---|
+| **Gated** (red, with a lock) | The model's publisher requires you to accept a license on Hugging Face before you can use it. See [Gated models](#gated-models). |
+| **Small / Medium / Large** | How many GPUs the model needs: Small is 1, Medium is 2, Large is more. Bigger models take longer to start and use more of your allocation. |
+| **GPUs** | The number of GPUs the launch uses. |
+| **Context** | The longest input plus output the model accepts, for example *32K tokens*. |
 
-## Launching
+Click **Run Now** to launch the model. See the
+[Quickstart](quickstart.md#2-launch-a-model) for what the launch dialog asks.
 
-Click **Launch** on a card to open the launch dialog. Head to
-[Launching a model](../deploying/launching.md) for the details of each
-setting.
+!!! note "Where did a model go?"
+
+    A model you already have running (or downloading, queued or starting)
+    disappears from the library until you stop it. You can run only one copy
+    of each model at a time; find it in **Your Active Models**.
+
+## Searching
+
+The search box matches words in a model's name, family, variant and
+description, ignoring case. Model names are shown with spaces instead of
+hyphens, so search for words rather than the exact repository name:
+
+- `llama 3.2 1b` finds *Llama 3.2 1B Instruct*.
+- `Llama-3.2-1B-Instruct` finds nothing.
+
+Models are listed by family, then by variant. There are no other sort or
+filter options yet.
+
+## Base and instruct models
+
+Many models come in two forms:
+
+- **Instruct** (or *Chat*, *-it*) models are tuned to follow instructions
+  and hold a conversation. Use these for chat.
+- **Base** models, without that suffix, only continue text. Some have no
+  chat template at all, so chatting with them fails or gives odd output.
+  Use them from the [API](../api/index.md) for completions-style work, or pick
+  the instruct version.
 
 ## Gated models
 
-Some models (for example certain Qwen and Llama releases) require you to
-accept a license on Hugging Face before the weights can be downloaded. Cards
-for these models show a **Gated** badge.
+Some publishers, Meta's Llama models for example, require you to accept
+their license on Hugging Face before you can download the weights. These
+models have a **Gated** chip, and the launch dialog asks for your Hugging Face
+access token.
 
-To launch a gated model:
+To launch one:
 
-1. On [huggingface.co](https://huggingface.co), sign in and accept the
-   model's license terms.
-2. In LLMHub, launch the model and provide your Hugging Face access token
-   when prompted.
+1. Sign in to [huggingface.co](https://huggingface.co), open the model's
+   page, and accept its license. Some publishers review requests by hand, so
+   approval can take a while.
+2. Create an access token under **Settings → Access Tokens** on
+   huggingface.co. A **Read** token is enough.
+3. In LLMHub, click **Run Now** and paste the token (it starts with `hf_`)
+   into the **Hugging Face access token** field.
 
-Your token is used only to verify your access to that model and to download
-the weights. It is never stored, written into job files, or visible to other
-users.
+LLMHub uses the token only to check that you have access and to download
+the weights. It isn't saved anywhere, isn't written into the cluster job, and
+other users can't see it. You'll be asked for it again on every launch.
 
-## Requesting a model that isn't listed
+If the launch fails with a message about Hugging Face access, your token is
+wrong or expired, or your license request hasn't been approved yet.
 
-The catalog is curated per cluster — models are added with tuned launch
-configs (GPUs, parallelism, context length). If you need something that
-isn't there, see [Requesting new models](../deploying/requesting-models.md).
+## Asking for a model that isn't listed
 
-## Model cards vs. active models
-
-The library shows everything *available to launch*. Once launched, your
-models move to **Active models**, where you can chat, check logs, share, and
-stop them. A model stays in the library even while you have it running.
+The catalog is curated: each model comes with launch settings tested on the
+cluster. The **Request New Model** button isn't working yet. Until it is, see
+[Requesting new models](../deploying/requesting-models.md).

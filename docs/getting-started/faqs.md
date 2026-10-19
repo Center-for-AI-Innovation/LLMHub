@@ -4,93 +4,144 @@
 
 **What is LLMHub?**
 
-A web platform for running open source language models on supercomputing
-clusters. You pick a model, LLMHub launches it as a cluster job running
-vLLM, and you chat with it in the browser or call it from your code through
-an OpenAI-compatible API.
+A web app for running open language models on NCSA's Delta supercomputer.
+You pick a model, LLMHub runs it as a GPU job on the cluster, and you chat
+with it in the browser or call it from your own code through an
+OpenAI-compatible API.
 
 **Who can use it?**
 
-The University of Illinois community, using institutional sign-in via
-CILogon. Availability of specific clusters and models depends on your
-allocations.
+Anyone at the University of Illinois with a Delta account and a GPU
+allocation to charge. Without signing in you can try a few messages with the
+always-on model.
+
+**What does it cost?**
+
+LLMHub itself is free. The GPU time your models use is charged to the Slurm
+allocation you pick at launch, for as long as the model runs. Stop models
+when you're done.
 
 **Is my data private?**
 
-Chats are private to your account by default. Model deployments run under
-your cluster account. Don't paste sensitive data (credentials, personal
-information, protected research data) into any shared or always-on model.
+Your chats are private unless you make one public, and public chats can be
+read by anyone with the link. The models run on NCSA hardware, and nothing is
+sent to outside AI providers. Follow your project's rules on sensitive data
+all the same: don't paste in passwords, protected health information or
+anything else you're not allowed to process on Delta.
 
-## Launching and deployments
+## Signing in
 
-**Why is my deployment stuck in "Downloading weights"?**
+**"Your identity is not authorized to use LLM Hub on this cluster."**
 
-The first launch of a model downloads its weights to the cluster's shared
-cache. Large models can take several minutes. Subsequent launches of the
-same model start much faster because the weights are cached. You can watch
-progress from the deployment card; stopping the deployment while it
+Your account isn't enabled for LLMHub. Contact the LLMHub administrators.
+
+## Launching models
+
+**I can't find a model I just used.**
+
+Models you have running, or that are still starting, are hidden from the
+Model Library. Look in **Your Active Models**.
+
+**"This model is already running for this user."**
+
+You can run one copy of each model at a time. Use the one you have, or stop
+it and launch again.
+
+**"No Slurm accounts are associated with your cluster user."**
+
+You don't have an allocation LLMHub can charge on this cluster. Ask your
+project's PI to add you to one, or request one through ACCESS.
+
+**The launch failed with a message about Hugging Face access.**
+
+The model is gated. Accept its license on huggingface.co and paste a valid
+token when you launch. See [Gated models](model-library.md#gated-models).
+
+**My model has said "Downloading weights" for a long time.**
+
+It's the first launch of that model on the cluster, so LLMHub is downloading
+it. The largest models can take tens of minutes. Once it's downloaded, every later
+launch (yours or anyone's) skips this step. Stopping the deployment while it
 downloads cancels the launch.
 
-**What happens when the walltime expires?**
+**My model has said "Pending" for a long time.**
 
-The deployment shuts down automatically. Nothing is deleted — your chats and
-artifacts remain — but you'll need to launch the model again to keep using
-it.
+The job is waiting in the Slurm queue for a free GPU. How long depends on how
+busy the cluster is. The lifetime you picked doesn't start counting until the
+model is running.
+
+**My model failed while launching.**
+
+Open **Logs** on its card. The cause is usually in the last few lines of the
+*stderr* tab, and the failure email repeats it. Common ones:
+
+- *CUDA out of memory* or *KV cache … is larger than the available memory*:
+  the model doesn't fit on the GPUs it was given. Tell the administrators,
+  since launch settings are set per model.
+- *401* or *403* from huggingface.co: a gated model, with a missing or invalid
+  token.
 
 **Can I run several models at once?**
 
-Yes, as long as you have GPUs available and your account's limits allow it.
-Each deployment is a separate Slurm job.
+Yes. Each one is a separate job, charged separately. You just can't run two
+copies of the same model.
 
-**My launch failed with a message about Hugging Face access.**
+**Can I give my model more time?**
 
-The model is gated: accept its license on huggingface.co and provide your
-Hugging Face token when launching. See [Gated models](model-library.md#gated-models).
+Not while it's running. When it shuts down, launch it again with a longer
+lifetime (up to 23 h 59 min).
 
-**My launch failed with "Cluster username is required" (or a similar
-account error).**
+**What happens when the lifetime runs out?**
 
-Launches are charged to a Slurm account. Make sure you picked an account in
-the launch dialog; if none is listed, you may not have an allocation on that
-cluster — contact your group lead or the administrators.
+The model shuts down within a few minutes and you get an email. Your chats
+are kept.
 
 ## Chat
 
-**The first response is slow. Is that normal?**
-
-Yes — vLLM warms up on the first request after a deployment becomes ready.
-Later messages are faster.
-
 **The model picker says "No models available".**
 
-You have no running deployments, none shared with you, and the cluster has no
-always-on model configured. Launch a model from the library.
+Nothing is running that you can use, and the always-on model isn't available.
+Launch a model from the [Model library](model-library.md).
 
-**Can I share a chat with someone?**
+**I get "Deployment is not ready" or "Selected model is unavailable".**
 
-Chats are private to your account. Share the *deployment* instead (see
-[Sharing & access](../deploying/sharing-access.md)) and let the other person
-chat with the model themselves.
+The model you picked has stopped. Reload the page and choose another one.
+
+**The model ignored my image.**
+
+Only vision models can read images. See
+[Images](using-chat.md#images).
+
+**A base model gives strange answers in chat.**
+
+Base models aren't trained to chat, and some have no chat template. Use the
+*Instruct* version. See
+[Base and instruct models](model-library.md#base-and-instruct-models).
+
+**Can I share a chat?**
+
+Yes, as a read-only link: open the chat's **⋯** menu in the sidebar and
+choose **Share → Public**. Anyone with the link can read it, even without
+signing in. To let someone talk to your model, share the deployment instead
+(see [Sharing & access](../deploying/sharing-access.md)).
 
 ## API
 
-**How do I call my deployment from code?**
+**How do I call my model from code?**
 
-Generate an API key in your profile, then POST to the deployment's chat
-completions endpoint. See the [API reference](../api/index.md) for
-copy-paste curl, Python, and JavaScript examples.
+Click **API** on a running model's card. The dialog gives you an API key, the
+base URL and ready-to-run curl, Python and JavaScript examples. See the
+[API reference](../api/index.md).
 
-**Is the API OpenAI-compatible?**
+**Is it compatible with the OpenAI SDK?**
 
-Yes — the chat completions endpoint accepts OpenAI-style request bodies
-(messages, temperature, max tokens, streaming). Most OpenAI clients work if
-you point them at the LLMHub base URL and use your LLMHub API key.
+Yes, for chat completions. Point the SDK at the deployment's base URL and use
+your LLMHub API key.
 
 ## Getting help
 
-- Check the [logs](../deploying/logs-monitoring.md) for a failing deployment
-  — the error is usually in the last lines.
-- For account, access, or cluster issues, contact the LLMHub administrators
-  for your institution.
-- Found a bug or want a feature? Open an issue on
+- For a failing model, check its **Logs** first.
+- For account, allocation or access problems, contact the LLMHub
+  administrators.
+- To report a bug or ask for a feature, open an issue on
   [GitHub](https://github.com/Center-for-AI-Innovation/LLMHub/issues).

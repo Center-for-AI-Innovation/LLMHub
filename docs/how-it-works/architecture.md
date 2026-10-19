@@ -35,8 +35,7 @@ flowchart LR
 ## Frontend (Next.js)
 
 - **Auth**: Better Auth with CILogon OIDC. Sessions and users live in the
-  frontend's PostgreSQL schema (Drizzle ORM). An optional oauth-mapfile
-  gates which emails may sign in.
+  frontend's PostgreSQL schema (Drizzle ORM).
 - **Chat**: the chat UI talks to Next.js route handlers, which proxy to the
   right deployment's vLLM endpoint (`/api/v1/deployment/{id}/...` for
   signed-in users, `/api/public/v1/deployment/{id}/...` for API-key

@@ -1,13 +1,13 @@
 # LLMHub
 
-LLMHub helps researchers and developers run open source language models on
-supercomputing clusters. It provides a web interface for discovering,
-launching, chatting with, and sharing model deployments, plus
-OpenAI-compatible API access for integrating deployed models into
-applications.
+LLMHub lets researchers run open language models on NCSA's Delta
+supercomputer without writing a Slurm script. Pick a model from the catalog,
+and LLMHub runs it on the cluster's GPUs; then chat with it in the browser,
+share it with your group, or call it from your own code through an
+OpenAI-compatible API.
 
-The project is built for the University of Illinois community and is powered
-by NCSA supercomputing infrastructure.
+It's built for the University of Illinois community. You need a Delta account
+and a GPU allocation to launch models.
 
 <div class="grid cards" markdown>
 
@@ -15,8 +15,9 @@ by NCSA supercomputing infrastructure.
 
     ---
 
-    Pick a model from the library, choose how long you need it, and LLMHub
-    submits and monitors the cluster job for you.
+    Pick a model from the library, choose how long you need it and which
+    allocation to charge, and LLMHub runs and watches the cluster job for
+    you.
 
     [:octicons-arrow-right-24: Quickstart](getting-started/quickstart.md)
 
@@ -24,8 +25,8 @@ by NCSA supercomputing infrastructure.
 
     ---
 
-    Talk to your running deployments directly from the web UI — no client
-    setup, with artifacts, attachments, and shareable chat history.
+    Talk to your running models from the web UI, with no client setup.
+    Your chats are saved, and you can share one as a read-only link.
 
     [:octicons-arrow-right-24: Using chat](getting-started/using-chat.md)
 
@@ -33,8 +34,8 @@ by NCSA supercomputing infrastructure.
 
     ---
 
-    Call your deployments over REST with a personal API key. Migration from
-    OpenAI-style clients is usually a base-URL change.
+    Call your models over REST with a personal API key. Code written for
+    the OpenAI SDK usually needs only a new base URL.
 
     [:octicons-arrow-right-24: API reference](api/index.md)
 
@@ -53,9 +54,9 @@ by NCSA supercomputing infrastructure.
 
 - **New to LLMHub?** Follow the [Quickstart](getting-started/quickstart.md) —
   from sign-in to your first chat in a few minutes.
-- **Want a specific model?** See [Requesting new
-  models](deploying/requesting-models.md) and the
-  [Model library](getting-started/model-library.md).
+- **Looking for a specific model?** Browse the
+  [Model library](getting-started/model-library.md), or see
+  [Requesting new models](deploying/requesting-models.md) if it isn't there.
 - **Building an application?** Start with
   [Authentication](api/authentication.md), then
   [Chat completions](api/chat-completions.md).
@@ -65,17 +66,17 @@ by NCSA supercomputing infrastructure.
 
 ## Capabilities
 
-- **Pre-configured models**: access ready-to-use language models, including
-  state-of-the-art models tuned for performance and efficiency.
-- **Custom deployments**: request and deploy models for specific research or
-  application needs, including models from the Hugging Face ecosystem.
-- **Chat interface**: interact with deployed models directly from the browser.
-- **OpenAI-compatible APIs**: call running deployments through REST endpoints
-  designed for straightforward migration from OpenAI-style clients.
-- **Deployment management**: launch models, view active deployments, inspect
-  logs, stop jobs, and share deployments with other users.
-- **Secure access**: authenticate users and protect data while running
-  workloads on managed cluster infrastructure.
+- **A curated catalog**: about 90 open models, from half a billion to
+  over 100 billion parameters, each with launch settings tested on the cluster. Gated models
+  such as Llama work with your own Hugging Face token.
+- **Chat in the browser**: streaming replies, reasoning display, image input
+  for vision models, and saved history.
+- **An OpenAI-compatible API**: chat completions for any running model, with
+  a personal API key.
+- **Deployment management**: watch status and logs, get email when a model is
+  ready or fails, stop it early, and share it with colleagues.
+- **Your allocation, your job**: models run as Slurm jobs charged to the
+  allocation you pick, on NCSA hardware.
 
 ## How it fits together
 
