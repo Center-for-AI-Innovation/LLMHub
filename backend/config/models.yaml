@@ -962,80 +962,6 @@ models:
     vllm_args:
       --tensor-parallel-size: 2
       --max-model-len: 8192
-  DeepSeek-R1-Distill-Llama-70B:
-    model_family: DeepSeek-AI
-    model_variant: Distill-Llama-70B
-    model_type: LLM
-    hf_model: deepseek-ai/DeepSeek-R1-Distill-Llama-70B
-    gpus_per_node: 4
-    num_nodes: 1
-    vocab_size: 128256
-    time: 08:00:00
-    resource_type: l40s
-    vllm_args:
-      --tensor-parallel-size: 4
-      --max-model-len: 65536
-  DeepSeek-R1-Distill-Llama-8B:
-    model_family: DeepSeek-AI
-    model_variant: Distill-Llama-8B
-    model_type: LLM
-    hf_model: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
-    gpus_per_node: 1
-    num_nodes: 1
-    vocab_size: 128256
-    time: 08:00:00
-    resource_type: l40s
-    vllm_args:
-      --max-model-len: 131072
-  DeepSeek-R1-Distill-Qwen-32B:
-    model_family: DeepSeek-AI
-    model_variant: Distill-Qwen-32B
-    model_type: LLM
-    hf_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
-    gpus_per_node: 2
-    num_nodes: 1
-    vocab_size: 152064
-    time: 08:00:00
-    resource_type: l40s
-    vllm_args:
-      --tensor-parallel-size: 2
-      --max-model-len: 65536
-  DeepSeek-R1-Distill-Qwen-14B:
-    model_family: DeepSeek-AI
-    model_variant: Distill-Qwen-14B
-    model_type: LLM
-    hf_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
-    gpus_per_node: 1
-    num_nodes: 1
-    vocab_size: 152064
-    time: 08:00:00
-    resource_type: l40s
-    vllm_args:
-      --max-model-len: 65536
-  DeepSeek-R1-Distill-Qwen-7B:
-    model_family: DeepSeek-AI
-    model_variant: Distill-Qwen-7B
-    model_type: LLM
-    hf_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
-    gpus_per_node: 1
-    num_nodes: 1
-    vocab_size: 152064
-    time: 08:00:00
-    resource_type: l40s
-    vllm_args:
-      --max-model-len: 131072
-  DeepSeek-R1-Distill-Qwen-1.5B:
-    model_family: DeepSeek-AI
-    model_variant: Distill-Qwen-1.5B
-    model_type: LLM
-    hf_model: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
-    gpus_per_node: 1
-    num_nodes: 1
-    vocab_size: 152064
-    time: 08:00:00
-    resource_type: l40s
-    vllm_args:
-      --max-model-len: 131072
   Phi-3.5-vision-instruct:
     model_family: Phi-3.5-vision
     model_variant: instruct
@@ -1081,30 +1007,6 @@ models:
     gpus_per_node: 1
     num_nodes: 1
     vocab_size: 152064
-    time: 08:00:00
-    resource_type: l40s
-    vllm_args:
-      --max-model-len: 4096
-  deepseek-vl2:
-    model_family: deepseek-vl2
-    model_type: VLM
-    hf_model: deepseek-ai/deepseek-vl2
-    gpus_per_node: 2
-    num_nodes: 1
-    vocab_size: 129280
-    time: 08:00:00
-    resource_type: l40s
-    vllm_args:
-      --tensor-parallel-size: 2
-      --max-model-len: 4096
-  deepseek-vl2-small:
-    model_family: deepseek-vl2
-    model_variant: small
-    model_type: VLM
-    hf_model: deepseek-ai/deepseek-vl2-small
-    gpus_per_node: 1
-    num_nodes: 1
-    vocab_size: 129280
     time: 08:00:00
     resource_type: l40s
     vllm_args:

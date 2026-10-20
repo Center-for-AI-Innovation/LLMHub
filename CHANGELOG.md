@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed
+
+- DeepSeek model configs (`DeepSeek-R1-Distill-*`, `deepseek-vl2`, `deepseek-vl2-small`) from the model catalog (`backend/config/models.yaml`), the config template, and the Magic Castle (Radiant) infrastructure config.
+
 ## [1.1.0] - 2026-10-19
 
 ### Added
