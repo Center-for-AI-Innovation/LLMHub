@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-
-import type { ModelInfo } from '@/hooks/use-models';
 import {
   COUNTRY_OF_CONCERN_LINK,
   COUNTRY_OF_CONCERN_PARAGRAPHS,
+  DEEPSEEK_DIRECTIVE_PARAGRAPH,
   isCountryOfConcernModel,
 } from '@/components/model-card/country-of-concern-notice';
+import type { ModelInfo } from '@/hooks/use-models';
 
 function buildModel(overrides: Partial<ModelInfo>): ModelInfo {
   return {
@@ -43,6 +43,45 @@ describe('isCountryOfConcernModel', () => {
     ).toBe(true);
   });
 
+  it('flags other Country of Concern model families by id, family, or Hugging Face id', () => {
+    expect(
+      isCountryOfConcernModel(
+        buildModel({
+          id: 'Qwen3-8B',
+          family: 'Qwen3',
+          huggingfaceId: 'Qwen/Qwen3-8B',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isCountryOfConcernModel(
+        buildModel({
+          id: 'QwQ-32B',
+          family: 'QwQ',
+          huggingfaceId: 'Qwen/QwQ-32B',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isCountryOfConcernModel(
+        buildModel({
+          id: 'glm-4v-9b',
+          family: 'glm-4v',
+          huggingfaceId: 'THUDM/glm-4v-9b',
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isCountryOfConcernModel(
+        buildModel({
+          id: 'InternVL2_5-26B',
+          family: 'InternVL2_5',
+          huggingfaceId: 'OpenGVLab/InternVL2_5-26B',
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it('does not flag other models', () => {
     expect(
       isCountryOfConcernModel(
@@ -54,14 +93,26 @@ describe('isCountryOfConcernModel', () => {
         buildModel({ id: 'claude-sonnet-4-5', family: 'claude' }),
       ),
     ).toBe(false);
+    expect(
+      isCountryOfConcernModel(
+        buildModel({
+          id: 'medgemma-27b-it',
+          family: 'google',
+          huggingfaceId: 'google/medgemma-27b-it',
+        }),
+      ),
+    ).toBe(false);
   });
 
-  it('carries the Country of Concern and removal-directive wording', () => {
+  it('carries the Country of Concern wording, with the removal directive only for DeepSeek', () => {
     const notice = COUNTRY_OF_CONCERN_PARAGRAPHS.join(' ');
     expect(notice).toContain('Country of Concern');
-    expect(notice).toContain('October 19, 2026');
-    expect(notice).toContain('remove DeepSeek');
-    expect(notice).toContain('We are not yet removing DeepSeek');
+    expect(notice).not.toContain('DeepSeek');
+    expect(DEEPSEEK_DIRECTIVE_PARAGRAPH).toContain('October 19, 2026');
+    expect(DEEPSEEK_DIRECTIVE_PARAGRAPH).toContain('remove DeepSeek');
+    expect(DEEPSEEK_DIRECTIVE_PARAGRAPH).toContain(
+      'We are not yet removing DeepSeek',
+    );
   });
 
   it('links the Country of Concern phrase to the UI System guidance PDF', () => {
