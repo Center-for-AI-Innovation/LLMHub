@@ -12,6 +12,8 @@ import {
   ModelMetadataChip,
   SCALE_COLORS,
 } from '@/components/model-card/model-metadata-chips';
+import { CountryOfConcernNotice } from '@/components/model-card/country-of-concern-notice';
+import type { ModelInfo } from '@/hooks/use-models';
 import { Button } from '@/components/ui/button';
 import {
   SHARE_STATUS_LABEL as STATUS_LABEL,
@@ -66,6 +68,18 @@ const SHARE_STATUSES = Object.keys(STATUS_LABEL) as Array<
 >;
 
 const CONSOLE_LINE_STATUSES = ['in_progress', 'completed', 'failed'] as const;
+
+const DEEPSEEK_SAMPLE_MODEL: ModelInfo = {
+  id: 'DeepSeek-R1-Distill-Llama-70B',
+  modelName: 'Deepseek R1 Distill Llama 70b',
+  description: 'Sample DeepSeek model for contrast checking.',
+  status: 'cold',
+  type: 'Large',
+  family: 'DeepSeek-AI',
+  variant: '',
+  specs: { gpus: 4, nodes: 1, contextLength: 131072, parallelism: false },
+  huggingfaceId: 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B',
+};
 
 /**
  * Dev-only harness that renders every status/chip color variant with no
@@ -238,6 +252,18 @@ export default function ContrastHarnessPage() {
           <p className="mb-2 flex items-center gap-1 text-sm font-semibold text-status-neutral">
             <span>Expires 2026-08-01</span>
           </p>
+        </div>
+      </section>
+
+      <section data-testid="country-of-concern-notice" className="space-y-2">
+        <h2 className="text-lg font-semibold">
+          Model card — Country of Concern notice
+        </h2>
+        {/* Mirrors the card's own gradient background, not the page background */}
+        <div
+          className={`relative p-6 rounded-2xl bg-gradient-to-br ${modelCardGradient}`}
+        >
+          <CountryOfConcernNotice model={DEEPSEEK_SAMPLE_MODEL} />
         </div>
       </section>
 
