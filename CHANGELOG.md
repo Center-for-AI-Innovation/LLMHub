@@ -8,7 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Documentation site: a Material for MkDocs site in `docs/`, styled after the Illinois Chat docs, published to GitHub Pages (`https://center-for-ai-innovation.github.io/LLMHub/`) by `.github/workflows/docs.yml` on pushes to `main`. Covers Getting Started, Deploying Models, the public API, Self-Hosting (local, Delta/DeltaAI, Magic Castle), How It Works, Contributing, and a release blog.
+- Documentation site: a Material for MkDocs site in `docs/`, styled after the Illinois Chat docs, published to GitHub Pages (`https://center-for-ai-innovation.github.io/LLMHub/`) by `.github/workflows/docs.yml` on pushes to `main`. It's written for people using LLMHub: Getting Started, Deploying Models, the API reference, How It Works, and a blog. Self-Hosting and Contributing link to the guides in the repository instead of copying them.
+- `CONTRIBUTING.md`: what a pull request needs (the changelog rule, CI's checks and pinned formatter versions, tests, docs).
 
 ## [1.1.0] - 2026-10-19
 
