@@ -110,18 +110,10 @@ nav:
       - api/index.md
       - Authentication: api/authentication.md
       - Chat completions: api/chat-completions.md
-  - Self-Hosting:
-      - self-hosting/index.md
-      - Local development: self-hosting/local-development.md
-      - Delta & DeltaAI: self-hosting/delta.md
-      - Magic Castle (Radiant): self-hosting/magic-castle.md
-      - Configuration reference: self-hosting/configuration.md
+  - Self-Hosting: self-hosting/index.md
   - How It Works:
       - how-it-works/index.md
       - Architecture: how-it-works/architecture.md
       - Glossary: how-it-works/glossary.md
-  - Contributing:
-      - Development setup: contributing/dev-setup.md
-      - Repository layout: contributing/repository-layout.md
-      - Testing & CI: contributing/testing-ci.md
+  - Contributing: contributing/index.md
   - Blog: blog/index.md

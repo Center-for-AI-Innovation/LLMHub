@@ -15,18 +15,17 @@ announcements.
 
 ## What's here
 
-- **[Getting started](../../../getting-started/quickstart/)** — from
-  sign-in to your first chat with a deployed model.
-- **[Deploying models](../../../deploying/)** — launching, GPU
-  resources and parallelism, logs, sharing, and requesting new models.
-- **[API reference](../../../api/)** — OpenAI-compatible endpoints
-  with curl, Python, and JavaScript examples for your deployments.
-- **[Self-hosting](../../../self-hosting/)** — local development, the
-  Delta/DeltaAI service VMs, and the Magic Castle (Radiant) cluster.
-- **[How it works](../../../how-it-works/)** — architecture,
-  request flow, and a glossary of the HPC vocabulary.
-- **[Contributing](../../../contributing/dev-setup/)** — dev setup,
-  repo layout, and how CI and the changelog work.
+- **[Getting started](../../getting-started/quickstart.md)**: from signing
+  in to your first chat with a model you launched.
+- **[Deploying models](../../deploying/index.md)**: launching, GPUs and
+  cost, logs, sharing, and asking for new models.
+- **[API reference](../../api/index.md)**: OpenAI-compatible chat
+  completions, with curl, Python and JavaScript examples.
+- **[Self-hosting](../../self-hosting/index.md)** and
+  **[Contributing](../../contributing/index.md)**: pointers to the setup and
+  developer guides in the repository.
+- **[How it works](../../how-it-works/index.md)**: the architecture, what
+  happens when you launch, and a glossary of the HPC vocabulary.
 
 The site builds on every push to `main` and publishes automatically via
 GitHub Actions. If you spot something wrong or missing, please open an

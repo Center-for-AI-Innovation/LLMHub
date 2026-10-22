@@ -3,19 +3,19 @@
 ```mermaid
 flowchart LR
     subgraph Browser
-        UI[Web UI<br>Next.js app]
+        UI[Web UI]
     end
 
-    subgraph Frontend VM ["Frontend (Next.js)"]
-        AUTH[Better Auth<br>CILogon OIDC]
-        PROXY[API proxy routes<br>chat · public API]
-        FE[(PostgreSQL<br>auth · chats)]
-    end
-
-    subgraph Backend ["Backend (FastAPI)"]
-        API[Catalog · launch · logs]
-        BE[(PostgreSQL<br>deployments)]
-        VI[vec-inf]
+    subgraph VM ["Service VM"]
+        subgraph FE ["Frontend (Next.js)"]
+            AUTH[Sign-in<br>Better Auth + CILogon]
+            PROXY[Proxy routes<br>chat · public API]
+        end
+        subgraph BE ["Backend (FastAPI)"]
+            API[Catalog · launch · logs · email]
+            VI[vec-inf]
+        end
+        DB[(PostgreSQL)]
     end
 
     subgraph Cluster ["Slurm cluster"]
@@ -26,65 +26,63 @@ flowchart LR
     UI --> PROXY
     PROXY <-->|"chat completions"| JOB
     PROXY --> API
-    API --> BE
+    AUTH --> DB
+    PROXY --> DB
+    API --> DB
     API --> VI
     VI -->|"sbatch"| JOB
-    AUTH --> FE
 ```
 
 ## Frontend (Next.js)
 
-- **Auth**: Better Auth with CILogon OIDC. Sessions and users live in the
-  frontend's PostgreSQL schema (Drizzle ORM).
-- **Chat**: the chat UI talks to Next.js route handlers, which proxy to the
-  right deployment's vLLM endpoint (`/api/v1/deployment/{id}/...` for
-  signed-in users, `/api/public/v1/deployment/{id}/...` for API-key
-  callers). Access is checked server-side on every request.
-- **Public API**: bearer-key authentication against personal API keys, then
-  the same proxy path.
-- **Always-on model**: a small model served outside the per-user deployment
-  flow, used for guest mode and as a fallback.
+- **Sign-in**: Better Auth, with CILogon as the identity provider.
+- **Chat**: the chat page sends messages to Next.js route handlers, which
+  check that you can use the deployment and then forward the request to its
+  vLLM server.
+- **Public API**: the same forwarding, authenticated with a personal API key
+  instead of a session. See the [API reference](../api/index.md).
+- **Always-on model** (optional): a model served outside the launch flow, for
+  sites that configure one. LLMHub on Delta doesn't.
 
 ## Backend (FastAPI)
 
-- **Model catalog**: what can be launched, from the infrastructure's
-  `models.yaml` (per-cluster), enriched with Hugging Face metadata
-  (including gating status).
-- **Launch orchestration**: validates the request (model, GPUs, account,
-  HF gating), downloads weights when needed, then renders and submits the
-  Slurm job through `vec-inf`. In impersonate mode the job runs as the
-  signed-in user's cluster account, through a wrapper with ACL'd
-  workspaces.
-- **Lifecycle**: background sweeps watch for job completion and expiry;
-  statuses flow back to the UI; notification emails go out on access
-  grants and other events.
+- **Model catalog**: the models that can be launched, from `models.yaml` and
+  any per-cluster overrides, plus each model's Hugging Face gating status.
+- **Launches**: checks the request and the user's Hugging Face access,
+  downloads weights the cluster doesn't have yet, and submits the Slurm job
+  through vec-inf. The GPU count and other launch settings come from the
+  catalog, not from the user.
+- **Lifecycle**: background tasks follow each job's status, shut deployments
+  down when their lifetime ends, and send the notification emails.
 
-## The launch sequence
+## What happens when you launch
 
 ```text
-1. UI        → backend:  POST launch (model, walltime, GPUs, account, hf_token?)
-2. backend   → Hugging Face: gating check (token is user's, never stored)
-3. backend   → cache:     download weights if missing (shared cache)
-4. backend   → vec-inf:   render sbatch (vLLM + parallelism flags + env)
-5. backend   → Slurm:     sbatch
-6. Slurm     → GPU node:  apptainer run vllm.sif …
-7. vLLM      → ready;     endpoint URL recorded on the deployment
-8. UI        ← deployment status: ready — chat & API go live
+1. UI       → backend:   launch (model, lifetime, Slurm account, HF token if gated)
+2. backend  → Hugging Face: check the user's access to a gated model (token never stored)
+3. backend  → cluster:   download the weights if the cluster doesn't have them yet
+4. backend  → vec-inf:   write the Slurm job script (vLLM command, GPUs, environment)
+5. vec-inf  → Slurm:     sbatch, charged to the chosen account
+6. Slurm    → GPU node:  start vLLM in its Apptainer container
+7. backend:              sees the server is up, records its address, emails "ready"
+8. UI:                   status Running; Chat and API work
 ```
 
-Tensor/pipeline parallelism flags derive from the GPU/node request:
-`gpus_per_node` → `--tensor-parallel-size`, `num_nodes` →
-`--pipeline-parallel-size`.
+The number of GPUs and nodes in a model's catalog entry become vLLM's
+tensor-parallel and pipeline-parallel sizes. See
+[GPUs & cost](../deploying/gpu-resources.md).
 
-## Databases
+## Database
 
-Two PostgreSQL schemas, by design: the frontend owns identity and chats;
-the backend owns the catalog and deployment state. They are deployed
-together but migrated independently (Drizzle for the frontend, the
-backend's own migrations).
+There's one PostgreSQL database. The frontend's
+[Drizzle](https://orm.drizzle.team) schema defines every table, including the
+catalog and deployment tables the backend uses, and the frontend's migrations
+are the only ones. The backend reads and writes those tables but never
+changes their structure.
 
-## Why the proxy pattern
+## Why everything goes through the frontend
 
-The compute nodes are on a private network. Route handlers on the frontend
-host are the single ingress: they terminate auth, enforce per-deployment
-access, and stream responses. vLLM is never exposed directly.
+Users never talk to the compute nodes or the vLLM servers directly. The
+frontend's route handlers are the only way in: they check who you are and
+whether you can use the deployment, then pass the request through and
+stream the reply back. Model traffic doesn't go through the backend at all.

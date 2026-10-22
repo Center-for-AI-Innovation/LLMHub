@@ -1,77 +1,89 @@
 # Glossary
 
 **Active models**
-:   The page listing your running (and recently finished) deployments, with
-    chat, API, logs, share, and stop actions.
+:   The *Your Active Models* page: deployments you can use that are
+    downloading, queued, starting or running, with Chat, API, Logs, Share and
+    Stop buttons. Deployments leave the page when they end.
+
+**Allocation**
+:   A grant of compute time on a cluster, charged through a *Slurm account*.
 
 **Always-on model**
-:   A small model served continuously outside the per-user deployment flow.
-    Powers guest mode and the model picker's fallback.
+:   A model some LLMHub sites keep running outside the launch flow, so people
+    can chat without launching anything. LLMHub on Delta doesn't have one.
 
 **Apptainer**
-:   The container runtime used on the clusters (the HPC-friendly fork of
-    Singularity). vLLM runs inside a per-cluster `.sif` image.
+:   The container runtime used on the clusters (formerly Singularity). vLLM
+    runs inside an Apptainer image.
 
 **Artifact**
-:   Long generated content (code, documents) rendered in its own panel in
-    the chat UI instead of as raw markdown in the stream.
+:   A panel for long generated documents or code, carried over from the
+    template LLMHub was built on. Not ready yet.
 
 **Better Auth**
-:   The authentication library used by the frontend; CILogon is its OIDC
+:   The sign-in library the frontend uses, with CILogon as the identity
     provider.
 
 **CILogon**
-:   The institutional identity federation service used to sign in with
-    university credentials.
+:   The identity service you sign in through with your university account.
 
-**Deployment (model deployment)**
-:   One running instance of a model: a Slurm job running vLLM, with status,
-    owner, endpoint, and lifetime. "Launching a model" creates one.
+**Context length**
+:   The most text, input plus output, measured in tokens, that a model handles
+    in one request. Shown on each model card.
 
-**Downloading**
-:   Deployment status while weights are fetched into the cluster's shared
-    cache on first launch. Stopping here cancels the launch.
+**Deployment**
+:   One running copy of a model: a Slurm job running vLLM, with an owner, a
+    status and a lifetime. Launching a model creates one.
+
+**Downloading weights**
+:   The status of a deployment whose model isn't on the cluster yet. LLMHub
+    downloads it, then submits the job. Stopping it here cancels the launch.
 
 **Gated model**
-:   A model whose weights require accepting a license on Hugging Face.
-    Launches need the user's own HF token; it is never stored.
+:   A model whose publisher requires you to accept a license on Hugging Face.
+    Launching one needs your own Hugging Face token, which LLMHub never
+    stores.
 
 **Guest mode**
-:   Chatting without signing in, against the always-on model, with a small
-    message limit.
+:   Chatting without signing in, with a few messages to the always-on model.
+    Only on sites that have one.
 
 **Impersonate mode**
-:   An execution mode where inference jobs run under the signed-in user's
-    derived cluster account (with ACL'd workspaces) instead of the service
-    account, charging GPU time to the user's allocation.
+:   A way of running jobs in which each deployment runs on the cluster as
+    the signed-in user's own cluster account, rather than as LLMHub's service
+    account.
+
+**Lifetime**
+:   How long a deployment stays up once it's running, set in the launch
+    dialog. When it runs out, LLMHub shuts the deployment down. Slurm calls
+    the job's time limit its *walltime*.
 
 **Magic Castle (Radiant)**
-:   A Terraform-defined slurm cluster on NCSA's OpenStack cloud, with
+:   A Slurm cluster built with Magic Castle on NCSA's Radiant cloud, with
     LLMHub on its login node.
 
-**vec-inf**
-:   The launcher library the backend uses to render Slurm job scripts for
-    vLLM and submit them (`sbatch`).
-
-**vLLM**
-:   The inference server that runs the model inside the Slurm job, exposing
-    an OpenAI-compatible API.
-
-**Pipeline parallelism (PP)**
-:   Splitting a model's layers across nodes, one stage per node. Set by the
-    node count: `--pipeline-parallel-size`.
-
-**Tensor parallelism (TP)**
-:   Splitting each layer across GPUs within a node. Set by the GPU count:
-    `--tensor-parallel-size`.
+**Pipeline parallelism**
+:   Splitting a model's layers across nodes, for models too big for one node.
 
 **Slurm**
-:   The job scheduler on the HPC clusters: queues jobs, allocates GPUs,
-    enforces walltime and accounts.
+:   The job scheduler on the clusters. It queues jobs, hands out GPUs, and
+    enforces time limits and allocations.
 
 **Slurm account**
-:   The allocation GPU-hours are charged to; chosen in the launch dialog.
+:   The account a job's GPU time is charged to, chosen in the launch dialog.
 
-**Walltime**
-:   The maximum lifetime requested for a job. Deployments shut down when it
-    expires.
+**Tensor parallelism**
+:   Splitting every layer of a model across the GPUs of one node, so they work
+    on each token together.
+
+**Token**
+:   The unit models read and write text in: roughly three-quarters of an
+    English word.
+
+**vec-inf**
+:   The library the backend uses to write Slurm job scripts for vLLM and
+    submit them.
+
+**vLLM**
+:   The server that runs a model on the GPUs and answers requests through an
+    OpenAI-compatible API.
