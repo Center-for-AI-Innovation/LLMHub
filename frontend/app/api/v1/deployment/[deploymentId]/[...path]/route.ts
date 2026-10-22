@@ -26,7 +26,11 @@ import {
   isChatCompletionsEndpoint,
   handleChatCompletions,
 } from '@/lib/vllm-ai-sdk';
-import { createErrorResponse, validateDeployment } from '@/lib/utils';
+import {
+  buildDeploymentTargetUrl,
+  createErrorResponse,
+  validateDeployment,
+} from '@/lib/utils';
 import { canUserAccessDeployment } from '@/lib/auth/validate-request';
 import type { ModelDeployment } from '@/hooks/use-models';
 
@@ -84,8 +88,14 @@ async function handleRequest(
     }
 
     // For other endpoints (models, completions, embeddings), proxy to vLLM
-    const vllmPath = `/v1/${path.join('/')}`;
-    const targetUrl = `${deployment.endpointUrl}${vllmPath}`;
+    if (!deployment.endpointUrl) {
+      return createErrorResponse('Deployment endpoint is unavailable', 503);
+    }
+
+    const targetUrl = buildDeploymentTargetUrl(
+      deployment.endpointUrl,
+      path.join('/'),
+    );
     
     console.log(`[vLLM Deployment Proxy] Proxying ${request.method} to: ${targetUrl}`);
     
