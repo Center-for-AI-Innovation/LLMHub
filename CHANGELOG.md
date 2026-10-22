@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Public, API-key-authenticated embeddings endpoint: `POST /api/public/v1/deployment/{deploymentId}/embeddings` forwards the request body as-is to the deployment's `/v1/embeddings` endpoint and passes the upstream response through (OpenAI-SDK-compatible). It shares the public chat-completions route's auth/authorization chain via a new `frontend/lib/public-deployment-proxy.ts` helper (`proxyPublicDeploymentEndpoint` / `publicCorsPreflight`); both public routes are now thin wrappers differing only in the endpoint path.
+- Frontend unit tests for the public embeddings route, the shared target-URL builder (`buildDeploymentTargetUrl` in `frontend/lib/utils.ts`), and session-auth embeddings proxying.
+
+### Fixed
+
+- The session-auth proxy (`/api/v1/deployment/{deploymentId}/*`) now normalizes the deployment `endpointUrl` before appending `/v1/...`: endpoints stored with a trailing `/v1` — e.g. local test deployments — previously produced `/v1/v1/embeddings`. It also returns 503 when a deployment has no `endpointUrl` instead of proxying to `undefined/v1/...`.
+
 ## [1.1.0] - 2026-10-19
 
 ### Added
