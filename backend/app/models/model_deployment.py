@@ -39,6 +39,9 @@ class ModelDeployment(Base):
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
     endpointUrl = Column(String, nullable=True)
+    # vLLM's key for this deployment. Never returned by the API: only the
+    # frontend proxy reads it, to authenticate the requests it forwards.
+    vllmApiKey = Column(String, nullable=True)
     proxyUrl = Column(String, nullable=True)
     errorMessage = Column(String, nullable=True)
     resourceAllocation = Column(JSON, nullable=True)
