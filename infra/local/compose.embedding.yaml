@@ -1,0 +1,23 @@
+# Embedding-model override for the local stack.
+#
+# Usage (from infra/local): set both values in .env first (see .env.example) —
+# VLLM_MODEL=BAAI/bge-base-en-v1.5 and VLLM_MAX_MODEL_LEN=512 — because .env
+# overrides this file's defaults and the model rejects longer contexts:
+#   docker compose -f compose.yaml -f compose.embedding.yaml up --build
+#
+# Drops the Qwen-specific --language-model-only flag from compose.yaml's
+# command (Compose replaces `command` from an override rather than appending,
+# so the full argument list is restated here). Defaults are for
+# BAAI/bge-base-en-v1.5 (512-token context).
+services:
+  vllm:
+    command:
+      - ${VLLM_MODEL:-BAAI/bge-base-en-v1.5}
+      - --served-model-name
+      - ${VLLM_MODEL:-BAAI/bge-base-en-v1.5}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-512}
+      - --dtype
+      - ${VLLM_DTYPE:-auto}
+      - --gpu-memory-utilization
+      - ${VLLM_MEMORY_UTILIZATION:-0.65}
