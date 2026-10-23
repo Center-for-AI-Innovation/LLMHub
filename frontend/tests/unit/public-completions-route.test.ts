@@ -4,10 +4,12 @@ const {
   getUserFromApiKeyMock,
   getModelDeploymentByIdMock,
   canUserAccessDeploymentMock,
+  getDeploymentUpstreamKeyMock,
 } = vi.hoisted(() => ({
   getUserFromApiKeyMock: vi.fn(),
   getModelDeploymentByIdMock: vi.fn(),
   canUserAccessDeploymentMock: vi.fn(),
+  getDeploymentUpstreamKeyMock: vi.fn(),
 }));
 
 vi.mock('@/lib/security/api-keys', () => ({
@@ -17,7 +19,9 @@ vi.mock('@/lib/security/api-keys', () => ({
 }));
 vi.mock('@/lib/db/queries', () => ({
   getModelDeploymentById: getModelDeploymentByIdMock,
+  getDeploymentUpstreamKey: getDeploymentUpstreamKeyMock,
 }));
+vi.mock('server-only', () => ({}));
 vi.mock('@/lib/auth/validate-request', () => ({
   canUserAccessDeployment: canUserAccessDeploymentMock,
 }));
@@ -57,6 +61,7 @@ beforeEach(() => {
   getUserFromApiKeyMock.mockResolvedValue({ id: 'user-1' });
   getModelDeploymentByIdMock.mockResolvedValue(readyDeployment);
   canUserAccessDeploymentMock.mockResolvedValue(true);
+  getDeploymentUpstreamKeyMock.mockResolvedValue('deployment-key');
 });
 
 describe('POST /api/public/v1/deployment/[deploymentId]/chat/completions', () => {
@@ -116,6 +121,35 @@ describe('POST /api/public/v1/deployment/[deploymentId]/chat/completions', () =>
         'http://node1:8000/v1/chat/completions',
         expect.objectContaining({ method: 'POST' }),
       );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sends vLLM the deployment's key, never the caller's LLMHub key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await POST(makeRequest('Bearer llmhub_caller-key'), context);
+
+      const [, init] = fetchMock.mock.calls[0];
+      expect(init.headers.Authorization).toBe('Bearer deployment-key');
+      expect(JSON.stringify(init)).not.toContain('llmhub_caller-key');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('forwards nothing in Authorization when the deployment has no key', async () => {
+    getDeploymentUpstreamKeyMock.mockResolvedValue(null);
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await POST(makeRequest('Bearer llmhub_caller-key'), context);
+
+      const [, init] = fetchMock.mock.calls[0];
+      expect(init.headers).not.toHaveProperty('Authorization');
+      expect(JSON.stringify(init)).not.toContain('llmhub_caller-key');
     } finally {
       vi.unstubAllGlobals();
     }

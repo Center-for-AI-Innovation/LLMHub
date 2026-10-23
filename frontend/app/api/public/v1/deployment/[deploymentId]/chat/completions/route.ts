@@ -8,7 +8,8 @@
  * 2. Verifies the API key belongs to a valid user
  * 3. Verifies the user has access to the deployment
  * 4. Verifies deployment is ready/running
- * 5. Proxies request body as-is to vLLM /v1/chat/completions
+ * 5. Proxies request body as-is to vLLM /v1/chat/completions, authenticated
+ *    with the deployment's own vLLM key (never the caller's LLMHub key)
  */
 
 import { canUserAccessDeployment } from '@/lib/auth/validate-request';
@@ -18,6 +19,7 @@ import {
   getUserFromApiKey,
 } from '@/lib/security/api-keys';
 import { createErrorResponse, validateDeployment } from '@/lib/utils';
+import { upstreamAuthHeaders } from '@/lib/vllm-upstream';
 import type { ModelDeployment } from '@/hooks/use-models';
 
 export const maxDuration = 60;
@@ -80,6 +82,9 @@ export async function POST(
         'Content-Type':
           request.headers.get('content-type') || 'application/json',
         Accept: request.headers.get('accept') || 'application/json',
+        // The caller's LLMHub key was checked above and is not forwarded;
+        // vLLM gets the deployment's own key instead.
+        ...(await upstreamAuthHeaders(deployment.id)),
       },
       body: requestBody,
     });

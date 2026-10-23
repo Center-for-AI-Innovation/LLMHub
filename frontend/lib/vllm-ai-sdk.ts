@@ -21,7 +21,12 @@ import {
   streamText,
 } from 'ai';
 
-import { getChatById, saveChat, saveMessages } from '@/lib/db/queries';
+import {
+  getChatById,
+  getDeploymentUpstreamKey,
+  saveChat,
+  saveMessages,
+} from '@/lib/db/queries';
 import { createErrorResponse, ensureUUID, generateUUID } from '@/lib/utils';
 import { systemPrompt } from '@/lib/ai/prompts';
 import type { ModelDeployment } from '@/hooks/use-models';
@@ -48,7 +53,10 @@ export function isAiSdkRequest(request: Request): boolean {
  * @param deployment - The deployment info containing endpoint URLs
  * @returns An OpenAI-compatible provider configured for the deployment
  */
-export function createVllmProvider(deployment: ModelDeployment) {
+export function createVllmProvider(
+  deployment: ModelDeployment,
+  upstreamKey: string | null,
+) {
   const baseUrl = deployment.endpointUrl;
   if (!baseUrl) {
     throw new Error('No endpoint URL available for deployment');
@@ -59,7 +67,9 @@ export function createVllmProvider(deployment: ModelDeployment) {
   
   return createOpenAI({
     baseURL: `${cleanBaseUrl}/v1`,
-    apiKey: 'dummy-key', // vLLM doesn't require API key by default
+    // The deployment's own vLLM key (see lib/vllm-upstream.ts). Deployments
+    // launched before keys existed accept any value.
+    apiKey: upstreamKey ?? 'no-key',
   });
 }
 
@@ -128,7 +138,10 @@ export async function handleChatCompletions(
   }
 
   // Create dynamic provider for this deployment
-  const vllmProvider = createVllmProvider(deployment);
+  const vllmProvider = createVllmProvider(
+    deployment,
+    await getDeploymentUpstreamKey(deployment.id),
+  );
   const modelName = deployment.modelName;
   if (!modelName) {
     return createErrorResponse(

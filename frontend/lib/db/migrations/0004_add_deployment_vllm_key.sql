@@ -1,0 +1,1 @@
+ALTER TABLE "ModelDeployment" ADD COLUMN "vllmApiKey" text;

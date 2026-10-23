@@ -267,6 +267,9 @@ export const modelDeployment = pgTable('ModelDeployment',
       .notNull()
       .default('pending'),
     endpointUrl: varchar('endpointUrl', { length: 255 }),
+    // vLLM's key for this deployment. Server-only: deployment queries leave it
+    // out (see deploymentColumns in queries.ts) and only the proxy reads it.
+    vllmApiKey: text('vllmApiKey'),
     proxyUrl: varchar('proxyUrl', { length: 255 }),
     errorMessage: text('errorMessage'),
     resourceAllocation: json('resourceAllocation'),
