@@ -11,9 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Documentation site: a Material for MkDocs site in `docs/`, styled after the Illinois Chat docs, published to GitHub Pages (`https://center-for-ai-innovation.github.io/LLMHub/`) by `.github/workflows/docs.yml` on pushes to `main`. It's written for people using LLMHub: Getting Started, Deploying Models, the API reference, How It Works, and a blog. Self-Hosting and Contributing link to the guides in the repository instead of copying them.
 - `CONTRIBUTING.md`: what a pull request needs (the changelog rule, CI's checks and pinned formatter versions, tests, docs).
 
-### Changed
+## [1.1.1] - 2026-10-23
 
-- Each deployment's vLLM server now requires its own randomly generated API key, and LLMHub's proxy routes (chat, `/api/v1/deployment/...` and the public API) send it when they forward a request. Users still authenticate to LLMHub as before; the key never reaches the browser, the job script or the job's log files. Deployments launched before this change keep working without one. The Delta kit's `launch-test` uses the key and checks that a request without it is refused.
+### Security
+
+- The vLLM servers LLMHub starts on compute nodes accepted requests from anyone on the cluster network who connected to them directly, bypassing LLMHub's sign-in, deployment sharing and gated-model checks. Each deployment's vLLM server now requires its own randomly generated API key, and LLMHub's proxy routes (chat, `/api/v1/deployment/...` and the public API) send it when they forward a request. Users still authenticate to LLMHub as before; the key never reaches the browser, the job script or the job's log files. Deployments launched before this change keep working without one. The Delta kit's `launch-test` uses the key and checks that a request without it is refused. ([#78](https://github.com/Center-for-AI-Innovation/LLMHub/issues/78), [#147](https://github.com/Center-for-AI-Innovation/LLMHub/pull/147))
+- Upgrading: the release adds a database migration (`0004_add_deployment_vllm_key`), which the frontend build applies, and impersonate-mode stacks must rebuild the shim environment (a normal `deploy` of the new tag does). Deployments that were already running keep accepting requests without a key until they are stopped and launched again.
 
 ## [1.1.0] - 2026-10-19
 
