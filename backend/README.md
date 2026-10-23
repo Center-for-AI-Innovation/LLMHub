@@ -99,8 +99,8 @@ concurrency, SU cost), and `POST /api/validate-config` gives a strict verdict.
 Configs the model cannot size (unknown partition, multi-node, non-NVIDIA,
 unresolvable metadata, unmodeled catalog vLLM flags) skip the gate with a
 logged warning instead of blocking. Derivation, calibration data and caveats:
-`docs/memory-estimator-writeup.tex` (PDF alongside) and
-`docs/concurrency-kv-findings.md`.
+`docs/fit-estimator/memory-estimator-writeup.tex` (PDF alongside) and
+`docs/fit-estimator/concurrency-kv-findings.md`.
 
 Ops notes:
 - Gated models are sized only with the requesting user's own HF token; there is
