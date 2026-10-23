@@ -153,6 +153,7 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     result = client.launch_model(
         "Qwen/Qwen3-8B",
         cluster_username="alice",
+        deployment_api_key="deployment-key-abc",
         num_gpus=2,
     )
 
@@ -177,6 +178,11 @@ def test_launch_model_runs_impersonated_subprocess(monkeypatch, tmp_path):
     assert captured["kwargs"]["env"]["VEC_INF_LOG_DIR"].endswith("/alice")
     assert payload["params"]["work_dir"].endswith("/alice")
     assert payload["params"]["log_dir"].endswith("/alice")
+    # sudo drops the environment, so the deployment key rides in the payload
+    # file, never in argv or in params (which end up on the deployment row).
+    assert payload["deployment_api_key"] == "deployment-key-abc"
+    assert "deployment_api_key" not in payload["params"]
+    assert not any("deployment-key-abc" in part for part in captured["command"])
     # The payload file is cleaned up once the subprocess call returns.
     assert not Path(captured["payload_path"]).exists()
 
@@ -1150,3 +1156,106 @@ def test_multi_gpu_container_launch_renders_one_env_flag_per_variable(monkeypatc
         '--env "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"'
     )
     assert generator.env_str in command
+
+
+FAKE_SBATCH = """#!/bin/sh
+env > "$CAPTURE_DIR/env"
+printf '%s\\n' "$@" > "$CAPTURE_DIR/argv"
+cp "$1" "$CAPTURE_DIR/script"
+echo "Submitted batch job 4242"
+"""
+
+
+def test_direct_launch_gives_the_key_to_the_job_and_nowhere_else(monkeypatch, tmp_path):
+    """Runs vec-inf's real launch against a fake sbatch that records what it
+    was given. The key must reach the job through its environment (sbatch
+    exports it, Apptainer passes APPTAINERENV_* into the container) and must
+    not appear in the job script, sbatch's arguments, or the files vec-inf
+    leaves in the log directory, which other users may be able to read."""
+    key = "deployment-key-0123456789"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    sbatch = bin_dir / "sbatch"
+    sbatch.write_text(FAKE_SBATCH)
+    sbatch.chmod(0o755)
+    capture = tmp_path / "capture"
+    capture.mkdir()
+    weights = tmp_path / "weights"
+    (weights / "Qwen2.5-0.5B-Instruct").mkdir(parents=True)
+    log_dir = tmp_path / "logs"
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("CAPTURE_DIR", str(capture))
+    monkeypatch.delenv(llm_inference._UPSTREAM_KEY_ENV, raising=False)
+
+    result = llm_inference.LLMInferenceDirectClient().launch_model(
+        "Qwen2.5-0.5B-Instruct",
+        deployment_api_key=key,
+        model_weights_parent_dir=str(weights),
+        log_dir=str(log_dir),
+        work_dir=str(tmp_path),
+        num_gpus=1,
+        partition="gpuA100x4",
+        time="00:10:00",
+        account="test-account",
+    )
+
+    assert result == {"success": True, "slurm_job_id": "4242", "job_id": "4242"}
+    job_env = (capture / "env").read_text().splitlines()
+    assert f"APPTAINERENV_VLLM_API_KEY={key}" in job_env
+    argv = (capture / "argv").read_text()
+    assert key not in argv
+    # A future vec-inf adding --export=NONE would silently drop the key.
+    assert "--export" not in argv
+    assert key not in (capture / "script").read_text()
+    for path in log_dir.rglob("*"):
+        if path.is_file():
+            assert key not in path.read_text(), path
+    # Only the one submission saw it.
+    assert llm_inference._UPSTREAM_KEY_ENV not in os.environ
+
+
+def test_upstream_key_env_is_restored_after_a_launch(monkeypatch):
+    monkeypatch.setenv(llm_inference._UPSTREAM_KEY_ENV, "operator-value")
+
+    with llm_inference._upstream_key_in_environ("deployment-key"):
+        assert os.environ[llm_inference._UPSTREAM_KEY_ENV] == "deployment-key"
+    assert os.environ[llm_inference._UPSTREAM_KEY_ENV] == "operator-value"
+
+    # A launch without a key must not inherit one left in the environment.
+    with llm_inference._upstream_key_in_environ(None):
+        assert llm_inference._UPSTREAM_KEY_ENV not in os.environ
+    assert os.environ[llm_inference._UPSTREAM_KEY_ENV] == "operator-value"
+
+
+def test_launch_shim_passes_the_payload_key_to_the_direct_client(
+    monkeypatch, tmp_path, capsys
+):
+    from app.utils import vec_inf_launch_shim
+
+    seen = {}
+
+    class RecordingDirectClient:
+        def launch_model(self, model_name, **kwargs):
+            seen.update(kwargs, model_name=model_name)
+            return {"success": True, "job_id": "1", "slurm_job_id": "1"}
+
+    monkeypatch.setattr(
+        vec_inf_launch_shim, "LLMInferenceDirectClient", RecordingDirectClient
+    )
+    payload = tmp_path / "payload.json"
+    payload.write_text(
+        json.dumps(
+            {
+                "model_name": "Qwen3-8B",
+                "enable_cloudflare_tunnel": False,
+                "params": {"num_gpus": 2},
+                "deployment_api_key": "deployment-key-xyz",
+            }
+        )
+    )
+    monkeypatch.setattr("sys.argv", ["shim", str(payload)])
+
+    assert vec_inf_launch_shim.main() == 0
+    assert seen["deployment_api_key"] == "deployment-key-xyz"
+    assert seen["num_gpus"] == 2
+    assert not payload.exists()

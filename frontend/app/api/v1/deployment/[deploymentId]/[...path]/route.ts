@@ -28,6 +28,7 @@ import {
 } from '@/lib/vllm-ai-sdk';
 import { createErrorResponse, validateDeployment } from '@/lib/utils';
 import { canUserAccessDeployment } from '@/lib/auth/validate-request';
+import { upstreamAuthHeaders } from '@/lib/vllm-upstream';
 import type { ModelDeployment } from '@/hooks/use-models';
 
 export const maxDuration = 60;
@@ -93,6 +94,7 @@ async function handleRequest(
       method: request.method,
       headers: {
         'Content-Type': 'application/json',
+        ...(await upstreamAuthHeaders(deployment.id)),
       },
       body: request.method !== 'GET' && request.method !== 'HEAD' 
         ? await request.text() 

@@ -50,6 +50,7 @@ def main() -> int:
     model_name = payload.get("model_name")
     params = payload.get("params") or {}
     enable_cloudflare_tunnel = bool(payload.get("enable_cloudflare_tunnel", False))
+    deployment_api_key = payload.get("deployment_api_key")
 
     if not isinstance(model_name, str) or not model_name.strip():
         print(json.dumps({"success": False, "error": "model_name is required"}))
@@ -57,11 +58,19 @@ def main() -> int:
     if not isinstance(params, dict):
         print(json.dumps({"success": False, "error": "params must be a JSON object"}))
         return 1
+    if deployment_api_key is not None and not isinstance(deployment_api_key, str):
+        print(
+            json.dumps(
+                {"success": False, "error": "deployment_api_key must be a string"}
+            )
+        )
+        return 1
 
     client = LLMInferenceDirectClient()
     result = client.launch_model(
         model_name,
         enable_cloudflare_tunnel=enable_cloudflare_tunnel,
+        deployment_api_key=deployment_api_key,
         **params,
     )
     print(json.dumps(result))

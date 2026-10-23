@@ -1000,9 +1000,20 @@ cmd_launch_test() {
     fi
     ok "server up: ${ep} (job ${job} on $(squeue -h -j "$job" -o '%N' 2>/dev/null))"
     step "Inference"
-    local ms; ms="$(curl -s --max-time 30 "${ep}/models" 2>/dev/null || true)"
+    # vLLM requires the deployment's own key, which only LLMHub knows. Read it from
+    # the database; vcurl hands it to curl through a file descriptor, not argv.
+    local key; key="$(pg_psql -tA -d "$LLMHUB_PG_DB" -c "select \"vllmApiKey\" from \"ModelDeployment\" where id='${id}'" 2>/dev/null | head -1)"
+    vcurl() { if [ -n "$key" ]; then curl -H @<(printf 'Authorization: Bearer %s\n' "$key") "$@"; else curl "$@"; fi; }
+    if [ -n "$key" ]; then
+        local anon; anon="$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${ep}/models" 2>/dev/null || true)"
+        [ "$anon" = 401 ] && ok "vLLM refuses a request without the deployment key (401)" \
+            || bad "vLLM answered a request without the deployment key (HTTP ${anon}) -- any cluster user could reach it"
+    else
+        warn "no vLLM key recorded for deployment ${id} -- it accepts requests from anyone who can reach ${ep}"
+    fi
+    local ms; ms="$(vcurl -s --max-time 30 "${ep}/models" 2>/dev/null || true)"
     printf '%s' "$ms" | jq -e --arg m "$model" '.data[]? | select(.id==$m)' >/dev/null 2>&1 && ok "GET ${ep}/models lists ${model}" || { bad "GET ${ep}/models: ${ms:0:200}"; }
-    local cc; cc="$(curl -s --max-time 120 -X POST -H 'Content-Type: application/json' \
+    local cc; cc="$(vcurl -s --max-time 120 -X POST -H 'Content-Type: application/json' \
         -d "$(jq -nc --arg m "$model" '{model:$m, messages:[{role:"user",content:"Reply with the single word OK."}], max_tokens:8, temperature:0}')" \
         "${ep}/chat/completions" 2>/dev/null || true)"
     local text; text="$(printf '%s' "$cc" | jq -r '.choices[0].message.content // empty' 2>/dev/null)"
