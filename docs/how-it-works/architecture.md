@@ -62,6 +62,7 @@ flowchart LR
 2. backend  → Hugging Face: check the user's access to a gated model (token never stored)
 3. backend  → cluster:   download the weights if the cluster doesn't have them yet
 4. backend  → vec-inf:   write the Slurm job script (vLLM command, GPUs, environment)
+                         and give the job a key of its own that vLLM will require
 5. vec-inf  → Slurm:     sbatch, charged to the chosen account
 6. Slurm    → GPU node:  start vLLM in its Apptainer container
 7. backend:              sees the server is up, records its address, emails "ready"
@@ -86,3 +87,8 @@ Users never talk to the compute nodes or the vLLM servers directly. The
 frontend's route handlers are the only way in: they check who you are and
 whether you can use the deployment, then pass the request through and
 stream the reply back. Model traffic doesn't go through the backend at all.
+
+The vLLM servers enforce this themselves. Each deployment's server requires
+its own key, which only the frontend knows, so a request that reaches a
+compute node any other way is refused. Your LLMHub API key is never passed
+on to vLLM.
