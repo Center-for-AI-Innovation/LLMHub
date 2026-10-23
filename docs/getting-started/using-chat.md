@@ -4,6 +4,11 @@ The chat page is where you talk to running models. Open it with **New Chat**
 in the sidebar, or with the **Chat** button on a running model in **Your
 Active Models**.
 
+<figure markdown="span">
+  ![A chat with a running model](../assets/screenshots/chat-reply.png){ loading=lazy }
+  <figcaption>A chat with a running deployment.</figcaption>
+</figure>
+
 ## Choosing a model
 
 The model picker sits next to the send button. It lists the running

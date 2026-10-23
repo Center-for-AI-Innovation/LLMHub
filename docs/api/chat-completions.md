@@ -184,7 +184,13 @@ rest come from vLLM.
 
 ## Finding the deployment ID
 
+
 Click **API** on the deployment's card in **Your Active Models**. The dialog
 shows the base URL with the deployment ID in it, and generates curl, Python
 and JavaScript examples with the real values filled in. If you relaunch the
 model, it gets a new ID, so copy the new base URL into your code.
+
+<figure markdown="span">
+  ![The API dialog](../assets/screenshots/api-dialog.png){ width="640" loading=lazy }
+  <figcaption>The API dialog. Its base URL shows your LLMHub's own address and the deployment's ID; this one was taken on a test server.</figcaption>
+</figure>

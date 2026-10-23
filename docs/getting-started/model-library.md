@@ -3,6 +3,11 @@
 The **Model Library** is the catalog of models you can launch. It's where you
 land after signing in, and it's in the sidebar.
 
+<figure markdown="span">
+  ![The Model Library](../assets/screenshots/model-library.png){ loading=lazy }
+  <figcaption>The Model Library, searched for <code>qwen2.5</code>.</figcaption>
+</figure>
+
 ## Reading a model card
 
 Each card shows the model's name, a short description of its family, and a
@@ -32,6 +37,11 @@ hyphens, so search for words rather than the exact repository name:
 
 - `llama 3.2 1b` finds *Llama 3.2 1B Instruct*.
 - `Llama-3.2-1B-Instruct` finds nothing.
+
+<figure markdown="span">
+  ![Search results for llama 3.2 1b](../assets/screenshots/model-library-search.png){ loading=lazy }
+  <figcaption>Searching for <code>llama 3.2 1b</code>. Both models carry the <strong>Gated</strong> chip.</figcaption>
+</figure>
 
 Models are listed by family, then by variant. There are no other sort or
 filter options yet.
@@ -63,6 +73,11 @@ To launch one:
    huggingface.co. A **Read** token is enough.
 3. In LLMHub, click **Run Now** and paste the token (it starts with `hf_`)
    into the **Hugging Face access token** field.
+
+<figure markdown="span">
+  ![The launch dialog for a gated model](../assets/screenshots/gated-launch-dialog.png){ width="448" loading=lazy }
+  <figcaption>For a gated model, the launch dialog asks for your Hugging Face token.</figcaption>
+</figure>
 
 LLMHub uses the token only to check that you have access and to download
 the weights. It isn't saved anywhere, isn't written into the cluster job, and

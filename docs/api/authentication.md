@@ -12,6 +12,11 @@ You can generate a key in either of two places:
 - The **API** dialog on a running deployment's card: click
   **Generate API Key** and confirm.
 
+<figure markdown="span">
+  ![The API Key card on the Profile page](../assets/screenshots/profile.png){ loading=lazy }
+  <figcaption>The API Key card on your Profile page.</figcaption>
+</figure>
+
 Copy the key right away. It starts with `llmhub_` and is shown only once.
 LLMHub stores only a fingerprint of it, so nobody, including the
 administrators, can show it to you again.

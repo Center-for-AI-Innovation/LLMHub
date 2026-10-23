@@ -12,6 +12,11 @@ without launching (and paying for) their own copy.
    from the results. You can add several people.
 3. Click **Share access**.
 
+<figure markdown="span">
+  ![The share dialog](../assets/screenshots/share-dialog.png){ width="512" loading=lazy }
+  <figcaption>The share dialog. <strong>People with access</strong> lists the owner and everyone you have added.</figcaption>
+</figure>
+
 You can only find people who have already signed in to LLMHub at least once.
 If a colleague isn't in the results, ask them to sign in first.
 

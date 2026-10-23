@@ -38,6 +38,11 @@ administrators.
 4. Click **Launch**. LLMHub takes you to **Your Active Models** and opens the
    deployment's logs.
 
+<figure markdown="span">
+  ![The Set Model Lifetime dialog](../assets/screenshots/launch-dialog.png){ width="448" loading=lazy }
+  <figcaption>The launch dialog: lifetime and Slurm account.</figcaption>
+</figure>
+
 The card's status shows how far along it is:
 
 | Status | Meaning |
@@ -50,6 +55,11 @@ The card's status shows how far along it is:
 
 You get an email when the model is ready, and another if it fails.
 
+<figure markdown="span">
+  ![A running deployment card](../assets/screenshots/active-running.png){ width="320" loading=lazy }
+  <figcaption>A running deployment, with its expiry time and buttons.</figcaption>
+</figure>
+
 ## 3. Chat with it
 
 1. When the card says **Running**, click **Chat**.
@@ -57,6 +67,11 @@ You get an email when the model is ready, and another if it fails.
 
 The chat opens with your deployment already selected. See
 [Using chat](using-chat.md) for everything else the chat page does.
+
+<figure markdown="span">
+  ![A chat with a running model](../assets/screenshots/chat-reply.png){ loading=lazy }
+  <figcaption>Chatting with a deployment. The model picker is next to the send button.</figcaption>
+</figure>
 
 ## 4. Stop it when you're done
 

@@ -5,6 +5,11 @@ Open the **Model Library**, find a model, and click **Run Now**. The
 
 ## The launch dialog
 
+<figure markdown="span">
+  ![The Set Model Lifetime dialog](../assets/screenshots/launch-dialog.png){ width="448" loading=lazy }
+  <figcaption>The launch dialog.</figcaption>
+</figure>
+
 ### Lifetime
 
 **Hours** and **Minutes** set how long the model stays up once it's running.

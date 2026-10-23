@@ -17,6 +17,11 @@ when it expires. The buttons:
 | **Share** | Gives other users access. See [Sharing & access](sharing-access.md). | The person who launched it |
 | **Stop** | Shuts it down right away, with no confirmation. | The person who launched it |
 
+<figure markdown="span">
+  ![A running deployment card](../assets/screenshots/active-running.png){ width="320" loading=lazy }
+  <figcaption>A running deployment card.</figcaption>
+</figure>
+
 ## Reading the logs
 
 The logs panel has two tabs, **stdout** and **stderr**, showing the last 200
@@ -27,6 +32,11 @@ vLLM, the model server, writes most of its output, including errors, to
 *stderr*. While a model starts you'll see it load the weights, measure GPU
 memory, and size its cache. The model is ready soon after a line saying the
 server has started.
+
+<figure markdown="span">
+  ![The logs panel](../assets/screenshots/logs-panel.png){ loading=lazy }
+  <figcaption>The logs panel on the <strong>stderr</strong> tab. "Application startup complete" means the model is ready.</figcaption>
+</figure>
 
 When something goes wrong, the cause is almost always in the last few lines.
 The most common one is `CUDA out of memory`, or a KV cache that is *larger
