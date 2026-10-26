@@ -29,6 +29,13 @@
       "when": 1789749558573,
       "tag": "0003_add_model_gated",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792706442169,
+      "tag": "0004_add_deployment_vllm_key",
+      "breakpoints": true
     }
   ]
 }
