@@ -48,3 +48,114 @@ vllm serve Qwen/Qwen2.5-1.5B-Instruct --max-model-len=2048
 ```
 
 If you want to use local mock deployments, set `NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS=true`. The app then uses `ALWAYS_ON_VLLM_BASE_URL`/`ALWAYS_ON_VLLM_MODEL` for local endpoint/model defaults.
+
+### Public Embeddings API
+
+Deployments of embedding models (`modelType: Text_Embedding`, e.g. `bge-base-en-v1.5`) expose an OpenAI-compatible embeddings endpoint through LLMHub's public API.
+
+#### Endpoint
+
+```text
+POST /api/public/v1/deployment/{deploymentId}/embeddings
+```
+
+Requests authenticate with an LLMHub API key (generate one from the API Key panel in your user profile, or the API dialog on an active model):
+
+```text
+Authorization: Bearer <LLMHUB_API_KEY>
+```
+
+The key's owner must have access to the deployment (owner or shared user), and the deployment must be `ready` or `running`.
+
+#### Request
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `model` | string | The deployment's model name (shown in the API dialog). |
+| `input` | string or string[] | The text (or list of texts) to embed. |
+
+```json
+{
+  "model": "bge-base-en-v1.5",
+  "input": "Hello from LLMHub"
+}
+```
+
+#### Response
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [0.0132, -0.0237, "..."],
+      "index": 0
+    }
+  ],
+  "model": "bge-base-en-v1.5",
+  "usage": {
+    "prompt_tokens": 5,
+    "total_tokens": 5
+  }
+}
+```
+
+Batch input (`"input": ["first text", "second text"]`) returns one `data` entry per input, in order, with matching `index` values.
+
+#### curl
+
+```bash
+curl -X POST "https://your-llmhub-host.example.com/api/public/v1/deployment/<deploymentId>/embeddings" \
+  -H "Authorization: Bearer <LLMHUB_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "bge-base-en-v1.5",
+    "input": "Hello from LLMHub"
+  }'
+```
+
+#### OpenAI SDK
+
+The endpoint is OpenAI-SDK compatible. Point the client's `base_url` at the deployment's public base URL (`https://your-llmhub-host.example.com/api/public/v1/deployment/<deploymentId>`); the SDK appends `/embeddings`.
+
+Python:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://your-llmhub-host.example.com/api/public/v1/deployment/<deploymentId>",
+    api_key="<LLMHUB_API_KEY>",
+)
+
+response = client.embeddings.create(
+    model="bge-base-en-v1.5",
+    input="Hello from LLMHub",
+)
+
+embedding = response.data[0].embedding
+print(f"Dimensions: {len(embedding)}")
+print(f"First values: {embedding[:5]}")
+```
+
+JavaScript/TypeScript:
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL:
+    "https://your-llmhub-host.example.com/api/public/v1/deployment/<deploymentId>",
+  apiKey: "<LLMHUB_API_KEY>",
+});
+
+const response = await client.embeddings.create({
+  model: "bge-base-en-v1.5",
+  input: "Hello from LLMHub",
+});
+
+const embedding = response.data[0].embedding;
+console.log(`Dimensions: ${embedding.length}`);
+console.log(`First values: ${embedding.slice(0, 5)}`);
+```

@@ -76,6 +76,7 @@ export interface ModelInfo {
   type: 'Small' | 'Medium' | 'Large';
   family: string;
   variant: string;
+  modelType?: string;
   specs: ModelSpecs;
   huggingfaceId?: string; // HuggingFace model ID (e.g., "Qwen/Qwen3-8B")
   gated?: string | null; // HF gating status: null/undefined (public), "auto", "manual", or "unknown" (check failed)

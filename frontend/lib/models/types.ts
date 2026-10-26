@@ -33,12 +33,21 @@ export interface ModelInfo {
   type: 'Small' | 'Medium' | 'Large';
   family: string;
   variant: string;
+  modelType?: string;
   specs: {
     gpus: number;
     nodes: number;
     contextLength: number;
     parallelism: boolean;
   };
+}
+
+export const EMBEDDING_MODEL_TYPE = 'Text_Embedding';
+
+export function isEmbeddingModelType(
+  modelType: string | null | undefined,
+): boolean {
+  return modelType?.toLowerCase() === EMBEDDING_MODEL_TYPE.toLowerCase();
 }
 
 export type ModelSize = 'Small' | 'Medium' | 'Large';

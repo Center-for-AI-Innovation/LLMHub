@@ -13,6 +13,7 @@ import {
   Terminal,
 } from 'lucide-react';
 import { modelCardGradient } from '@/lib/models/utils';
+import { isEmbeddingModelType } from '@/lib/models/types';
 import { ModelCardIcon } from './model-card-icon';
 import { ModelSpecChips } from './model-metadata-chips';
 import { CountryOfConcernNotice } from './country-of-concern-notice';
@@ -82,6 +83,7 @@ const ActiveModelCard = memo(({
   const isDeploymentOwner = Boolean(
     deployment?.id && currentUserId && deployment.userId === currentUserId,
   );
+  const isEmbeddingModel = isEmbeddingModelType(model.modelType);
   const displayModelName =
     ((model as unknown as { name?: string }).name ??
       model.modelName ??
@@ -148,31 +150,37 @@ const ActiveModelCard = memo(({
             <Button
               type="button"
               variant="outline"
-              className={halfWidthOutlineButtonClass}
+              className={
+                isEmbeddingModel
+                  ? flexOutlineButtonClass
+                  : halfWidthOutlineButtonClass
+              }
               disabled={!isDeploymentReady}
             >
               API
             </Button>
           }
         />
-        <Button
-          type="button"
-          className="w-1/2 group transition-colors hover:bg-primary/90 hover:shadow-sm"
-          disabled={!isDeploymentReady}
-          asChild={isDeploymentReady}
-        >
-          {isDeploymentReady && deployment ? (
-            <Link href={`/chat?deployment=${deployment.id}`}>
-              Chat
-              <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
-            </Link>
-          ) : (
-            <>
-              Chat
-              <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
-            </>
-          )}
-        </Button>
+        {!isEmbeddingModel && (
+          <Button
+            type="button"
+            className="w-1/2 group transition-colors hover:bg-primary/90 hover:shadow-sm"
+            disabled={!isDeploymentReady}
+            asChild={isDeploymentReady}
+          >
+            {isDeploymentReady && deployment ? (
+              <Link href={`/chat?deployment=${deployment.id}`}>
+                Chat
+                <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
+              </Link>
+            ) : (
+              <>
+                Chat
+                <ArrowRight className="ml-2 size-4 transition-transform group-hover:translate-x-1" />
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       <div className="mt-3 flex w-full gap-3">

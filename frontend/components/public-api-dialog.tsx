@@ -3,7 +3,12 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Braces, Check, Copy, TerminalSquare } from 'lucide-react';
 
-import type { ModelDeployment } from '@/hooks/use-models';
+import { useDeploymentModelType, type ModelDeployment } from '@/hooks/use-models';
+import {
+  ENDPOINTS,
+  getEndpointKind,
+  type SnippetLanguage,
+} from '@/lib/public-api-snippets';
 import { useGenerateApiKey } from '@/hooks/use-api-key';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
@@ -50,8 +55,6 @@ type PublicApiDialogProps = {
   defaultApiKey?: string;
   trigger?: ReactNode;
 };
-
-type SnippetLanguage = 'curl' | 'python' | 'javascript';
 
 const ACTIVE_DEPLOYMENT_STATUSES = new Set(['ready', 'running']);
 const DEFAULT_HOST = 'https://your-llmhub-host.example.com';
@@ -117,9 +120,12 @@ function getPublicApiBaseUrl(origin: string, deployment: ModelDeployment) {
   return `${origin}/api/public/v1/deployment/${deployment.id}`;
 }
 
-function getDeploymentDisplayLabel(deployment: ModelDeployment) {
+function getDeploymentDisplayLabel(
+  deployment: ModelDeployment,
+  labelSuffix: string | null,
+) {
   const status = deployment.status.toUpperCase();
-  return `${deployment.modelName} (${status})`;
+  return `${deployment.modelName} (${status}${labelSuffix ? ` · ${labelSuffix}` : ''})`;
 }
 
 export function PublicApiDialog({
@@ -142,6 +148,11 @@ export function PublicApiDialog({
 
   const { toast } = useToast();
   const generateApiKey = useGenerateApiKey();
+  const getModelType = useDeploymentModelType();
+
+  function getEndpoint(deployment: ModelDeployment) {
+    return ENDPOINTS[getEndpointKind(getModelType(deployment))];
+  }
 
   const activeDeployments = useMemo(
     () => deployments.filter((deployment) => isActiveDeployment(deployment)),
@@ -183,6 +194,9 @@ export function PublicApiDialog({
   const selectedModelName = selectedDeployment?.modelName || DEFAULT_MODEL_NAME;
   const authorizationHeader = `Bearer ${apiKeyValue || DEFAULT_API_KEY}`;
   const userPromptValue = userPrompt.length > 0 ? userPrompt : DEFAULT_USER_PROMPT;
+  const endpoint = selectedDeployment
+    ? getEndpoint(selectedDeployment)
+    : ENDPOINTS.chatCompletions;
 
   const requestMessages = useMemo(() => {
     const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
@@ -203,88 +217,25 @@ export function PublicApiDialog({
   }, [systemPrompt, userPromptValue]);
 
   const snippets = useMemo(
-    () => ({
-      curl: `curl -X POST "${baseUrl}/chat/completions" \\
-  -H "Authorization: ${authorizationHeader}" \\
-  -H "Content-Type: application/json" \\
-  -d @- <<'JSON'
-${JSON.stringify(
-  {
-    model: selectedModelName,
-    messages: requestMessages,
-    stream: streamResponse,
-  },
-  null,
-  2,
-)}
-JSON`,
-      python: `from openai import OpenAI
-
-client = OpenAI(
-    base_url="${baseUrl}",
-    api_key="${apiKeyValue || DEFAULT_API_KEY}",
-)
-
-messages = ${JSON.stringify(requestMessages, null, 4)}
-
-if ${streamResponse ? 'True' : 'False'}:
-    stream = client.chat.completions.create(
-        model="${selectedModelName}",
-        messages=messages,
-        stream=True,
-    )
-
-    for chunk in stream:
-        delta = chunk.choices[0].delta.content if chunk.choices else None
-        if delta:
-            print(delta, end="")
-    print()
-else:
-    response = client.chat.completions.create(
-        model="${selectedModelName}",
-        messages=messages,
-        stream=False,
-    )
-
-    print(response.choices[0].message.content)`,
-      javascript: `import OpenAI from "openai";
-
-const client = new OpenAI({
-  baseURL: "${baseUrl}",
-  apiKey: "${apiKeyValue || DEFAULT_API_KEY}",
-});
-
-const messages = ${JSON.stringify(requestMessages, null, 2)};
-
-if (${streamResponse ? 'true' : 'false'}) {
-  const stream = await client.chat.completions.create({
-    model: "${selectedModelName}",
-    messages,
-    stream: true,
-  });
-
-  for await (const chunk of stream) {
-    const delta = chunk.choices?.[0]?.delta?.content;
-    if (delta) process.stdout.write(delta);
-  }
-  process.stdout.write("\\n");
-} else {
-  const response = await client.chat.completions.create({
-    model: "${selectedModelName}",
-    messages,
-    stream: false,
-  });
-
-  console.log(response.choices[0]?.message?.content);
-}`,
-    }),
+    () =>
+      endpoint.build({
+        baseUrl,
+        authorizationHeader,
+        apiKey: apiKeyValue,
+        modelName: selectedModelName,
+        prompt: userPromptValue,
+        messages: requestMessages,
+        stream: streamResponse,
+      }),
     [
+      endpoint,
       authorizationHeader,
       apiKeyValue,
       baseUrl,
       requestMessages,
       selectedModelName,
       streamResponse,
+      userPromptValue,
     ],
   );
 
@@ -380,7 +331,10 @@ if (${streamResponse ? 'true' : 'false'}) {
                     <SelectContent>
                       {activeDeployments.map((deployment) => (
                         <SelectItem key={deployment.id} value={deployment.id}>
-                          {getDeploymentDisplayLabel(deployment)}
+                          {getDeploymentDisplayLabel(
+                            deployment,
+                            getEndpoint(deployment).labelSuffix,
+                          )}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -489,21 +443,10 @@ if (${streamResponse ? 'true' : 'false'}) {
               </div>
 
               {/* ── Prompts ── */}
-              <div className="grid gap-4 sm:grid-cols-2">
+              {endpoint.requestEditor === 'input' ? (
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">
-                    System prompt
-                  </label>
-                  <Textarea
-                    value={systemPrompt}
-                    onChange={(event) => setSystemPrompt(event.target.value)}
-                    className="min-h-[80px] resize-y font-mono text-xs leading-relaxed"
-                    placeholder={DEFAULT_SYSTEM_PROMPT}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    User prompt
+                    Input
                   </label>
                   <Textarea
                     value={userPrompt}
@@ -512,9 +455,35 @@ if (${streamResponse ? 'true' : 'false'}) {
                     placeholder={DEFAULT_USER_PROMPT}
                   />
                 </div>
-              </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      System prompt
+                    </label>
+                    <Textarea
+                      value={systemPrompt}
+                      onChange={(event) => setSystemPrompt(event.target.value)}
+                      className="min-h-[80px] resize-y font-mono text-xs leading-relaxed"
+                      placeholder={DEFAULT_SYSTEM_PROMPT}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      User prompt
+                    </label>
+                    <Textarea
+                      value={userPrompt}
+                      onChange={(event) => setUserPrompt(event.target.value)}
+                      className="min-h-[80px] resize-y font-mono text-xs leading-relaxed"
+                      placeholder={DEFAULT_USER_PROMPT}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* ── Stream toggle ── */}
+              {endpoint.supportsStreaming && (
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -538,6 +507,7 @@ if (${streamResponse ? 'true' : 'false'}) {
                   Stream Response
                 </span>
               </div>
+              )}
 
               {/* ── Code snippets ── */}
               <Tabs
