@@ -4,10 +4,12 @@ const {
   getUserFromApiKeyMock,
   getModelDeploymentByIdMock,
   canUserAccessDeploymentMock,
+  getDeploymentUpstreamKeyMock,
 } = vi.hoisted(() => ({
   getUserFromApiKeyMock: vi.fn(),
   getModelDeploymentByIdMock: vi.fn(),
   canUserAccessDeploymentMock: vi.fn(),
+  getDeploymentUpstreamKeyMock: vi.fn(),
 }));
 
 vi.mock('@/lib/security/api-keys', () => ({
@@ -17,7 +19,9 @@ vi.mock('@/lib/security/api-keys', () => ({
 }));
 vi.mock('@/lib/db/queries', () => ({
   getModelDeploymentById: getModelDeploymentByIdMock,
+  getDeploymentUpstreamKey: getDeploymentUpstreamKeyMock,
 }));
+vi.mock('server-only', () => ({}));
 vi.mock('@/lib/auth/validate-request', () => ({
   canUserAccessDeployment: canUserAccessDeploymentMock,
 }));
@@ -62,6 +66,7 @@ beforeEach(() => {
   getUserFromApiKeyMock.mockResolvedValue({ id: 'user-1' });
   getModelDeploymentByIdMock.mockResolvedValue(readyDeployment);
   canUserAccessDeploymentMock.mockResolvedValue(true);
+  getDeploymentUpstreamKeyMock.mockResolvedValue(null);
 });
 
 describe('POST /api/public/v1/deployment/[deploymentId]/embeddings', () => {

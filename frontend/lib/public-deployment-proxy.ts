@@ -23,6 +23,7 @@ import {
   createErrorResponse,
   validateDeployment,
 } from '@/lib/utils';
+import { upstreamAuthHeaders } from '@/lib/vllm-upstream';
 import type { ModelDeployment } from '@/hooks/use-models';
 
 export type PublicDeploymentEndpoint = 'chat/completions' | 'embeddings';
@@ -81,6 +82,7 @@ export async function proxyPublicDeploymentEndpoint(
         'Content-Type':
           request.headers.get('content-type') || 'application/json',
         Accept: request.headers.get('accept') || 'application/json',
+        ...(await upstreamAuthHeaders(deployment.id)),
       },
       body: requestBody,
     });
