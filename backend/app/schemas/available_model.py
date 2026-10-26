@@ -22,7 +22,7 @@ class AvailableModelBase(BaseModel):
     name: str
     description: Optional[str] = None
     status: str = "WARM"
-    type: str
+    size: str
     family: str
     variant: str
     modelType: Optional[str] = None
@@ -44,7 +44,7 @@ class AvailableModelUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
-    type: Optional[str] = None
+    size: Optional[str] = None
     family: Optional[str] = None
     variant: Optional[str] = None
     modelType: Optional[str] = None

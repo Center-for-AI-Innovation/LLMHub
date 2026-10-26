@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- The `AvailableModel` catalog column `type` is renamed to `size` (data-preserving `RENAME COLUMN` migration), since it holds the Small/Medium/Large size label rather than the model's type; the backend SQLAlchemy model, sync comparison, Pydantic schemas, and the frontend drizzle schema and `/api/models` mappings are updated to match. `ModelInfo.type` is renamed to `size` (typed by a shared `ModelSize`), and model cards show the value in a Size chip.
+
 ## [1.1.1] - 2026-10-23
 
 ### Security

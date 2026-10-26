@@ -1386,7 +1386,7 @@ class ModelService:
                 model_id, model_family, max_model_len
             ),
             "status": "WARM",
-            "type": model_size,
+            "size": model_size,
             "family": model_family,
             "variant": model_variant,
             "modelType": model_type,
@@ -1403,7 +1403,7 @@ class ModelService:
                 existing_model.family != model_family
                 or existing_model.variant != model_variant
                 or existing_model.modelType != model_type
-                or existing_model.type != model_size
+                or existing_model.size != model_size
                 or existing_model.vocabSize != vocab_size
                 or existing_model.huggingfaceId != huggingface_id
                 or existing_model.specs != specs
