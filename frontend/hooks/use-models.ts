@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { type LaunchDefaults } from '@/app/api/launch-defaults/route';
 import { type SlurmAccounts } from '@/app/api/slurm-accounts/route';
 
@@ -110,6 +111,16 @@ export interface ChatModelOption {
   description: string;
 }
 
+export function deploymentMatchesModel(
+  deployment: ModelDeployment,
+  model: ModelInfo,
+) {
+  const modelId = model.id.toLowerCase();
+  return [deployment.modelId, deployment.modelName].some(
+    (value) => value?.toLowerCase() === modelId,
+  );
+}
+
 // Fetch all models
 export function useModels(query?: string) {
   return useQuery({
@@ -138,6 +149,18 @@ export function useModels(query?: string) {
     staleTime: 30000, // Cache data for 30 seconds
     gcTime: 300000, // Keep inactive cache for 5 minutes
   });
+}
+
+// Resolve a deployment's model type from the model catalog
+export function useDeploymentModelType() {
+  const { data: models = [] } = useModels();
+
+  return useCallback(
+    (deployment: ModelDeployment) =>
+      models.find((model) => deploymentMatchesModel(deployment, model))
+        ?.modelType,
+    [models],
+  );
 }
 
 // Fetch a specific model

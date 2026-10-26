@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 import {
+  deploymentMatchesModel,
   useModels,
   useModelDeployments,
   useStopModel,
@@ -25,13 +26,6 @@ import {
   getDeploymentStatusInfo,
   isActiveDeploymentStatus,
 } from '@/lib/models/deployment-status';
-
-function deploymentMatchesModel(deployment: ModelDeployment, model: ModelInfo) {
-  const modelId = model.id.toLowerCase();
-  return [deployment.modelId, deployment.modelName].some(
-    (value) => value?.toLowerCase() === modelId,
-  );
-}
 
 function deployedModelsHeading(count: number): string {
   if (count === 1) return '1 Deployed model';
