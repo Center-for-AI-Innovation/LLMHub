@@ -446,7 +446,7 @@ def _catalog(db, model_id, repo_id, gated=None):
         AvailableModel(
             id=model_id,
             name=model_id,
-            type="small",
+            size="small",
             family="test",
             variant="",
             modelType="LLM",

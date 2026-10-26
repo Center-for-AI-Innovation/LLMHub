@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { type LaunchDefaults } from '@/app/api/launch-defaults/route';
 import { type SlurmAccounts } from '@/app/api/slurm-accounts/route';
+import type { ModelSize } from '@/lib/models/types';
 
 import { type ShareDeploymentResponse } from '@/lib/models/deployment-sharing';
 import { useDebounce } from '@/hooks/use-debounce';
@@ -72,7 +73,7 @@ export interface ModelInfo {
   name?: string;
   description: string;
   status: 'warm' | 'cold';
-  type: 'Small' | 'Medium' | 'Large';
+  size: ModelSize;
   family: string;
   variant: string;
   specs: ModelSpecs;

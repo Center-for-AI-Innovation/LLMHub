@@ -1,0 +1,1 @@
+ALTER TABLE "AvailableModel" RENAME COLUMN "type" TO "size";

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import {
   type BackendModelResponse,
   type ModelInfo,
+  type ModelSize,
   getModelSize,
   generateModelDescription,
   formatModelName,
@@ -43,7 +44,7 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
           config.max_model_len,
         ),
         status: 'warm', // Default status, would be updated from actual deployment status
-        type: modelSize,
+        size: modelSize,
         family: config.model_family,
         variant: config.model_variant,
         specs: {
@@ -68,20 +69,20 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
           const family = nameParts[0].toLowerCase();
 
           // Determine model size based on name patterns
-          let type: 'Small' | 'Medium' | 'Large' = 'Medium';
+          let size: ModelSize = 'Medium';
           if (
             modelName.includes('70B') ||
             modelName.includes('Large') ||
             modelName.includes('405B')
           ) {
-            type = 'Large';
+            size = 'Large';
           } else if (
             modelName.includes('7B') ||
             modelName.includes('small') ||
             modelName.includes('1.5B') ||
             modelName.includes('3B')
           ) {
-            type = 'Small';
+            size = 'Small';
           }
 
           return {
@@ -89,14 +90,14 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
             name: formatModelName(modelName),
             description: generateModelDescription(modelName, family, 4096), // Default context length
             status: 'warm',
-            type,
+            size,
             family,
             variant: nameParts.slice(1).join('-'),
             specs: {
-              gpus: type === 'Large' ? 4 : type === 'Medium' ? 2 : 1,
-              nodes: type === 'Large' ? 1 : 1,
+              gpus: size === 'Large' ? 4 : size === 'Medium' ? 2 : 1,
+              nodes: size === 'Large' ? 1 : 1,
               contextLength: modelName.includes('128k') ? 131072 : 4096, // Estimate context length
-              parallelism: type === 'Large',
+              parallelism: size === 'Large',
             },
           };
         });
@@ -115,20 +116,20 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
           const family = nameParts[0].toLowerCase();
 
           // Determine model size based on name patterns
-          let type: 'Small' | 'Medium' | 'Large' = 'Medium';
+          let size: ModelSize = 'Medium';
           if (
             modelName.includes('70B') ||
             modelName.includes('Large') ||
             modelName.includes('405B')
           ) {
-            type = 'Large';
+            size = 'Large';
           } else if (
             modelName.includes('7B') ||
             modelName.includes('small') ||
             modelName.includes('1.5B') ||
             modelName.includes('3B')
           ) {
-            type = 'Small';
+            size = 'Small';
           }
 
           return {
@@ -136,14 +137,14 @@ function transformModels(backendResponse: BackendModelResponse): ModelInfo[] {
             name: formatModelName(modelName),
             description: generateModelDescription(modelName, family, 4096), // Default context length
             status: 'warm',
-            type,
+            size,
             family,
             variant: nameParts.slice(1).join('-'),
             specs: {
-              gpus: type === 'Large' ? 4 : type === 'Medium' ? 2 : 1,
-              nodes: type === 'Large' ? 1 : 1,
+              gpus: size === 'Large' ? 4 : size === 'Medium' ? 2 : 1,
+              nodes: size === 'Large' ? 1 : 1,
               contextLength: modelName.includes('128k') ? 131072 : 4096, // Estimate context length
-              parallelism: type === 'Large',
+              parallelism: size === 'Large',
             },
           };
         });
@@ -176,7 +177,7 @@ export async function GET(request: Request) {
             name: model.name,
             description: model.description || '',
             status: model.status as 'warm' | 'cold' ,
-            type: model.type as 'Small' | 'Medium' | 'Large',
+            size: model.size,
             family: model.family,
             variant: model.variant,
             specs: model.specs as any,
@@ -212,7 +213,7 @@ export async function GET(request: Request) {
           name: model.name,
           description: model.description || '',
           status: model.status as 'warm' | 'cold' ,
-          type: model.type as 'Small' | 'Medium' | 'Large',
+          size: model.size,
           family: model.family,
           variant: model.variant,
           specs: model.specs as any,
@@ -298,7 +299,7 @@ export async function POST() {
           name: model.name,
           description: model.description || '',
           status: model.status as 'warm' | 'cold' ,
-          type: model.type as 'Small' | 'Medium' | 'Large',
+          size: model.size,
           family: model.family,
           variant: model.variant,
           specs: model.specs as any,

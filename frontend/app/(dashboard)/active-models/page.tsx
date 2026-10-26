@@ -124,7 +124,7 @@ function ActiveModelsPageInner() {
           name: deployment.modelName || fallbackId,
           description: 'Active deployment',
           status: 'warm',
-          type: 'Medium',
+          size: 'Medium',
           family: fallbackId.split('-')[0] || 'custom',
           variant: fallbackId,
           specs: {
