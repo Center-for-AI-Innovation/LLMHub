@@ -49,6 +49,32 @@ Alternatively, you can use the start script:
 ./scripts/start.sh
 ```
 
+## Model Cache Eviction
+
+The background service deletes models from `MODEL_CACHE_DIR` that nobody has
+launched in `MODEL_EVICTION_MAX_AGE_DAYS`, going by `ModelDeployment` history. It
+runs at startup and every `MODEL_EVICTION_INTERVAL` seconds
+(`app/services/cache_management_service.py`).
+
+- Never deleted: models with no launch history, and models downloading right now.
+- A model cut off mid-delete is never used half-deleted: its next launch
+  downloads it again.
+- Gated models in `MODEL_STORE_ROOT` are deleted the same way, along with
+  users' hard-linked copies in `<workspace>/<user>/model-weights/`.
+- Stale `COMPILE_CACHE_DIR` entries are deleted too, if it is set.
+
+| Setting | Default |
+|---|---|
+| `MODEL_CACHE_DIR` | unset (no eviction) |
+| `MODEL_STORE_ROOT` | unset (gated models skipped) |
+| `COMPILE_CACHE_DIR` | unset |
+| `MODEL_EVICTION_MAX_AGE_DAYS` | `90` |
+| `MODEL_EVICTION_INTERVAL` | `86400` seconds |
+| `MODEL_EVICTION_DRY_RUN` | `true` (log only) |
+
+Set `MODEL_EVICTION_DRY_RUN=false` on one backend only: each judges "unused" from
+its own database.
+
 ## API Documentation
 
 Once the application is running, you can access the API documentation at:

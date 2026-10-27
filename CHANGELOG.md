@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Model cache eviction runs in the backend's background service instead of a script: at startup and every `MODEL_EVICTION_INTERVAL` seconds (1 second to 1 year, default 1 day), it deletes models not launched in `MODEL_EVICTION_MAX_AGE_DAYS` (default 90). `MODEL_EVICTION_DRY_RUN` defaults to true.
+- A model cut off mid-delete is downloaded again on its next launch instead of being used half-deleted, and a model being downloaded is never evicted.
+- Gated models in `MODEL_STORE_ROOT` are evicted the same way, along with users' hard-linked copies.
+
+### Removed
+
+- `backend/scripts/evict_unused_models.py`.
+
+### Fixed
+
+- Compile-cache cleanup no longer follows symlinks, so a user can't redirect it to delete files outside the cache.
+- A model that can't be deleted is skipped and reported, instead of stopping the run or being logged as deleted.
+- A missing `COMPILE_CACHE_DIR` no longer stops the model cache from being cleaned, and cache permissions are re-tightened after each delete.
+
 ## [1.1.0] - 2026-10-19
 
 ### Added

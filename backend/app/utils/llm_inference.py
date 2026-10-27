@@ -382,7 +382,8 @@ def gated_model_download_state(model_name: str) -> Tuple[str, Optional[str]]:
 
 
 # Written into a repo's cache dir once a download finishes, so an interrupted one
-# isn't mistaken for a complete model. Eviction deletes the repo dir and it with it.
+# isn't mistaken for a complete model. Eviction removes it before deleting the
+# repo, so a delete cut short isn't mistaken for one either.
 _PUBLIC_CACHE_COMPLETE_MARKER = ".llmhub-complete"
 
 

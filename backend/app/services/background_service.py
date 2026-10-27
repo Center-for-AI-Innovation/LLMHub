@@ -4,7 +4,7 @@ import asyncio
 import logging
 import random
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.models.authorized_users import AuthorizedUsers
 from app.models.email_notification import EmailNotification
 from app.models.model_deployment import ModelDeployment
 from app.repositories.session import SessionLocal
+from app.services.cache_management_service import run_eviction
 from app.services.email_service import EmailService
 from app.services.model_service import ModelService
 
@@ -38,6 +39,13 @@ class BackgroundService:
         self.last_model_sync = datetime.utcnow() - timedelta(
             hours=1
         )  # Force sync on startup
+        self.model_eviction_interval = settings.MODEL_EVICTION_INTERVAL
+        # Due on startup too: the timer is in memory, so a backend restarted more
+        # often than the interval would otherwise never evict anything.
+        self.last_model_eviction = datetime.utcnow() - timedelta(
+            seconds=self.model_eviction_interval
+        )
+        self.eviction_task: Optional[asyncio.Task] = None
 
         # Rate limiting settings
         self.max_deployments_per_cycle = settings.MAX_DEPLOYMENTS_PER_CYCLE
@@ -109,6 +117,13 @@ class BackgroundService:
                     await self._sync_models()
                     self.last_model_sync = now
 
+                # Run model cache eviction
+                if (
+                    now - self.last_model_eviction
+                ).total_seconds() >= self.model_eviction_interval:
+                    self._start_model_eviction()
+                    self.last_model_eviction = now
+
                 # Reset consecutive errors on successful execution
                 self.consecutive_errors = 0
 
@@ -149,6 +164,33 @@ class BackgroundService:
         except Exception as e:
             logger.error(f"Error syncing models: {e}")
             raise  # Re-raise to trigger backoff
+
+    def _start_model_eviction(self):
+        """Start cache eviction in a worker thread, without waiting for it.
+
+        Scanning and deleting on the shared filesystem can be slow; awaiting it
+        here would hold up the rest of the loop, including submitting jobs whose
+        downloads have finished.
+        """
+        if not settings.MODEL_CACHE_DIR:
+            logger.info("MODEL_CACHE_DIR not set; skipping model cache eviction")
+            return
+        if self.eviction_task is not None and not self.eviction_task.done():
+            logger.info("Model cache eviction still running; skipping this round")
+            return
+        self.eviction_task = asyncio.create_task(self._evict_unused_models())
+
+    async def _evict_unused_models(self):
+        """Evict models nobody has launched in MODEL_EVICTION_MAX_AGE_DAYS."""
+        try:
+            await asyncio.to_thread(
+                run_eviction,
+                settings.MODEL_EVICTION_MAX_AGE_DAYS,
+                settings.MODEL_EVICTION_DRY_RUN,
+            )
+        except Exception as e:
+            # Nothing awaits this task, so an error not logged here is lost.
+            logger.exception(f"Error evicting unused models: {e}")
 
     async def _advance_downloading_deployments(self):
         """Submit jobs for deployments whose model weights finished downloading."""
