@@ -13,13 +13,12 @@ import {
 } from 'lucide-react';
 
 import {
+  deploymentMatchesModel,
   useModels,
   useModelDeployments,
   useRefreshModels,
   useLaunchModel,
   useLaunchDefaults,
-  type ModelDeployment,
-  type ModelInfo,
 } from '@/hooks/use-models';
 
 import { useDebounce } from '@/hooks/use-debounce';
@@ -30,13 +29,6 @@ import {
 } from '@/components/model-card';
 import { toast } from '@/components/ui/use-toast';
 import { isActiveDeploymentStatus } from '@/lib/models/deployment-status';
-
-function deploymentMatchesModel(deployment: ModelDeployment, model: ModelInfo) {
-  const modelId = model.id.toLowerCase();
-  return [deployment.modelId, deployment.modelName].some(
-    (value) => value?.toLowerCase() === modelId,
-  );
-}
 
 function parseLaunchError(error: unknown): string {
   if (typeof error === 'string' && error.trim().length > 0) {

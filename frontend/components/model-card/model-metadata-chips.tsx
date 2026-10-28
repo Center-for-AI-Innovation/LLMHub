@@ -22,6 +22,14 @@ export const SCALE_COLORS = {
   },
 } as const satisfies Record<string, ScaleColor>;
 
+/**
+ * How a model's type is labelled on chips. The backend defaults a missing
+ * model_type to "LLM", so the same default is shown here.
+ */
+export function formatModelType(modelType: string | null | undefined): string {
+  return modelType ? modelType.replace(/_/g, ' ') : 'LLM';
+}
+
 export function getTypeColor(type: ModelInfo['type']): ScaleColor {
   switch (type) {
     case 'Small':
@@ -123,8 +131,8 @@ export function ModelSpecChips({ model }: { model: ModelInfo }) {
       <ModelMetadataChip
         icon={Brain}
         label="Type"
-        value={model.type}
-        color={getTypeColor(model.type)}
+        value={formatModelType(model.modelType)}
+        color={SCALE_COLORS.neutral}
       />
       <ModelMetadataChip
         icon={Cpu}
