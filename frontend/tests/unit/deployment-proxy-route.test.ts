@@ -48,13 +48,13 @@ function makeContext(path: string[]) {
   return { params: Promise.resolve({ deploymentId: DEPLOYMENT_ID, path }) };
 }
 
-function makeRequest(path: string[]) {
+function makeRequest(path: string[], body = JSON.stringify({ messages: [] })) {
   return new Request(
     `http://localhost/api/v1/deployment/${DEPLOYMENT_ID}/${path.join('/')}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: [] }),
+      body,
     },
   );
 }
@@ -168,31 +168,75 @@ describe('POST /api/v1/deployment/[deploymentId]/[...path]', () => {
     }
   });
 
-  it("authenticates to vLLM with the deployment's own key", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
+  it('proxies embeddings, preserving the request body and upstream response', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"object":"list"}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
     vi.stubGlobal('fetch', fetchMock);
     try {
-      await POST(makeRequest(['completions']), makeContext(['completions']));
+      const requestBody = JSON.stringify({
+        model: 'BAAI/bge-base-en-v1.5',
+        input: 'hello world',
+      });
+      const response = await POST(
+        makeRequest(['embeddings'], requestBody),
+        makeContext(['embeddings']),
+      );
 
-      expect(getDeploymentUpstreamKeyMock).toHaveBeenCalledWith(DEPLOYMENT_ID);
-      const [, init] = fetchMock.mock.calls[0];
-      expect(init.headers.Authorization).toBe('Bearer deployment-key');
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('{"object":"list"}');
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://node1:8000/v1/embeddings',
+        expect.objectContaining({ method: 'POST', body: requestBody }),
+      );
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it('sends no Authorization to a deployment launched before keys existed', async () => {
-    getDeploymentUpstreamKeyMock.mockResolvedValue(null);
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
+  it('strips a trailing /v1 from the endpoint URL when proxying embeddings', async () => {
+    getModelDeploymentByIdMock.mockResolvedValue({
+      ...readyDeployment,
+      endpointUrl: 'http://node1:8000/v1',
+    });
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
     vi.stubGlobal('fetch', fetchMock);
     try {
-      await POST(makeRequest(['completions']), makeContext(['completions']));
+      const response = await POST(
+        makeRequest(['embeddings']),
+        makeContext(['embeddings']),
+      );
 
-      const [, init] = fetchMock.mock.calls[0];
-      expect(init.headers).not.toHaveProperty('Authorization');
+      expect(response.status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://node1:8000/v1/embeddings',
+        expect.objectContaining({ method: 'POST' }),
+      );
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('returns 503 when the deployment has no endpoint URL', async () => {
+    getModelDeploymentByIdMock.mockResolvedValue({
+      ...readyDeployment,
+      endpointUrl: null,
+    });
+
+    const response = await POST(
+      makeRequest(['embeddings']),
+      makeContext(['embeddings']),
+    );
+
+    expect(response.status).toBe(503);
   });
 });

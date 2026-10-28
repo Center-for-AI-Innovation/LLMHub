@@ -1,0 +1,119 @@
+/**
+ * Public Deployment Proxy (OpenAI-compatible)
+ *
+ * Shared handler for API-key-authenticated proxying to a model deployment's
+ * OpenAI-compatible endpoints (chat/completions, embeddings).
+ *
+ * Security:
+ * 1. Requires Authorization: Bearer <llmhub_api_key>
+ * 2. Verifies the API key belongs to a valid user
+ * 3. Verifies the user has access to the deployment
+ * 4. Verifies deployment is ready/running
+ * 5. Proxies request body as-is to the deployment endpoint
+ */
+
+import { canUserAccessDeployment } from '@/lib/auth/validate-request';
+import { getModelDeploymentById } from '@/lib/db/queries';
+import {
+  extractBearerApiKey,
+  getUserFromApiKey,
+} from '@/lib/security/api-keys';
+import {
+  buildDeploymentTargetUrl,
+  createErrorResponse,
+  validateDeployment,
+} from '@/lib/utils';
+import { upstreamAuthHeaders } from '@/lib/vllm-upstream';
+import type { ModelDeployment } from '@/hooks/use-models';
+
+export type PublicDeploymentEndpoint = 'chat/completions' | 'embeddings';
+
+export async function proxyPublicDeploymentEndpoint(
+  request: Request,
+  deploymentId: string,
+  endpointPath: PublicDeploymentEndpoint,
+): Promise<Response> {
+  try {
+    const apiKey = extractBearerApiKey(request.headers.get('authorization'));
+    if (!apiKey) {
+      return createErrorResponse('Unauthorized - API key is required', 401);
+    }
+
+    const apiUser = await getUserFromApiKey(apiKey);
+    if (!apiUser) {
+      return createErrorResponse('Unauthorized - Invalid API key', 401);
+    }
+
+    const deployment = (await getModelDeploymentById(
+      deploymentId,
+    )) as ModelDeployment | null;
+    if (!deployment) {
+      return createErrorResponse(`Deployment not found for deployment ID: ${deploymentId}`, 404);
+    }
+
+    if (!(await canUserAccessDeployment(deployment, apiUser.id))) {
+      return createErrorResponse(
+        'Unauthorized - You do not have access to this deployment',
+        403,
+      );
+    }
+
+    const validation = validateDeployment(deployment);
+    if (!validation.isValid) {
+      return createErrorResponse(
+        validation.error || 'Deployment is not available',
+        503,
+      );
+    }
+
+    if (!deployment.endpointUrl) {
+      return createErrorResponse('Deployment endpoint is unavailable', 503);
+    }
+
+    const targetUrl = buildDeploymentTargetUrl(
+      deployment.endpointUrl,
+      endpointPath,
+    );
+    const requestBody = await request.text();
+
+    const proxyResponse = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type':
+          request.headers.get('content-type') || 'application/json',
+        Accept: request.headers.get('accept') || 'application/json',
+        ...(await upstreamAuthHeaders(deployment.id)),
+      },
+      body: requestBody,
+    });
+
+    const responseHeaders = new Headers();
+    const contentType = proxyResponse.headers.get('content-type');
+    if (contentType) {
+      responseHeaders.set('Content-Type', contentType);
+    }
+
+    return new Response(proxyResponse.body, {
+      status: proxyResponse.status,
+      headers: responseHeaders,
+    });
+  } catch (error) {
+    console.error('[Public Deployment Proxy] Proxy error:', error);
+    return createErrorResponse(
+      error instanceof Error ? error.message : 'Internal server error',
+      500,
+    );
+  }
+}
+
+export function publicCorsPreflight(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
+    },
+  });
+}
