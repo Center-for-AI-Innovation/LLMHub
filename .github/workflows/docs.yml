@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+      # Preview of #130 for review before merge, published as a draft (see
+      # the build step). Remove once the docs branch has merged.
+      - docs/github-pages-site
     paths:
       - docs/**
       - overrides/**
@@ -45,6 +48,9 @@ jobs:
         run: uv sync --frozen --only-group docs
 
       - name: Build site
+        env:
+          # Anything but main builds as a draft: banner and noindex.
+          LLMHUB_DOCS_DRAFT: ${{ github.ref != 'refs/heads/main' && 'true' || '' }}
         run: uv run --frozen mkdocs build --strict
 
       - name: Upload Pages artifact

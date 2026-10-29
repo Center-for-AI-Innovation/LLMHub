@@ -86,6 +86,9 @@ markdown_extensions:
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 extra:
+  # Set by CI for preview builds of a branch other than main: shows a banner
+  # and tells search engines not to index the page.
+  draft: !ENV [LLMHUB_DOCS_DRAFT, false]
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/Center-for-AI-Innovation/LLMHub
