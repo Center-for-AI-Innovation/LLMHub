@@ -5,7 +5,7 @@ land after signing in, and it's in the sidebar.
 
 <figure markdown="span">
   ![The Model Library](../assets/screenshots/model-library.png){ loading=lazy }
-  <figcaption>The Model Library, searched for <code>qwen2.5</code>.</figcaption>
+  <figcaption>The Model Library, searched for <code>qwen2.5</code>. Each Qwen card carries the <a href="#country-of-concern-notice">Country of Concern notice</a>.</figcaption>
 </figure>
 
 ## Reading a model card
