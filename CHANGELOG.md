@@ -8,8 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Documentation site: a Material for MkDocs site in `docs/`, styled after the Illinois Chat docs, published to GitHub Pages (`https://center-for-ai-innovation.github.io/LLMHub/`) by `.github/workflows/docs.yml` on pushes to `main`. It's written for people using LLMHub: Getting Started, Deploying Models, the API reference, How It Works, and a blog. Self-Hosting and Contributing link to the guides in the repository instead of copying them.
+- `CONTRIBUTING.md`: what a pull request needs (the changelog rule, CI's checks and pinned formatter versions, tests, docs).
 - Model cards for DeepSeek-family models (Model Library and Active Models) show a Country of Concern notice: a small-font caution banner with a warning icon stating the model was trained in a US government designated Country of Concern and noting the October 19, 2026 Homeland Security directive ordering federal civilian agencies to remove DeepSeek (LLMHub is seeking university guidance and not removing it yet, possibly with little notice). The "Country of Concern" phrase links to the UI System guidance PDF. Cards for other models are unchanged.
 - Dev contrast-harness section and frontend unit tests covering the Country of Concern notice.
+
 ## [1.1.1] - 2026-10-23
 
 ### Security
