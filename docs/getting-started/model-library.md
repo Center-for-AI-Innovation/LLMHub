@@ -23,6 +23,21 @@ row of chips:
 Click **Run Now** to launch the model. See the
 [Quickstart](quickstart.md#2-launch-a-model) for what the launch dialog asks.
 
+### Country of Concern notice
+
+Some cards carry a small caution notice: the model was trained by an
+organization based in a country the US government designates a *Country of
+Concern*, and it may reflect that country's geopolitical environment,
+cultural norms, policies or censorship. In the current catalog that's the
+**DeepSeek**, **Qwen** (including QwQ), **GLM** and **InternVL** models.
+DeepSeek cards add a note about current federal guidance on DeepSeek and
+warn that LLMHub may have to remove those models with little notice.
+
+The notice is information, not a block: you can still launch these models.
+Before using one for university work, read the University of Illinois
+System's
+[guidance on AI models from Countries of Concern](https://ai.uillinois.edu/userfiles/public/ui_system_ai_guidance_countries_of_concern.pdf).
+
 !!! note "Where did a model go?"
 
     A model you already have running (or downloading, queued or starting)
