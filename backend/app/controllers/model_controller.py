@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.config.config import settings
 from app.models.authorized_users import AuthorizedUsers
 from app.models.user import User
 from app.repositories.session import get_db
@@ -57,9 +58,26 @@ def get_launch_defaults() -> Dict[str, Any]:
     }
 
 
+def _direct_mode_slurm_account() -> Optional[str]:
+    """Account used when the backend submits as itself, not as the signed-in user."""
+    mode = (settings.VEC_INF_EXECUTION_MODE or "direct").strip().lower()
+    if mode == "impersonate":
+        return None
+    account = (settings.VEC_INF_ACCOUNT or settings.SLURM_ACCOUNT or "").strip()
+    return account or None
+
+
 @router.get("/slurm-accounts", response_model=Dict[str, Any])
 def get_slurm_accounts(clusterUsername: str) -> Dict[str, Any]:
-    """Return Slurm accounts associated with a cluster user."""
+    """Return Slurm accounts associated with a cluster user.
+
+    Direct mode submits as the backend process, so the account is the one in
+    ``VEC_INF_ACCOUNT`` / ``SLURM_ACCOUNT`` rather than the signed-in user.
+    """
+    configured = _direct_mode_slurm_account()
+    if configured is not None:
+        return {"accounts": [configured], "defaultAccount": configured}
+
     try:
         cluster_username = normalize_cluster_username(clusterUsername)
     except ValueError as exc:
