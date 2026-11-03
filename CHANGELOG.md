@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The API request dialog shows OpenAI-compatible embeddings examples (curl, Python, JavaScript) when the selected deployment's model is a `Text_Embedding` model, with an input field instead of prompts and no stream toggle; the deployment picker labels embedding deployments. ([#152](https://github.com/Center-for-AI-Innovation/LLMHub/pull/152))
 - Quick-start documentation for the public embeddings endpoint (`frontend/docs/01-quick-start.md`): request/response shape, curl, and OpenAI SDK examples. ([#152](https://github.com/Center-for-AI-Innovation/LLMHub/pull/152))
 - Frontend unit tests for the API dialog's snippet builders and endpoint selection (`frontend/tests/unit/public-api-snippets.test.ts`). ([#152](https://github.com/Center-for-AI-Innovation/LLMHub/pull/152))
+- Public Responses API endpoint: `POST /api/public/v1/deployment/{deploymentId}/responses` forwards OpenAI Responses API requests to the deployment's `/v1/responses` and passes the reply through, streamed or not, using the same API-key checks as chat completions and embeddings. It's stateless: vLLM's response store isn't enabled, so `store` is ignored and `previous_response_id`, background mode and retrieving or cancelling a response aren't available; continue a conversation by sending it again. API only, not the chat page. ([#127](https://github.com/Center-for-AI-Innovation/LLMHub/issues/127))
 
 ### Changed
 
