@@ -10,10 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Model cards for DeepSeek-family models (Model Library and Active Models) show a Country of Concern notice: a small-font caution banner with a warning icon stating the model was trained in a US government designated Country of Concern and noting the October 19, 2026 Homeland Security directive ordering federal civilian agencies to remove DeepSeek (LLMHub is seeking university guidance and not removing it yet, possibly with little notice). The "Country of Concern" phrase links to the UI System guidance PDF. Cards for other models are unchanged.
 - Dev contrast-harness section and frontend unit tests covering the Country of Concern notice.
+- Public, API-key-authenticated embeddings endpoint: `POST /api/public/v1/deployment/{deploymentId}/embeddings` forwards the request body as-is to the deployment's `/v1/embeddings` endpoint and passes the upstream response through (OpenAI-SDK-compatible). It shares the public chat-completions route's auth/authorization chain via a new `frontend/lib/public-deployment-proxy.ts` helper (`proxyPublicDeploymentEndpoint` / `publicCorsPreflight`); both public routes are now thin wrappers differing only in the endpoint path.
+- Frontend unit tests for the public embeddings route, the shared target-URL builder (`buildDeploymentTargetUrl` in `frontend/lib/utils.ts`), and session-auth embeddings proxying.
 
 ### Fixed
 
 - Direct (non-impersonation) mode no longer looks up Slurm accounts from the signed-in email. The launch dialog now uses `VEC_INF_ACCOUNT` / `SLURM_ACCOUNT`, so it can submit when the backend process is not the CILogon identity. ([#157](https://github.com/Center-for-AI-Innovation/LLMHub/issues/157))
+- The session-auth proxy (`/api/v1/deployment/{deploymentId}/*`) now normalizes the deployment `endpointUrl` before appending `/v1/...`: vec-inf stores `endpointUrl` with a trailing `/v1` (e.g. `http://gpua070:44796/v1`), so non-chat paths (`/models`, `/embeddings`, `/completions`) were proxied to `…/v1/v1/…`. It also returns 503 when a deployment has no `endpointUrl` instead of proxying to `undefined/v1/...`."
 
 ## [1.1.1] - 2026-10-23
 
@@ -22,14 +25,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The vLLM servers LLMHub starts on compute nodes accepted requests from anyone on the cluster network who connected to them directly, bypassing LLMHub's sign-in, deployment sharing and gated-model checks. Each deployment's vLLM server now requires its own randomly generated API key, and LLMHub's proxy routes (chat, `/api/v1/deployment/...` and the public API) send it when they forward a request. Users still authenticate to LLMHub as before; the key never reaches the browser, the job script or the job's log files. Deployments launched before this change keep working without one. The Delta kit's `launch-test` uses the key and checks that a request without it is refused. ([#78](https://github.com/Center-for-AI-Innovation/LLMHub/issues/78), [#147](https://github.com/Center-for-AI-Innovation/LLMHub/pull/147))
 - Upgrading: the release adds a database migration (`0004_add_deployment_vllm_key`), which the frontend build applies, and impersonate-mode stacks must rebuild the shim environment (a normal `deploy` of the new tag does). Deployments that were already running keep accepting requests without a key until they are stopped and launched again.
 
-### Added
-
-- Public, API-key-authenticated embeddings endpoint: `POST /api/public/v1/deployment/{deploymentId}/embeddings` forwards the request body as-is to the deployment's `/v1/embeddings` endpoint and passes the upstream response through (OpenAI-SDK-compatible). It shares the public chat-completions route's auth/authorization chain via a new `frontend/lib/public-deployment-proxy.ts` helper (`proxyPublicDeploymentEndpoint` / `publicCorsPreflight`); both public routes are now thin wrappers differing only in the endpoint path.
-- Frontend unit tests for the public embeddings route, the shared target-URL builder (`buildDeploymentTargetUrl` in `frontend/lib/utils.ts`), and session-auth embeddings proxying.
-
-### Fixed
-
-- The session-auth proxy (`/api/v1/deployment/{deploymentId}/*`) now normalizes the deployment `endpointUrl` before appending `/v1/...`: endpoints stored with a trailing `/v1` — e.g. local test deployments — previously produced `/v1/v1/embeddings`. It also returns 503 when a deployment has no `endpointUrl` instead of proxying to `undefined/v1/...`.
 
 ## [1.1.0] - 2026-10-19
 
