@@ -16,7 +16,7 @@ infra/delta/
 ```
 
 The inference image is built separately, per cluster, from `apptainers/` in this
-directory: `apptainers/deltaai/` here, `apptainers/delta/` to follow.
+directory: `apptainers/delta/` and `apptainers/deltaai/`.
 
 It deploys the **whole stack** — PostgreSQL (Apptainer), the FastAPI backend
 (uvicorn) and the Next.js frontend — from a git ref, with every runtime it
@@ -455,7 +455,7 @@ path into the vec-inf config; rebuilding the image is a cluster job, not a VM
 step, and each cluster has its own, because `/sw` is per-cluster and the compute
 nodes differ.
 
-- **Delta** — `apptainers/delta/` (recipe not yet in this repo): Slingshot NCCL, and the
+- **Delta** — `apptainers/delta/`: Slingshot NCCL, and the
   proot/`mksquashfs` failure that rules out a one-shot `apptainer build` there.
 - **DeltaAI** — `apptainers/deltaai/`: aarch64, and **not** Delta's
   vLLM version. DeltaAI's `libfabric.so.1` and `libcxi.so.1` need glibc 2.38,

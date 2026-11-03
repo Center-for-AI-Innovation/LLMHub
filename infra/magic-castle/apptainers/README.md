@@ -2,6 +2,8 @@
 
 This directory contains a SLURM batch script that builds the vLLM Apptainer image used by LLMHub to run model inference jobs on the cluster.
 
+> **On NCSA Delta or DeltaAI, use [`infra/delta/apptainers/`](../../delta/apptainers/) instead.** This stock image has no Slingshot support, so multi-node NCCL falls back to TCP sockets there.
+
 ## What it produces
 
 | Artifact | Path |
