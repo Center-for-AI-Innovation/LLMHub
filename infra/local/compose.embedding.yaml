@@ -1,0 +1,26 @@
+# Embedding-model override for the local stack.
+#
+# Usage (from infra/local):
+#   docker compose -f compose.yaml -f compose.embedding.yaml up --build
+#
+# Serves BAAI/bge-base-en-v1.5 (512-token context). Values are fixed here
+# rather than read from .env, so the Qwen settings in .env don't leak in.
+# Drops the Qwen-specific --language-model-only flag from compose.yaml's
+# command (Compose replaces `command` from an override rather than appending,
+# so the full argument list is restated here).
+services:
+  vllm:
+    command:
+      - BAAI/bge-base-en-v1.5
+      - --served-model-name
+      - BAAI/bge-base-en-v1.5
+      - --max-model-len
+      - "512"
+      - --dtype
+      - auto
+      - --gpu-memory-utilization
+      - "0.65"
+
+  frontend:
+    environment:
+      ALWAYS_ON_VLLM_MODEL: BAAI/bge-base-en-v1.5

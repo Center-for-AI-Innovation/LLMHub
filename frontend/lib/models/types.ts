@@ -35,6 +35,7 @@ export interface ModelInfo {
   size: ModelSize;
   family: string;
   variant: string;
+  modelType?: string;
   specs: {
     gpus: number;
     nodes: number;
@@ -42,6 +43,15 @@ export interface ModelInfo {
     parallelism: boolean;
   };
 }
+
+export const EMBEDDING_MODEL_TYPE = 'Text_Embedding';
+
+export function isEmbeddingModelType(
+  modelType: string | null | undefined,
+): boolean {
+  return modelType?.toLowerCase() === EMBEDDING_MODEL_TYPE.toLowerCase();
+}
+
 
 // Helper function to determine model size based on GPU count
 export function getModelSize(gpuCount: number): ModelSize {
