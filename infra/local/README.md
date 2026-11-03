@@ -42,20 +42,17 @@ Use `docker compose down --volumes` to also remove those caches.
 
 ## Embedding models
 
-To serve an embedding model instead of Qwen, set both values in `.env` first
-(`BAAI/bge-base-en-v1.5` has a 512-token maximum, so the default 4096 makes
-vLLM refuse to start), then start with the embedding override:
+To serve the `BAAI/bge-base-en-v1.5` embedding model instead of Qwen, start
+with the embedding override (no `.env` changes needed):
 
 ```bash
-# in .env:
-# VLLM_MODEL=BAAI/bge-base-en-v1.5
-# VLLM_MAX_MODEL_LEN=512
 docker compose -f compose.yaml -f compose.embedding.yaml up --build
 ```
 
-The override drops the Qwen-specific `--language-model-only` flag; see
-`compose.embedding.yaml` for how it works. Restore the Qwen values in `.env`
-to switch back to the default stack.
+The override fixes the model, 512-token context, dtype, and memory settings
+instead of reading them from `.env`, and drops the Qwen-specific
+`--language-model-only` flag; see `compose.embedding.yaml`. Run without the
+override to switch back to the default stack.
 
 
 ## Other hosts
