@@ -15,8 +15,8 @@ infra/delta/
 └── config/secrets.env.example    secret key names, no values — committed
 ```
 
-The inference image is built separately, per cluster: `devops/apptainers/delta/`
-and `devops/apptainers/deltaai/`.
+The inference image is built separately, per cluster, from `apptainers/` in this
+directory: `apptainers/delta/` and `apptainers/deltaai/`.
 
 It deploys the **whole stack** — PostgreSQL (Apptainer), the FastAPI backend
 (uvicorn) and the Next.js frontend — from a git ref, with every runtime it
@@ -299,7 +299,7 @@ Per-stack overrides go in `$LLMHUB_DEPLOY_ROOT/local.env`, sourced after
 `delta.env` — leaf values only (an image path, a partition), e.g.:
 
 ```bash
-LLMHUB_VLLM_SIF=/work/nvme/<allocation>/$USER/vllm-v0.19.1-slingshot.sif   # a candidate built from devops/apptainers/delta
+LLMHUB_VLLM_SIF=/work/nvme/<allocation>/$USER/vllm-v0.19.1-slingshot.sif   # a candidate image built for Delta
 ```
 
 Three things about the rendered inference config, each found by a failed job:
@@ -455,9 +455,9 @@ path into the vec-inf config; rebuilding the image is a cluster job, not a VM
 step, and each cluster has its own, because `/sw` is per-cluster and the compute
 nodes differ.
 
-- **Delta** — `devops/apptainers/delta/`: Slingshot NCCL, and the
+- **Delta** — `apptainers/delta/`: Slingshot NCCL, and the
   proot/`mksquashfs` failure that rules out a one-shot `apptainer build` there.
-- **DeltaAI** — `devops/apptainers/deltaai/`: aarch64, and **not** Delta's
+- **DeltaAI** — `apptainers/deltaai/`: aarch64, and **not** Delta's
   vLLM version. DeltaAI's `libfabric.so.1` and `libcxi.so.1` need glibc 2.38,
   and every arm64 `vllm/vllm-openai` tag before v0.28.0 is Ubuntu 22.04 with
   glibc 2.35, so v0.28.0 is the earliest base that can carry the fabric.

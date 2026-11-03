@@ -41,3 +41,6 @@ next-env.d.ts
 infra/magic-castle/apptainers/*.sif
 infra/magic-castle/apptainers/*.out
 infra/magic-castle/apptainers/*.err
+infra/delta/apptainers/**/*.sif
+infra/delta/apptainers/**/*.out
+infra/delta/apptainers/**/*.err

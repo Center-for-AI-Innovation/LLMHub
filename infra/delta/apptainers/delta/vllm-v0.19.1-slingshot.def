@@ -1,0 +1,224 @@
+Bootstrap: docker
+From: vllm/vllm-openai:v0.19.1
+
+# =============================================================================
+# vLLM v0.19.1 + Slingshot 11 NCCL integration for NCSA Delta (x86_64)
+#
+# Delta counterpart to DeltaAI's vllm_25.12.post1-py3-slingshot.def. It is NOT
+# a port of that file -- three things differ and each is load-bearing. See
+# README.md in this directory for the full rationale.
+#
+#   1. Pre-built plugin, not a %post source build. DeltaAI compiles
+#      aws-ofi-nccl v1.18.0 in %post because its plugin needed libcudart.so.12
+#      inside a CUDA 13 container. Delta's staged plugin links cudart
+#      STATICALLY, so it is independent of the container's CUDA version and
+#      needs no compile. This also keeps %post trivial -- which matters,
+#      because %post runs under proot on Delta.
+#
+#   2. %files is RHEL 9.6, not SLES 15 SP6. The DeltaAI list names
+#      libldap_r-2.4.so.2 and liblber-2.4.so.2, which DO NOT EXIST on Delta
+#      (they are libldap.so.2 / liblber.so.2 here). An apptainer %files entry
+#      naming a missing host file fails the build. This list was generated
+#      from ldd of the actual plugin, not translated by hand.
+#
+#   3. libc / libm / libstdc++ / libgcc_s are deliberately EXCLUDED even
+#      though ldd lists them. Copying a RHEL 9 glibc over an Ubuntu-based
+#      container's own toolchain breaks the image. libhwloc, libevent and
+#      libcrypt ARE copied -- this plugin needs them and the DeltaAI list
+#      does not carry them.
+#
+# Host libraries land in /usr/lib64, which is near-unused on this Ubuntu-based
+# image, and %environment prepends it. Same placement DeltaAI validated.
+#
+# Build:  cd infra/delta/apptainers/delta && sbatch build-vllm-slingshot.sbatch <out.sif>
+#         Do not run `apptainer build` on this file directly: %setup needs
+#         VLLM_RECIPE_DIR, which the sbatch exports, and a one-shot build
+#         SIGSEGVs in mksquashfs on Delta (see README.md).
+# =============================================================================
+
+%setup
+    set -eu
+    # %setup runs on the build host, with the build's environment and working
+    # directory -- it has no idea where this file lives. build-vllm-slingshot.sbatch
+    # exports the recipe directory; without it, stop here rather than build an
+    # image that is silently missing its plugin or its recipe.
+    : "${VLLM_RECIPE_DIR:?VLLM_RECIPE_DIR is unset -- build with build-vllm-slingshot.sbatch, not apptainer build directly}"
+
+    # --- aws-ofi-nccl (pre-built; see vendor/aws-ofi-nccl/PROVENANCE.md) ---
+    rm -rf "${APPTAINER_ROOTFS}/opt/aws-ofi-nccl"
+    mkdir -p "${APPTAINER_ROOTFS}/opt/aws-ofi-nccl/lib"
+    cp -v --no-preserve=ownership,mode,timestamps \
+        "${VLLM_RECIPE_DIR}/vendor/aws-ofi-nccl/lib/libnccl-net-ofi.so" \
+        "${APPTAINER_ROOTFS}/opt/aws-ofi-nccl/lib/"
+
+    # --- ship the recipe INSIDE the image ------------------------------------
+    # The SIF's own Def.FILE descriptor is NOT the recipe. This is a two-step
+    # build, so step 2's source is the sandbox and apptainer records exactly
+    # that -- a 66-byte stub reading "bootstrap: localimage / from: /tmp/...",
+    # naming a scratch path that no longer exists. `apptainer inspect
+    # --deffile` therefore SUCCEEDS and tells you nothing, which is worse than
+    # failing. True for both pack paths; it is a property of the two-step, not
+    # of how the squashfs is made.
+    # No `|| true`: this copy used to be allowed to fail, and when its
+    # hardcoded source path disappeared the image would have shipped with no
+    # recipe and no error.
+    mkdir -p "${APPTAINER_ROOTFS}/opt/cray-shim/recipe"
+    cp -v --no-preserve=ownership,mode,timestamps \
+        "${VLLM_RECIPE_DIR}/vllm-v0.19.1-slingshot.def" \
+        "${VLLM_RECIPE_DIR}/vendor/aws-ofi-nccl/PROVENANCE.md" \
+        "${APPTAINER_ROOTFS}/opt/cray-shim/recipe/"
+
+    # --- Cray libfabric 2.3.1 incl. the CXI provider ---
+    # Isolated dir, NOT /usr/lib64. See the shadowing note in %post.
+    # cp -a is wrong here: it preserves host UIDs that do not exist in-image.
+    mkdir -p "${APPTAINER_ROOTFS}/opt/cray-shim/lib" \
+             "${APPTAINER_ROOTFS}/opt/cray-shim/staging"
+    cp -v --no-preserve=ownership,mode,timestamps \
+        /opt/cray/libfabric/2.3.1/lib64/libfabric.so* \
+        "${APPTAINER_ROOTFS}/opt/cray-shim/lib/"
+
+%files
+    /lib64/libatomic.so.1   /opt/cray-shim/staging/libatomic.so.1
+    /lib64/libbrotlicommon.so.1   /opt/cray-shim/staging/libbrotlicommon.so.1
+    /lib64/libbrotlidec.so.1   /opt/cray-shim/staging/libbrotlidec.so.1
+    /lib64/libcom_err.so.2   /opt/cray-shim/staging/libcom_err.so.2
+    /lib64/libcrypt.so.2   /opt/cray-shim/staging/libcrypt.so.2
+    /lib64/libcrypto.so.3   /opt/cray-shim/staging/libcrypto.so.3
+    /lib64/libcurl.so.4   /opt/cray-shim/staging/libcurl.so.4
+    /lib64/libcxi.so.1   /opt/cray-shim/staging/libcxi.so.1
+    /lib64/libevent-2.1.so.7   /opt/cray-shim/staging/libevent-2.1.so.7
+    /lib64/libgssapi_krb5.so.2   /opt/cray-shim/staging/libgssapi_krb5.so.2
+    /lib64/libhwloc.so.15   /opt/cray-shim/staging/libhwloc.so.15
+    /lib64/libidn2.so.0   /opt/cray-shim/staging/libidn2.so.0
+    /lib64/libjson-c.so.5   /opt/cray-shim/staging/libjson-c.so.5
+    /lib64/libk5crypto.so.3   /opt/cray-shim/staging/libk5crypto.so.3
+    /lib64/libkeyutils.so.1   /opt/cray-shim/staging/libkeyutils.so.1
+    /lib64/libkrb5.so.3   /opt/cray-shim/staging/libkrb5.so.3
+    /lib64/libkrb5support.so.0   /opt/cray-shim/staging/libkrb5support.so.0
+    /lib64/liblber.so.2   /opt/cray-shim/staging/liblber.so.2
+    /lib64/libldap.so.2   /opt/cray-shim/staging/libldap.so.2
+    /lib64/libnghttp2.so.14   /opt/cray-shim/staging/libnghttp2.so.14
+    /lib64/libnl-3.so.200   /opt/cray-shim/staging/libnl-3.so.200
+    /lib64/libpcre2-8.so.0   /opt/cray-shim/staging/libpcre2-8.so.0
+    /lib64/libpsl.so.5   /opt/cray-shim/staging/libpsl.so.5
+    /lib64/libresolv.so.2   /opt/cray-shim/staging/libresolv.so.2
+    /lib64/libsasl2.so.3   /opt/cray-shim/staging/libsasl2.so.3
+    /lib64/libselinux.so.1   /opt/cray-shim/staging/libselinux.so.1
+    /lib64/libssh.so.4   /opt/cray-shim/staging/libssh.so.4
+    /lib64/libssl.so.3   /opt/cray-shim/staging/libssl.so.3
+    /lib64/libunistring.so.2   /opt/cray-shim/staging/libunistring.so.2
+    /lib64/libz.so.1   /opt/cray-shim/staging/libz.so.1
+
+%post
+    set -e
+    # --- Keep ONLY the host libraries the container genuinely lacks ----------
+    # Measured on the vLLM base: of the 30 libraries ldd reports for the
+    # plugin, only ~6 are actually missing (libcxi, libhwloc, libsasl2,
+    # libldap, liblber -- plus libfabric, injected separately). The container
+    # already ships the other ~25, INCLUDING libssl/libcrypto.
+    #
+    # Keeping the host copies would be actively harmful. Delta is OpenSSL
+    # 3.2.2 and this base is 3.0.2 -- same SONAME, two minor versions apart.
+    # Anything that put the host copy ahead of the container's (an
+    # LD_LIBRARY_PATH entry, or /usr/lib64 in ld.so.conf) would swap OpenSSL
+    # out from under Python for the whole image, and vLLM pulls models from
+    # HuggingFace over HTTPS. This is a known trap: see the mpi-poc build
+    # iteration table, where registering /usr/lib64 broke Python SSL and
+    # un-registering it broke libfabric.
+    #
+    # The pruning is done HERE rather than by trimming %files because the
+    # gap set depends on the base image and must be recomputed, not assumed.
+    echo "=== pruning staged host libs against what the container provides ==="
+    for f in /opt/cray-shim/staging/*; do
+        [ -e "$f" ] || continue
+        soname=$(basename "$f")
+        if ldconfig -p 2>/dev/null | grep -q "[[:space:]]${soname}[[:space:]]"; then
+            echo "  container HAS ${soname} -- dropping host copy"
+            rm -f "$f"
+        else
+            echo "  GAP ${soname} -- keeping host copy"
+            mv "$f" /opt/cray-shim/lib/
+        fi
+    done
+    rmdir /opt/cray-shim/staging 2>/dev/null || true
+    echo "--- kept: ---"; ls -l /opt/cray-shim/lib/
+
+    # Plugin loader symlinks: NCCL dlopens "libnccl-net.so".
+    cd /opt/aws-ofi-nccl/lib
+    ln -sf libnccl-net-ofi.so libnccl-net.so
+    chmod a+rx libnccl-net-ofi.so libnccl-net.so
+    chmod -R a+rX /opt/cray-shim /opt/aws-ofi-nccl
+
+    # Any bundled NCCL net plugin shadows ours during discovery, fails with
+    # "NET/IB : No device found", and silently falls back to Socket transport.
+    rm -f /usr/lib64/libnccl-net.so.[0-9]* 2>/dev/null || true
+    # Register the shim dir LAST so container libs win any future collision.
+    echo "/opt/cray-shim/lib"   >  /etc/ld.so.conf.d/zz-cray-shim.conf
+    echo "/opt/aws-ofi-nccl/lib" >> /etc/ld.so.conf.d/zz-cray-shim.conf
+    ldconfig
+    rm -rf /opt/hpcx/nccl_rdma_sharp_plugin/lib/libnccl-net* \
+           /opt/hpcx/nccl_spectrum-x_plugin/lib/libnccl-net* \
+           /opt/amazon/aws-ofi-nccl 2>/dev/null || true
+
+    # mksquashfs -all-root (which replaces what proot's fake-root would have
+    # supplied) makes every directory root-owned, including /tmp -- which ends
+    # up 0700 instead of 1777. Apptainer normally bind-mounts the host /tmp
+    # over it so this stays hidden, but under --containall or --no-mount tmp
+    # the image is then unusable by a non-root user.
+    chmod 1777 /tmp /var/tmp 2>/dev/null || true
+
+    # --- Ray: vec-inf's multi-node vLLM path -------------------------------
+    # vec-inf 0.9.0 launches multi-node vLLM as a Ray cluster (ray start
+    # --head / workers under srun) and passes --distributed-executor-backend
+    # ray. The upstream v0.19.1 image ships NO ray (the 0.11.0 image had
+    # 2.49.2); vllm/v1/executor/ray_executor.py requires >= 2.43.0 and the
+    # cupy that ray[cgraph] pulls in. Single-node TP never touches this.
+    echo "=== installing ray for the vec-inf multi-node launcher ==="
+    uv pip install --system --no-cache --link-mode=copy "ray[default,cgraph]==2.58.0"
+    python3 -c 'import ray, cupy; print("ray", ray.__version__, "cupy", cupy.__version__)'
+
+    echo "=== plugin dir ==="; ls -l /opt/aws-ofi-nccl/lib
+    echo "=== cxi markers in injected libfabric ==="
+    python3 -c "d=open('/opt/cray-shim/lib/libfabric.so.1','rb').read(); print('  cxi markers:', d.count(b'cxi_'))" \
+        2>/dev/null || echo "  (python3 unavailable at %post time)"
+    echo "=== container OpenSSL must still be the container's ==="
+    python3 -c "import ssl; print('  ', ssl.OPENSSL_VERSION)" 2>&1 || true
+    # ldconfig above put both shim dirs in the cache, so a bare ldd is now
+    # honest -- no LD_LIBRARY_PATH needed, at build time or at run time.
+    # That matters beyond tidiness: if the plugin were reachable only via
+    # %environment, any job that resets LD_LIBRARY_PATH (a module load, srun
+    # --export, a user script) would silently lose the shim and NCCL would
+    # fall back to sockets -- invisibly, looking like a perf problem.
+    echo "=== ldd plugin (NO 'not found' expected) ==="
+    ldd /opt/aws-ofi-nccl/lib/libnccl-net-ofi.so || true
+
+%environment
+    # Deliberately NOT /usr/lib64 -- see the shadowing note in %post. The
+    # shim dirs are in the ldconfig cache, so this is belt-and-braces only.
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/opt/aws-ofi-nccl/lib:/opt/cray-shim/lib:${LD_LIBRARY_PATH}
+    export NCCL_NET_PLUGIN=/opt/aws-ofi-nccl/lib/libnccl-net.so
+    # NO FI_PROVIDER_PATH. On Delta the CXI provider is built into libfabric
+    # rather than shipped as a dlopen'd provider .so:
+    #   nm -D libfabric.so.1 | grep -ci cxi                -> 41
+    #   nm -D --defined-only libfabric.so.1 | grep -ci cxi ->  0
+    # i.e. those 41 are UNDEFINED -- libfabric IMPORTS them from libcxi.so.1,
+    # which it carries as a hard DT_NEEDED dependency. The provider directory
+    # /opt/cray/libfabric/2.3.1/lib64/libfabric/ is EMPTY and `fi_info -l`
+    # lists cxi. DeltaAI sets FI_PROVIDER_PATH because its CXI really is a
+    # dlopen'd .so; pointing it at an empty dir here asserts something untrue.
+    #
+    # Consequence: libcxi.so.1 is a HARD %files requirement. Because it is
+    # DT_NEEDED and not dlopen'd, omitting it makes libfabric fail to load
+    # outright -- and that failure surfaces as "NCCL chose sockets", not as a
+    # loader error. It is in the %files list above; keep it there.
+    export FI_LOG_LEVEL=warn
+    export NCCL_IB_DISABLE=1
+    export NCCL_SOCKET_IFNAME=hsn
+    export NCCL_CROSS_NIC=1
+
+%labels
+    org.ncsa.system      delta
+    org.ncsa.vllm        v0.19.1
+    org.ncsa.ray         2.58.0
+    org.ncsa.slingshot   cray-libfabric-2.3.1
+    org.ncsa.recipe      LLMHub/infra/delta/apptainers/delta
