@@ -13,6 +13,7 @@ development environment, see the [README](README.md#local-development).
    `isort==8.0.1` and `flake8==7.3.0`; a newer `black` can format differently
    and fail the check. The [pre-commit hooks](README.md#linting--pre-commit)
    run the same tools on `git commit`.
+4. **Add testing notes to the description.** See [below](#testing-notes).
 
 ## Checks
 
@@ -78,6 +79,23 @@ Two other workflows:
 - When you mock an external library or service, build the mock from its real
   schema or a recorded response, not from what the code assumes. Tests fed
   hand-made shapes have let real bugs through.
+
+## Testing notes
+
+Every pull request description has a **Testing** section, so reviewers know
+what was actually exercised before they approve:
+
+- **Automated:** what passes (backend and frontend suites, linters), and what
+  the new tests prove.
+- **Live:** where you ran it (local stack, staging, dev; Delta or DeltaAI;
+  direct or impersonate mode), which commit, and the cases you tried, with
+  Slurm job IDs and results. Changes to launches, jobs, permissions or
+  anything the cluster runs need a live run, not just unit tests.
+- **Not covered:** what you didn't test, or only tested with mocks. Say so
+  plainly; it tells reviewers where to look.
+
+If the branch changes after review, for example when it's merged with
+`main` again, update the section to say what was re-tested on which commit.
 
 ## Docs
 
