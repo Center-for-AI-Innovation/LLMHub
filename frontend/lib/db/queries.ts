@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, gt, gte, inArray, or, ilike, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gt, gte, inArray, or, ilike, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 
 import {
@@ -22,6 +22,16 @@ import {
   type PendingDeploymentInvite,
 } from './schema';
 import type { ArtifactKind } from '@/components/artifact';
+
+/**
+ * Every ModelDeployment column except vllmApiKey. Several routes return
+ * deployment rows to the browser, so deployment queries select these columns
+ * and the key is read only by getDeploymentUpstreamKey, for the proxy routes.
+ */
+const { vllmApiKey: _vllmApiKey, ...deploymentColumns } =
+  getTableColumns(modelDeployment);
+
+export type DeploymentRow = Omit<ModelDeployment, 'vllmApiKey'>;
 
 // User Utility Functions
 // ==========================================
@@ -570,7 +580,7 @@ export async function createModelDeployment({
   errorMessage?: string | null;
   resourceAllocation?: Record<string, unknown> | null;
   expiresAt?: Date | null;
-}): Promise<ModelDeployment> {
+}): Promise<DeploymentRow> {
   try {
     const [deployment] = await db
       .insert(modelDeployment)
@@ -586,7 +596,7 @@ export async function createModelDeployment({
         resourceAllocation,
         expiresAt,
       })
-      .returning();
+      .returning(deploymentColumns);
     return deployment;
   } catch (error) {
     console.error('Failed to create model deployment in database', error);
@@ -597,10 +607,10 @@ export async function createModelDeployment({
 /**
  * Get model deployment by Slurm job ID
  */
-export async function getModelDeploymentByJobId(slurmJobId: string): Promise<ModelDeployment | null> {
+export async function getModelDeploymentByJobId(slurmJobId: string): Promise<DeploymentRow | null> {
   try {
     const [deployment] = await db
-      .select()
+      .select(deploymentColumns)
       .from(modelDeployment)
       .where(eq(modelDeployment.slurmJobId, slurmJobId))
       .limit(1);
@@ -612,10 +622,10 @@ export async function getModelDeploymentByJobId(slurmJobId: string): Promise<Mod
 }
 
 
-export async function getModelDeploymentsByUserId(userId: string): Promise<ModelDeployment[]> {
+export async function getModelDeploymentsByUserId(userId: string): Promise<DeploymentRow[]> {
   try {
     return await db
-      .select()
+      .select(deploymentColumns)
       .from(modelDeployment)
       .where(eq(modelDeployment.userId, userId));
   } catch (error) {
@@ -624,10 +634,10 @@ export async function getModelDeploymentsByUserId(userId: string): Promise<Model
   }
 }
 
-export async function getModelDeploymentById(id: string): Promise<ModelDeployment | null> {
+export async function getModelDeploymentById(id: string): Promise<DeploymentRow | null> {
   try {
     const [deployment] = await db
-      .select()
+      .select(deploymentColumns)
       .from(modelDeployment)
       .where(eq(modelDeployment.id, id))
       .limit(1);
@@ -642,11 +652,11 @@ export async function getModelDeploymentById(id: string): Promise<ModelDeploymen
  * Get the active/running model deployment for a user
  * Returns the most recent deployment where the user has access and status is 'ready' or 'running'
  */
-export async function getActiveModelDeploymentByUserId(userId: string): Promise<ModelDeployment | null> {
+export async function getActiveModelDeploymentByUserId(userId: string): Promise<DeploymentRow | null> {
   try {
     // Look for deployments where status is 'ready' or 'running'
     const [deployment] = await db
-      .select()
+      .select(deploymentColumns)
       .from(modelDeployment)
       .where(
         and(
@@ -790,10 +800,10 @@ export async function getAuthorizedUserByDeploymentIdAndUserId({
  */
 export async function getAccessibleDeploymentsByUserId(
   userId: string,
-): Promise<ModelDeployment[]> {
+): Promise<DeploymentRow[]> {
   try {
     const rows = await db
-      .select({ deployment: modelDeployment })
+      .select({ deployment: deploymentColumns })
       .from(authorizedUsers)
       .innerJoin(modelDeployment, eq(authorizedUsers.deploymentId, modelDeployment.id))
       .where(eq(authorizedUsers.userId, userId));
@@ -810,10 +820,10 @@ export async function getAccessibleDeploymentsByUserId(
  */
 export async function getActiveAccessibleDeploymentByUserId(
   userId: string,
-): Promise<ModelDeployment | null> {
+): Promise<DeploymentRow | null> {
   try {
     const [row] = await db
-      .select({ deployment: modelDeployment })
+      .select({ deployment: deploymentColumns })
       .from(authorizedUsers)
       .innerJoin(
         modelDeployment,
@@ -988,3 +998,18 @@ export async function claimPendingDeploymentInvitesForUser({
 }
 
 
+
+/**
+ * The key vLLM requires for one deployment, for the proxy routes to send when
+ * they forward a request. Never return it to a client.
+ */
+export async function getDeploymentUpstreamKey(
+  deploymentId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ key: modelDeployment.vllmApiKey })
+    .from(modelDeployment)
+    .where(eq(modelDeployment.id, deploymentId))
+    .limit(1);
+  return row?.key ?? null;
+}

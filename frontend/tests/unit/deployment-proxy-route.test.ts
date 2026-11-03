@@ -6,19 +6,23 @@ const {
   getModelDeploymentByIdMock,
   canUserAccessDeploymentMock,
   handleChatCompletionsMock,
+  getDeploymentUpstreamKeyMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   getUserByIdMock: vi.fn(),
   getModelDeploymentByIdMock: vi.fn(),
   canUserAccessDeploymentMock: vi.fn(),
   handleChatCompletionsMock: vi.fn(),
+  getDeploymentUpstreamKeyMock: vi.fn(),
 }));
 
 vi.mock('@/app/(auth)/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/db/queries', () => ({
   getUserById: getUserByIdMock,
   getModelDeploymentById: getModelDeploymentByIdMock,
+  getDeploymentUpstreamKey: getDeploymentUpstreamKeyMock,
 }));
+vi.mock('server-only', () => ({}));
 vi.mock('@/lib/auth/validate-request', () => ({
   canUserAccessDeployment: canUserAccessDeploymentMock,
 }));
@@ -62,6 +66,7 @@ beforeEach(() => {
   getModelDeploymentByIdMock.mockResolvedValue(readyDeployment);
   canUserAccessDeploymentMock.mockResolvedValue(true);
   handleChatCompletionsMock.mockResolvedValue(new Response('ok'));
+  getDeploymentUpstreamKeyMock.mockResolvedValue('deployment-key');
 });
 
 describe('POST /api/v1/deployment/[deploymentId]/[...path]', () => {
@@ -158,6 +163,34 @@ describe('POST /api/v1/deployment/[deploymentId]/[...path]', () => {
         'http://node1:8000/v1/completions',
         expect.objectContaining({ method: 'POST' }),
       );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("authenticates to vLLM with the deployment's own key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await POST(makeRequest(['completions']), makeContext(['completions']));
+
+      expect(getDeploymentUpstreamKeyMock).toHaveBeenCalledWith(DEPLOYMENT_ID);
+      const [, init] = fetchMock.mock.calls[0];
+      expect(init.headers.Authorization).toBe('Bearer deployment-key');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sends no Authorization to a deployment launched before keys existed', async () => {
+    getDeploymentUpstreamKeyMock.mockResolvedValue(null);
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await POST(makeRequest(['completions']), makeContext(['completions']));
+
+      const [, init] = fetchMock.mock.calls[0];
+      expect(init.headers).not.toHaveProperty('Authorization');
     } finally {
       vi.unstubAllGlobals();
     }

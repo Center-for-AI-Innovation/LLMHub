@@ -15,6 +15,7 @@ import {
 import { modelCardGradient } from '@/lib/models/utils';
 import { ModelCardIcon } from './model-card-icon';
 import { ModelSpecChips } from './model-metadata-chips';
+import { CountryOfConcernNotice } from './country-of-concern-notice';
 import type { DeploymentStatusInfo } from '@/lib/models/deployment-status';
 import type { 
   ModelInfo,
@@ -132,7 +133,9 @@ const ActiveModelCard = memo(({
       )}
 
       <p className="text-muted-foreground line-clamp-2 mb-4">{model.description}</p>
-      
+
+      <CountryOfConcernNotice model={model} />
+
       <div className="mb-6 flex flex-wrap gap-2">
         <ModelSpecChips model={model} />
       </div>

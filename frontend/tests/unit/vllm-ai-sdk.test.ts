@@ -11,6 +11,7 @@ const { createOpenAIMock, chatMock } = vi.hoisted(() => {
 vi.mock('@ai-sdk/openai', () => ({ createOpenAI: createOpenAIMock }));
 vi.mock('@/lib/db/queries', () => ({
   getChatById: vi.fn(),
+  getDeploymentUpstreamKey: vi.fn(),
   saveChat: vi.fn(),
   saveMessages: vi.fn(),
 }));
@@ -37,22 +38,35 @@ describe('isChatCompletionsEndpoint', () => {
 
 describe('createVllmProvider', () => {
   it('throws when the deployment has no endpoint URL', () => {
-    expect(() => createVllmProvider({ id: 'dep-1' } as never)).toThrow(
+    expect(() => createVllmProvider({ id: 'dep-1' } as never, null)).toThrow(
       'No endpoint URL available for deployment',
     );
   });
 
   it('normalizes a trailing /v1 so it is not duplicated', () => {
-    createVllmProvider({ id: 'dep-1', endpointUrl: 'http://node1:8000/v1/' } as never);
+    createVllmProvider(
+      { id: 'dep-1', endpointUrl: 'http://node1:8000/v1/' } as never,
+      null,
+    );
     expect(createOpenAIMock).toHaveBeenCalledWith(
       expect.objectContaining({ baseURL: 'http://node1:8000/v1' }),
     );
   });
 
   it('appends /v1 when the endpoint URL lacks it', () => {
-    createVllmProvider({ id: 'dep-1', endpointUrl: 'http://node1:8000' } as never);
+    createVllmProvider({ id: 'dep-1', endpointUrl: 'http://node1:8000' } as never, null);
     expect(createOpenAIMock).toHaveBeenCalledWith(
       expect.objectContaining({ baseURL: 'http://node1:8000/v1' }),
+    );
+  });
+
+  it("uses the deployment's vLLM key as the API key", () => {
+    createVllmProvider(
+      { id: 'dep-1', endpointUrl: 'http://node1:8000' } as never,
+      'deployment-key',
+    );
+    expect(createOpenAIMock).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: 'deployment-key' }),
     );
   });
 });

@@ -8,8 +8,9 @@ import subprocess
 import sys
 import threading
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 from huggingface_hub import snapshot_download
 from huggingface_hub.file_download import repo_folder_name
@@ -42,6 +43,33 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 _SHELL_DQUOTE_SPECIAL_RE = re.compile(r'[\\"`]')
 
 _select_user_slurm_account = select_user_slurm_account
+
+# vLLM refuses /v1/* requests without this key when it is set, so only LLMHub's
+# proxy, which knows the key, can reach a deployment. The key reaches the
+# container through the submitting process's environment: sbatch exports it to
+# the job, and Apptainer passes APPTAINERENV_* through --containall. That keeps it
+# out of the job script, the job JSON and every command line (`ps` on shared nodes).
+_UPSTREAM_KEY_ENV = "APPTAINERENV_VLLM_API_KEY"
+_upstream_key_env_lock = threading.Lock()
+
+
+@contextmanager
+def _upstream_key_in_environ(key: Optional[str]) -> Iterator[None]:
+    """Set the deployment key for the duration of one submission.
+
+    Launches run on concurrent threads and sbatch copies the whole process
+    environment, so the lock keeps one launch from submitting with another's key.
+    """
+    with _upstream_key_env_lock:
+        previous = os.environ.pop(_UPSTREAM_KEY_ENV, None)
+        if key:
+            os.environ[_UPSTREAM_KEY_ENV] = key
+        try:
+            yield
+        finally:
+            os.environ.pop(_UPSTREAM_KEY_ENV, None)
+            if previous is not None:
+                os.environ[_UPSTREAM_KEY_ENV] = previous
 
 
 def _grant_acl_access(path: Path, usernames: List[str], failure_context: str) -> None:
@@ -814,14 +842,22 @@ class LLMInferenceDirectClient:
         return LaunchOptions(**mapped)
 
     def launch_model(
-        self, model_name: str, enable_cloudflare_tunnel: bool = False, **params
+        self,
+        model_name: str,
+        enable_cloudflare_tunnel: bool = False,
+        deployment_api_key: Optional[str] = None,
+        **params,
     ):
-        """Launch a model using the vec-inf Python API."""
+        """Launch a model using the vec-inf Python API.
+
+        ``deployment_api_key`` becomes vLLM's API key for this deployment.
+        """
         # SDK tunnel support is handled externally for now.
         _ = enable_cloudflare_tunnel
         try:
             options = self._build_launch_options(**params)
-            resp = self.client.launch_model(model_name, options=options)
+            with _upstream_key_in_environ(deployment_api_key):
+                resp = self.client.launch_model(model_name, options=options)
             slurm_job_id = getattr(resp, "slurm_job_id", None)
             logger.info("Launched model %s -> %s", model_name, slurm_job_id)
             return {
@@ -1000,12 +1036,14 @@ class LLMInferenceClient:
         model_name: str,
         enable_cloudflare_tunnel: bool,
         params: Dict[str, Any],
+        deployment_api_key: Optional[str] = None,
     ) -> str:
         return json.dumps(
             {
                 "model_name": model_name,
                 "enable_cloudflare_tunnel": enable_cloudflare_tunnel,
                 "params": params,
+                "deployment_api_key": deployment_api_key,
             }
         )
 
@@ -1053,6 +1091,7 @@ class LLMInferenceClient:
         model_name: str,
         enable_cloudflare_tunnel: bool,
         cluster_username: Optional[str],
+        deployment_api_key: Optional[str] = None,
         **params,
     ):
         if not cluster_username:
@@ -1111,11 +1150,12 @@ class LLMInferenceClient:
             }
 
         # Pass the payload as a file, not on the command line: arguments are visible
-        # to any user on the host via `ps`/`/proc/<pid>/cmdline`. It no longer carries
-        # the HF token (launches keep it out of the job, see launch_model), so this is
-        # defense in depth. The file lands in the impersonated user's workspace.
+        # to any user on the host via `ps`/`/proc/<pid>/cmdline`, and the payload
+        # carries the deployment's vLLM key (sudo drops environment variables, so it
+        # can't travel that way). The file lands in the impersonated user's
+        # workspace, readable only by the owner and that user, and is deleted after.
         payload = self._build_launch_payload(
-            model_name, enable_cloudflare_tunnel, params
+            model_name, enable_cloudflare_tunnel, params, deployment_api_key
         )
         payload_path = workspace_dir / f".launch-payload-{uuid.uuid4().hex}.json"
         fd = os.open(str(payload_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -1220,6 +1260,7 @@ class LLMInferenceClient:
         model_name: str,
         enable_cloudflare_tunnel: bool = False,
         cluster_username: Optional[str] = None,
+        deployment_api_key: Optional[str] = None,
         **params,
     ):
         if self.execution_mode == VecInfExecutionMode.IMPERSONATE:
@@ -1227,11 +1268,13 @@ class LLMInferenceClient:
                 model_name,
                 enable_cloudflare_tunnel=enable_cloudflare_tunnel,
                 cluster_username=cluster_username,
+                deployment_api_key=deployment_api_key,
                 **params,
             )
         return self.direct_client.launch_model(
             model_name,
             enable_cloudflare_tunnel=enable_cloudflare_tunnel,
+            deployment_api_key=deployment_api_key,
             **params,
         )
 
