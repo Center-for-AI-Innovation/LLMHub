@@ -13,7 +13,8 @@ development environment, see the [README](README.md#local-development).
    `isort==8.0.1` and `flake8==7.3.0`; a newer `black` can format differently
    and fail the check. The [pre-commit hooks](README.md#linting--pre-commit)
    run the same tools on `git commit`.
-4. **Add testing notes to the description.** See [below](#testing-notes).
+4. **Add testing notes and how-to-test steps to the description.** See
+   [below](#testing-notes).
 
 ## Checks
 
@@ -96,6 +97,12 @@ what was actually exercised before they approve:
 
 If the branch changes after review, for example when it's merged with
 `main` again, update the section to say what was re-tested on which commit.
+
+For anything bigger than a small fix, also add a **How to test** section:
+steps a reviewer can follow to check the change themselves. Give the commands
+to run, how to deploy the branch (for example to a staging stack), the cases
+to try, and what each should show. Reading a large diff is a poor way to work
+out how to exercise it, and the author knows best which cases matter.
 
 ## Docs
 
