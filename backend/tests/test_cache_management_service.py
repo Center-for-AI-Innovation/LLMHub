@@ -325,6 +325,38 @@ def test_gated_delete_does_not_follow_a_symlinked_model_weights(
     assert other.exists()
 
 
+def test_gated_store_is_kept_until_every_user_copy_is_gone(db, monkeypatch, tmp_path):
+    """A copy the service account can't delete keeps the store, so it's retried."""
+    _launch(db, "Old-7B", "org/old", datetime.utcnow() - timedelta(days=200))
+    store, workspace = tmp_path / "store", tmp_path / "workspace"
+    (store / "Old-7B").mkdir(parents=True)
+    copy = _user_copy(workspace, "alice", "Old-7B")
+    locked = copy / "locked"
+    locked.mkdir()
+    (locked / "file").write_text("x")
+    locked.chmod(0o500)
+    monkeypatch.setattr(
+        cache_management_service,
+        "_resolve_impersonated_workspace_root",
+        lambda: workspace,
+    )
+
+    try:
+        result = cache_management_service.evict_unused_gated_models(db, store, 90)
+    finally:
+        locked.chmod(0o700)
+
+    assert result["failed"] == ["Old-7B"]
+    assert result["evicted"] == []
+    assert (store / "Old-7B").is_dir()
+
+    retry = cache_management_service.evict_unused_gated_models(db, store, 90)
+
+    assert retry["evicted"] == ["Old-7B"]
+    assert not copy.exists()
+    assert not (store / "Old-7B").exists()
+
+
 def test_gated_dry_run_deletes_nothing(db, monkeypatch, tmp_path):
     _launch(db, "Old-7B", "org/old", datetime.utcnow() - timedelta(days=200))
     store, workspace = tmp_path / "store", tmp_path / "workspace"

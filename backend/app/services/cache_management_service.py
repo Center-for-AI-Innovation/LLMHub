@@ -221,7 +221,11 @@ def evict_unused_gated_models(
             path.name,
             launched_at.date(),
         )
-        _delete_user_copies(path.name, dry_run)
+        if not _delete_user_copies(path.name, dry_run):
+            # Kept, so the next run retries: a leftover copy holds the space and is
+            # only found through the store entry.
+            failed.append(path.name)
+            continue
         if dry_run:
             evicted.append(path.name)
             continue
@@ -240,19 +244,22 @@ def evict_unused_gated_models(
     return {"evicted": evicted, "kept": kept, "unmatched": unmatched, "failed": failed}
 
 
-def _delete_user_copies(model_name: str, dry_run: bool) -> None:
+def _delete_user_copies(model_name: str, dry_run: bool) -> bool:
     """Delete ``<workspace root>/<user>/model-weights/<model_name>`` for every user.
 
     Symlinks are never followed, so a user can't point the delete somewhere else.
+    Returns False if any copy may be left behind.
     """
     root = _resolve_impersonated_workspace_root()
     if root is None:
-        return
+        return True
     try:
         user_dirs = sorted(root.iterdir())
     except OSError as exc:
         logger.warning("Can't look for users' copies of %s: %s", model_name, exc)
-        return
+        return False
+
+    all_deleted = True
 
     for user_dir in user_dirs:
         if user_dir.is_symlink():
@@ -266,6 +273,7 @@ def _delete_user_copies(model_name: str, dry_run: bool) -> None:
             continue
         except OSError as exc:
             logger.warning("Skipped %s: %s", user_dir, exc)
+            all_deleted = False
             continue
         copy = user_dir / "model-weights" / model_name
         try:
@@ -277,8 +285,10 @@ def _delete_user_copies(model_name: str, dry_run: bool) -> None:
             pass
         except OSError as exc:
             logger.warning("Can't delete %s: %s", copy, exc)
+            all_deleted = False
         finally:
             os.close(fd)
+    return all_deleted
 
 
 def evict_stale_compile_cache(
