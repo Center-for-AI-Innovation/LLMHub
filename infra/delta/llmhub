@@ -432,6 +432,14 @@ tunnel_hint() {
 }
 
 # --------------------------------------------------------------- deploy -----
+# What a deploy blocked by a dirty checkout must show: which paths, and who deployed last.
+show_dirty() {  # porcelain text from `g status --porcelain`
+    local n; n="$(wc -l <<< "$1")"
+    info "${LLMHUB_SRC_DIR} has ${n} uncommitted path(s):"; sed -n '1,20s/^/      /p' <<< "$1"
+    [ "$n" -le 20 ] || info "    … and $((n - 20)) more"
+    if [ -r "$DEPLOYED_FILE" ]; then info "last deployed: $(tr '\n' ' ' < "$DEPLOYED_FILE")"; fi
+}
+
 resolve_ref() {  # name -> "kind sha"
     local r="$1" sha
     if   sha="$(g rev-parse -q --verify "refs/tags/${r}^{commit}" 2>/dev/null)";           then echo "tag $sha"
@@ -593,8 +601,18 @@ cmd_deploy() {
     if [ -n "${LLMHUB_KIT_REEXEC:-}" ]; then info "running the kit checked out at ${LLMHUB_KIT_REEXEC:0:9}"
     elif [ -d "${LLMHUB_SRC_DIR}/.git" ]; then run g fetch -q --tags --prune origin
     else run git clone -q "$LLMHUB_REPO" "$LLMHUB_SRC_DIR"; fi
+    local dirty
     if [ "$APPLY" = 1 ]; then
-        [ -z "$(g status --porcelain | head -1)" ] || die "deployment tree is dirty — it must be a clean checkout, not a working copy"
+        # Refuse a dirty checkout: its edits would ship unrecorded. Say what is
+        # dirty and who deployed last, so whoever it blocks need not ask around.
+        dirty="$(g status --porcelain)" || die "git status failed in ${LLMHUB_SRC_DIR}"
+        if [ -n "$dirty" ]; then
+            show_dirty "$dirty"
+            die "deployment tree is dirty — it must be a clean checkout, not a working copy.
+       Check with whoever made these changes, then discard them:
+         git -C ${LLMHUB_SRC_DIR} reset --hard && git -C ${LLMHUB_SRC_DIR} clean -fd
+       To try a branch on this stack, deploy it with --ref <branch>; never edit the checkout."
+        fi
         local rk; rk="$(resolve_ref "$LLMHUB_REF")"; REF_KIND="${rk%% *}"; SHA="${rk##* }"
         [ -z "${LLMHUB_KIT_REEXEC:-}" ] || [ "$SHA" = "$LLMHUB_KIT_REEXEC" ] \
             || die "re-run resolved '${LLMHUB_REF}' to ${SHA:0:9}, not the ${LLMHUB_KIT_REEXEC:0:9} it checked out"
@@ -616,10 +634,16 @@ cmd_deploy() {
         elif [ "$own" != "$(cd "$HERE" && pwd -P)" ] && ! diff -rq "$HERE" "${LLMHUB_SRC_DIR}/infra/delta" >/dev/null 2>&1; then
             warn "rendering with the kit at ${HERE}, which differs from ${SHA:0:9}'s infra/delta"
         fi
-        printf 'ref=%s\nkind=%s\nsha=%s\ndate=%s\nby=%s\n' "$LLMHUB_REF" "$REF_KIND" "$SHA" "$(date -Is)" "$ME" > "$DEPLOYED_FILE"
+        # Under /sw/admin/scripts/impersonate (sudo -u), id -un is always the
+        # service account; SUDO_USER usually names the person behind it. A pointer,
+        # not an audit: it is inherited, so a shared shell can carry someone else's.
+        printf 'ref=%s\nkind=%s\nsha=%s\ndate=%s\nby=%s\n' "$LLMHUB_REF" "$REF_KIND" "$SHA" "$(date -Is)" "${SUDO_USER:+${SUDO_USER} via }${ME}" > "$DEPLOYED_FILE"
         ok "${REF_KIND} ${LLMHUB_REF} → ${SHA:0:9} ($(g log -1 --format='%cs %s' | cut -c1-70))"
     else
         info "would resolve '${LLMHUB_REF}' (tag, branch or commit) and check it out detached"
+        if [ -d "${LLMHUB_SRC_DIR}/.git" ] && dirty="$(g status --porcelain 2>/dev/null)" && [ -n "$dirty" ]; then
+            show_dirty "$dirty"; warn "the checkout is dirty — --apply will refuse it"
+        fi
     fi
 
     step "Runtimes — Python ${LLMHUB_PYTHON_VERSION} via uv, Node ${LLMHUB_NODE_VERSION}, pnpm ${LLMHUB_PNPM_VERSION}"
