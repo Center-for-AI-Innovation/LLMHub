@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     # Deprecated: accounts are resolved via sacctmgr. Kept so existing .env files still load.
     VEC_INF_ACCOUNTS_SCRIPT: Optional[str] = None
     VEC_INF_MODEL_CONFIG: Optional[str] = None  # Explicit models.yaml override
-    # Shared caches cleaned by scripts/evict_unused_models.py
+    # Shared caches cleaned by the background eviction job (app/services/cache_management_service.py)
     MODEL_CACHE_DIR: Optional[str] = None
     COMPILE_CACHE_DIR: Optional[str] = None
     # Shared store of all model weights, keyed by model name; gated models are
@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     EXPIRY_CHECK_INTERVAL: int = 300  # expiry check interval in seconds
     MAX_DEPLOYMENTS_PER_CYCLE: int = 10  # max deployments to process per cycle
     MODEL_SYNC_INTERVAL: int = 3600  # seconds (default: 1 hour)
+    MODEL_EVICTION_INTERVAL: int = 86400  # seconds between cache evictions (1 day)
+    # Delete cached models not launched in this many days. Keep it well above the
+    # 8h job limit, so a running model never looks unused.
+    MODEL_EVICTION_MAX_AGE_DAYS: int = 90
+    # Log what would be deleted, delete nothing. On by default: the cache is
+    # shared, but each backend judges "unused" from its own database, so only the
+    # backend that owns the cache should set this to false.
+    MODEL_EVICTION_DRY_RUN: bool = True
 
     # Email settings (unauthenticated campus SMTP relay, IP-restricted)
     SMTP_HOST: str = "outbound-relays.techservices.illinois.edu"
@@ -121,6 +129,18 @@ class Settings(BaseSettings):
     def _normalize_execution_mode(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
+        return value
+
+    @field_validator("MODEL_EVICTION_INTERVAL")
+    @classmethod
+    def _check_eviction_interval(cls, value: int) -> int:
+        # 0 or less rescans the cache back to back; very large values overflow the
+        # startup timer and stop the backend from starting.
+        if not 0 < value <= 365 * 86400:
+            raise ValueError(
+                "MODEL_EVICTION_INTERVAL must be between 1 and 31536000 seconds "
+                "(1 year)"
+            )
         return value
 
     def resolve_workspace_root(self) -> Optional[str]:
