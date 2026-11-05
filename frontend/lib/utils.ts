@@ -232,6 +232,23 @@ export function getDocumentTimestampByIndex(
 
 
 /**
+ * Build the target URL for proxying a request to a deployment endpoint.
+ *
+ * Strips a trailing `/v1` (with or without a trailing slash) and any trailing
+ * slashes from the deployment endpoint URL before appending
+ * `/v1/${endpointPath}`, so URLs stored with or without the `/v1` suffix both
+ * resolve correctly.
+ */
+export function buildDeploymentTargetUrl(
+  endpointUrl: string,
+  endpointPath: string,
+): string {
+  const cleanEndpoint = endpointUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '');
+  return `${cleanEndpoint}/v1/${endpointPath}`;
+}
+
+
+/**
  * Validate that a deployment is ready for proxying
  * 
  * @param deployment - The deployment to validate

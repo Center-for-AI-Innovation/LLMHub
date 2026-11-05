@@ -43,6 +43,7 @@ class FakeLLMClient:
         model_name,
         enable_cloudflare_tunnel=False,
         cluster_username=None,
+        deployment_api_key=None,
         **params,
     ):
         self.calls.append(
@@ -50,6 +51,7 @@ class FakeLLMClient:
                 "model_name": model_name,
                 "enable_cloudflare_tunnel": enable_cloudflare_tunnel,
                 "cluster_username": cluster_username,
+                "deployment_api_key": deployment_api_key,
                 "params": params,
             }
         )
@@ -804,3 +806,71 @@ def test_launch_model_survives_num_gpus_without_num_nodes(monkeypatch):
 
     assert allocated == [2]
     assert result.slurmJobId == "12345"
+
+
+def test_each_launch_gets_its_own_vllm_key(monkeypatch, sql_db):
+    """The key the job is started with is the one stored for the proxy, and
+    it never lands in resourceAllocation, which the API returns to users."""
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    monkeypatch.setattr(
+        "app.services.model_service.start_public_model_download", lambda *a: False
+    )
+    service = _service()
+
+    first = service.launch_model(
+        db=sql_db,
+        deployment=ModelDeploymentCreate(
+            modelName="Qwen3-8B", modelId="Qwen3-8B", userId=USER_ID
+        ),
+    )
+    first_key = service.llm_client.calls[0]["deployment_api_key"]
+    assert first.status == "pending"
+    first.status = "shutdown"
+    sql_db.commit()
+    second = service.launch_model(
+        db=sql_db,
+        deployment=ModelDeploymentCreate(
+            modelName="Qwen3-8B", modelId="Qwen3-8B", userId=USER_ID
+        ),
+    )
+    second_key = service.llm_client.calls[1]["deployment_api_key"]
+
+    assert second.status == "pending"
+    assert len(first_key) >= 32
+    assert first.vllmApiKey == first_key
+    assert second.vllmApiKey == second_key != first_key
+    for deployment in (first, second):
+        assert deployment.vllmApiKey not in repr(deployment.resourceAllocation)
+    assert "deployment_api_key" not in service.llm_client.calls[0]["params"]
+
+
+def test_downloading_deployment_submits_with_the_key_it_was_given(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+    deployment = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+    key = deployment.vllmApiKey
+    assert key
+
+    _download_state(monkeypatch, "ready")
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    assert deployment.status == "pending"
+    assert service.llm_client.calls[0]["deployment_api_key"] == key
+    assert deployment.vllmApiKey == key
+
+
+def test_downloading_row_from_before_keys_gets_one_at_submission(monkeypatch, sql_db):
+    _catalog(sql_db, "Qwen3-8B", "Qwen/Qwen3-8B")
+    service = _service()
+    deployment = _launch_while_downloading(monkeypatch, sql_db, service, "Qwen3-8B")
+    deployment.vllmApiKey = None
+    sql_db.commit()
+
+    _download_state(monkeypatch, "ready")
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    key = service.llm_client.calls[0]["deployment_api_key"]
+    assert key
+    assert deployment.vllmApiKey == key

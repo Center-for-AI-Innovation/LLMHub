@@ -1,4 +1,5 @@
 import concurrent.futures
+import secrets
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -36,6 +37,11 @@ from app.utils.llm_inference import (
 )
 
 logger = get_logger("model_service")
+
+
+def new_deployment_api_key() -> str:
+    """A random key vLLM will require on every request to one deployment."""
+    return secrets.token_urlsafe(32)
 
 
 def _infer_model_family_from_model_name(model_name: str) -> str:
@@ -181,6 +187,7 @@ class ModelService:
         status: str,
         slurm_job_id: str,
         error_message: Optional[str] = None,
+        vllm_api_key: Optional[str] = None,
     ) -> ModelDeployment:
         db_deployment = ModelDeployment(
             modelId=model_id,
@@ -190,6 +197,7 @@ class ModelService:
             status=status,
             errorMessage=error_message,
             resourceAllocation=resource_allocation,
+            vllmApiKey=vllm_api_key,
             # Expiration is set when deployment becomes ready, so queued time
             # does not consume model lifetime.
             expiresAt=None,
@@ -273,6 +281,9 @@ class ModelService:
                 f"Details: {hf_err}"
             )
 
+        # Every job's vLLM gets its own key; only LLMHub's proxy is told it.
+        deployment_api_key = new_deployment_api_key()
+
         # Jobs can't download weights themselves: gated ones go to the protected
         # store with the user's token, public ones to the read-only shared cache.
         try:
@@ -302,6 +313,7 @@ class ModelService:
                 resource_allocation,
                 status=DOWNLOADING_STATUS,
                 slurm_job_id=NO_SLURM_JOB_YET,
+                vllm_api_key=deployment_api_key,
             )
 
         if hf_repo_id:
@@ -313,6 +325,7 @@ class ModelService:
             params,
             enable_cloudflare_tunnel,
             deployment.userId,
+            deployment_api_key,
         )
         if error:
             return failed(error)
@@ -323,6 +336,7 @@ class ModelService:
             resource_allocation,
             status="pending",
             slurm_job_id=slurm_job_id,
+            vllm_api_key=deployment_api_key,
         )
 
     def _submit_launch(
@@ -333,6 +347,7 @@ class ModelService:
         params: Dict[str, Any],
         enable_cloudflare_tunnel: bool,
         user_id: Any,
+        deployment_api_key: str,
     ) -> Tuple[Optional[str], Optional[str]]:
         """Prepare weights, allocate GPUs and submit the job.
 
@@ -395,6 +410,7 @@ class ModelService:
         result = self.llm_client.launch_model(
             model_id,
             enable_cloudflare_tunnel=enable_cloudflare_tunnel,
+            deployment_api_key=deployment_api_key,
             **params,
         )
 
@@ -504,6 +520,8 @@ class ModelService:
         enable_cloudflare_tunnel = params.pop("enable_cloudflare_tunnel", False)
         if db_model.huggingfaceId:
             params["hf_model"] = db_model.huggingfaceId
+        # Rows recorded before deployments had keys get one now.
+        deployment_api_key = db_deployment.vllmApiKey or new_deployment_api_key()
         slurm_job_id, error = self._submit_launch(
             db,
             model_id,
@@ -511,6 +529,7 @@ class ModelService:
             params,
             enable_cloudflare_tunnel,
             db_deployment.userId,
+            deployment_api_key,
         )
         if error:
             return fail(error)
@@ -525,6 +544,7 @@ class ModelService:
                 {
                     "slurmJobId": slurm_job_id,
                     "status": "pending",
+                    "vllmApiKey": deployment_api_key,
                     "updatedAt": datetime.utcnow(),
                 },
                 synchronize_session=False,
