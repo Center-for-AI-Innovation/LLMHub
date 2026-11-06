@@ -35,6 +35,8 @@ from vec_inf.client._slurm_script_generator import SlurmScriptGenerator  # noqa:
 from vec_inf.client.api import VecInfClient  # noqa: E402
 from vec_inf.client.models import LaunchOptions  # noqa: E402
 
+from app.utils import vec_inf_multinode  # noqa: E402
+
 logger = get_logger("llm_inference")
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
@@ -857,7 +859,9 @@ class LLMInferenceDirectClient:
         try:
             options = self._build_launch_options(**params)
             with _upstream_key_in_environ(deployment_api_key):
-                resp = self.client.launch_model(model_name, options=options)
+                # Multinode vLLM goes through LLMHub's adapter (one srun step, no
+                # Ray); everything else is vec-inf's own launch, unchanged.
+                resp = vec_inf_multinode.launch_model(self.client, model_name, options)
             slurm_job_id = getattr(resp, "slurm_job_id", None)
             logger.info("Launched model %s -> %s", model_name, slurm_job_id)
             return {
