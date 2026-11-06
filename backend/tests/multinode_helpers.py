@@ -6,6 +6,8 @@ launch, against a fake ``sbatch`` that records the script it was handed.
 
 import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -108,3 +110,94 @@ def rank_script_of(batch_script: str) -> str:
 
 def batch_body_without_rank_script(batch_script: str) -> str:
     return RANK_SCRIPT_RE.sub("", batch_script)
+
+
+KIT = Path(__file__).resolve().parents[2] / "infra" / "delta"
+BACKEND_CATALOG = Path(__file__).resolve().parents[1] / "config" / "models.yaml"
+
+
+def kit_config(cluster: str) -> dict:
+    """The kit's values for one cluster, as ``llmhub`` sources them (dev profile)."""
+    names = [
+        "LLMHUB_VEC_INF_ENV",
+        "LLMHUB_CONTAINER_LOAD_CMD",
+        "LLMHUB_MODELS_OVERRIDE",
+        "LLMHUB_VLLM_SIF",
+        "LLMHUB_SLURM_ACCOUNT",
+        "LLMHUB_LAUNCH_PARTITION",
+        "LLMHUB_LAUNCH_RESOURCE_TYPE",
+        "LLMHUB_LAUNCH_TIME",
+        "LLMHUB_MODEL_WEIGHTS_PARENT_DIR",
+        "LLMHUB_HF_CACHE",
+    ]
+    script = (
+        f'LLMHUB_CLUSTER={cluster} LLMHUB_PROFILE=dev; . "{KIT}/config/delta.env" >/dev/null 2>&1; '
+        + "; ".join(f'printf "%s\\0" "${n}"' for n in names)
+    )
+    out = subprocess.run(
+        ["bash", "-c", script],
+        env={
+            "HOME": os.environ.get("HOME", "/tmp"),
+            "PATH": os.environ["PATH"],
+            "USER": "ci",
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return dict(zip(names, out.split("\0")))
+
+
+def render_catalog(cluster: str, out: Path) -> Path:
+    """The models.yaml the kit renders on ``cluster`` (render_vec_inf_config)."""
+    subprocess.run(
+        [
+            sys.executable,
+            str(KIT / "render-models.py"),
+            str(BACKEND_CATALOG),
+            kit_config(cluster)["LLMHUB_MODELS_OVERRIDE"],
+            str(out),
+        ],
+        check=True,
+    )
+    return out
+
+
+ENV_TEMPLATE = (
+    Path(__file__).resolve().parents[1]
+    / "config"
+    / "infrastructures"
+    / "delta"
+    / "environment.yaml"
+)
+
+
+def render_vec_inf_config(cluster: str, vic: Path, log_dir: Path) -> Path:
+    """The vec-inf-config directory the kit renders on ``cluster``, under ``vic``.
+
+    Both files come from the kit's own renderers, with the cluster's values as
+    ``llmhub`` sources them; only the per-deployment paths (log dir, torch
+    cache) are this test's.
+    """
+    kit = kit_config(cluster)
+    vic.mkdir(parents=True, exist_ok=True)
+    render_catalog(cluster, vic / "models.yaml")
+    env = {
+        **os.environ,
+        **kit,
+        "LLMHUB_VLLM_SIF_EFFECTIVE": kit["LLMHUB_VLLM_SIF"],
+        "LLMHUB_VEC_INF_LOG_DIR": str(log_dir),
+        "LLMHUB_TORCH_CACHE": str(vic / "torch-inductor"),
+        "LLMHUB_MODELS_YAML": str(vic / "models.yaml"),
+    }
+    subprocess.run(
+        [
+            sys.executable,
+            str(KIT / "render-vec-inf-env.py"),
+            str(ENV_TEMPLATE),
+            str(vic / "environment.yaml"),
+        ],
+        env=env,
+        check=True,
+    )
+    return vic

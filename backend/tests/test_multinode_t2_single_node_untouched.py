@@ -6,79 +6,37 @@ dispatch replaced by the call it replaced (vec-inf 0.9.0 plus LLMHub's #83 env
 patch). Every 1-node entry must submit the same script both ways, and every
 multinode vLLM entry must not.
 
-Each cluster renders in its own interpreter, with an environment.yaml built from
-the kit's template (``config/infrastructures/delta/environment.yaml``) and that
-cluster's job pre-command and image (``infra/delta/config/``). Those values
-shape both sides alike; what the test compares is the dispatch.
+Each cluster renders in its own interpreter, with the vec-inf-config the kit
+renders there (``infra/delta/render-vec-inf-env.py`` and ``render-models.py``)
+and that cluster's job env, as the kit sources them. Those values shape both
+sides alike; what the test compares is the dispatch.
 """
 
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-import yaml
+from multinode_helpers import kit_config, render_vec_inf_config
 
 BACKEND = Path(__file__).resolve().parents[1]
-KIT_CONFIG = BACKEND.parent / "infra" / "delta" / "config"
-ENV_TEMPLATE = BACKEND / "config" / "infrastructures" / "delta" / "environment.yaml"
-
-# The catalog the kit renders on each cluster (`render_vec_inf_config`).
-CATALOGS = {
-    "deltaai": BACKEND / "config" / "models.yaml",
-    "delta": BACKEND / "config" / "models.yaml",
-}
-
-# The deployment env, as delta.env renders LLMHUB_VEC_INF_ENV.
-DEPLOYMENT_ENV = (
-    "HF_HUB_CACHE=/projects/modelcache/public/huggingface,HF_HUB_OFFLINE=1,"
-    "TRANSFORMERS_OFFLINE=1,TORCHINDUCTOR_CACHE_DIR=/root/.cache/torch_inductor,"
-    "FI_LOG_PROV=none"
-)
+CLUSTERS = ["delta", "deltaai"]
 
 
-def _deltaai_load_cmd():
-    text = (KIT_CONFIG / "cluster-deltaai.env").read_text()
-    match = re.search(r"^LLMHUB_CONTAINER_LOAD_CMD='(.*)'$", text, re.M)
-    assert match, "cluster-deltaai.env no longer sets LLMHUB_CONTAINER_LOAD_CMD"
-    return match.group(1)
-
-
-def _cluster_environment(cluster):
-    env = yaml.safe_load(ENV_TEMPLATE.read_text())
-    if cluster == "deltaai":
-        env["paths"][
-            "vllm_image_path"
-        ] = "/sw/llmhub/vllm-v0.28.0-slingshot-deltaai.sif"
-        env["containerization"]["module_load_cmd"] = _deltaai_load_cmd()
-        env["default_args"].update(
-            account="bfmz-dtai-gh",
-            partition="ghx4-interactive",
-            resource_type="nvidia_gh200_120gb",
-        )
-    else:
-        env["paths"]["vllm_image_path"] = "/sw/llmhub/vllm-v0.19.1-slingshot-v3.sif"
-    return env
-
-
-@pytest.fixture(scope="module", params=sorted(CATALOGS))
+@pytest.fixture(scope="module", params=CLUSTERS)
 def rendered(request, tmp_path_factory):
     cluster = request.param
+    kit = kit_config(cluster)
     work = tmp_path_factory.mktemp(cluster)
-    config_dir = work / "vec-inf-config"
-    config_dir.mkdir()
-    (config_dir / "environment.yaml").write_text(
-        yaml.safe_dump(_cluster_environment(cluster))
-    )
+    config_dir = render_vec_inf_config(cluster, work / "vec-inf-config", work / "logs")
     out = work / "rendered.json"
     env = {
         **os.environ,
+        # As the backend runs on the stack: the rendered directory, no override.
         "VEC_INF_CONFIG_DIR": str(config_dir),
-        "VEC_INF_MODEL_CONFIG": str(CATALOGS[cluster]),
-        "VEC_INF_ENV": DEPLOYMENT_ENV,
+        "VEC_INF_ENV": kit["LLMHUB_VEC_INF_ENV"],
         "PYTHONPATH": str(BACKEND),
     }
     subprocess.run(
