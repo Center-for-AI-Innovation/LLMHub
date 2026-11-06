@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Box, Cpu, Hash, Calendar, Lock, type LucideIcon } from 'lucide-react';
+import { Box, Brain, Cpu, Hash, Calendar, Lock, type LucideIcon } from 'lucide-react';
 import type { ModelInfo } from '@/hooks/use-models';
 
 export type ScaleColor = {
@@ -115,11 +115,19 @@ export function GatedChip({ gated }: { gated: string | null | undefined }) {
   );
 }
 
-/** Renders the standard Size / GPUs / Context chips, plus Gated when it applies. */
+/** Renders the standard Type / Size / GPUs / Context chips, plus Gated when it applies. */
 export function ModelSpecChips({ model }: { model: ModelInfo }) {
   return (
     <>
       <GatedChip gated={model.gated} />
+      {model.modelType && (
+        <ModelMetadataChip
+          icon={Brain}
+          label="Type"
+          value={model.modelType}
+          color={SCALE_COLORS.neutral}
+        />
+      )}
       <ModelMetadataChip
         icon={Box}
         label="Size"
