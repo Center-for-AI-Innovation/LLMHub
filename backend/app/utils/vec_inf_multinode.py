@@ -202,11 +202,6 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
                 f"engine={self.engine}, venv={params['venv']})"
             )
 
-    def _job_dir(self) -> str:
-        # vec-inf's job directory; launch() creates it after sbatch returns,
-        # so the job creates it too.
-        return f'{self.params["log_dir"]}/{self.params["model_name"]}.$SLURM_JOB_ID'
-
     def _nccl_debug_needs_file(self) -> bool:
         env = self.params.get("env") or {}
         return "NCCL_DEBUG" in env and "NCCL_DEBUG_FILE" not in env
@@ -244,10 +239,12 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
 
     def _generate_server_setup(self) -> str:
         """Container setup, binds, node list, rank script, ports, job JSON."""
-        rank_script = self._generate_rank_script()
+        # Every generated rank-script line is indented or prefixed, so none can
+        # equal the heredoc delimiter.
         delimiter = "LLMHUB_MULTINODE_RANK_SCRIPT"
-        if delimiter in rank_script.splitlines():
-            raise MultinodeLaunchError("rank script contains its heredoc delimiter")
+        # vec-inf's job directory; launch() creates it only after sbatch
+        # returns, so the job creates it too.
+        job_dir = f'{self.params["log_dir"]}/{self.params["model_name"]}.$SLURM_JOB_ID'
         setup = ["\n"]
         setup.append("\n".join(SLURM_SCRIPT_TEMPLATE["container_setup"]))
         setup.append(
@@ -270,11 +267,11 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
                     "\n# Multinode vLLM: one srun step, one rank per node (LLMHub adapter)",
                     'nodes_array=($(scontrol show hostnames "$SLURM_JOB_NODELIST"))',
                     "head_node=${nodes_array[0]}",
-                    f'job_dir="{self._job_dir()}"',
+                    f'job_dir="{job_dir}"',
                     'mkdir -p "$job_dir"',
                     f'rank_script="$job_dir/{RANK_SCRIPT_NAME}"',
                     f"cat > \"$rank_script\" <<'{delimiter}'",
-                    rank_script.rstrip("\n"),
+                    self._generate_rank_script().rstrip("\n"),
                     delimiter,
                     'master_addr=$(bash "$rank_script" --master) || exit 1',
                 ]
@@ -329,13 +326,9 @@ class MultinodeLauncher(ModelLauncher):
     """
 
     def __init__(self, model_name: str, kwargs: Optional[Dict[str, Any]]):
+        # The generator refuses anything but multinode vLLM, before sbatch.
         check_vec_inf_version()
         super().__init__(model_name, kwargs)
-        if not is_multinode_vllm(self.params):
-            raise MultinodeLaunchError(
-                f"{model_name} resolves to num_nodes={self.params['num_nodes']}, "
-                f"engine={self.params.get('engine', 'vllm')}: not a multinode vLLM launch"
-            )
 
     def _build_launch_command(self) -> str:
         self.slurm_script_path = MultinodeSlurmScriptGenerator(
