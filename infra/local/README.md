@@ -40,6 +40,21 @@ docker compose down
 
 Use `docker compose down --volumes` to also remove those caches.
 
+## Embedding models
+
+To serve the `BAAI/bge-base-en-v1.5` embedding model instead of Qwen, start
+with the embedding override (no `.env` changes needed):
+
+```bash
+docker compose -f compose.yaml -f compose.embedding.yaml up --build
+```
+
+The override fixes the model, 512-token context, dtype, and memory settings
+instead of reading them from `.env`, and drops the Qwen-specific
+`--language-model-only` flag; see `compose.embedding.yaml`. Run without the
+override to switch back to the default stack.
+
+
 ## Other hosts
 
 The default vLLM image targets ARM64 CPU hosts such as Apple Silicon. On an
