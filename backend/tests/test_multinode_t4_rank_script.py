@@ -53,16 +53,19 @@ APPTAINER_STUB = textwrap.dedent("""\
     """)
 
 
-@pytest.fixture(scope="module")
-def rank_script(tmp_path_factory):
-    tmp_path = tmp_path_factory.mktemp("render")
+def _render(tmp_path, vec_inf_env=FIXTURE_VEC_INF_ENV):
     with pytest.MonkeyPatch.context() as monkeypatch:
-        launcher = Launcher(monkeypatch, tmp_path)
+        launcher = Launcher(monkeypatch, tmp_path, vec_inf_env=vec_inf_env)
         assert launcher.launch(TWO_NODE_MODEL)["success"]
         (script,) = launcher.scripts()
     path = tmp_path / "llmhub-multinode-rank.sh"
     path.write_text(rank_script_of(script))
     return path
+
+
+@pytest.fixture(scope="module")
+def rank_script(tmp_path_factory):
+    return _render(tmp_path_factory.mktemp("render"))
 
 
 class Node:
@@ -249,34 +252,41 @@ def test_quoting_survives_the_rank_shell(rank_script):
 
 
 @pytest.mark.parametrize(
-    "host, level, subsys, debug_file",
+    "job_env, host, level, subsys, debug_file",
     [
         # Nothing set: INFO for INIT and NET, to a file in the job directory.
-        ({}, "INFO", "INIT,NET", "job"),
-        # A level from the host is kept; the output still goes to a file.
-        ({"APPTAINERENV_NCCL_DEBUG": "WARN"}, "WARN", None, "job"),
-        # A file from the host is kept, and nothing is bound for it.
-        ({"APPTAINERENV_NCCL_DEBUG_FILE": "/x/%h"}, "INFO", "INIT,NET", "/x/%h"),
+        ("", {}, "INFO", "INIT,NET", "job"),
+        # A level from the host or the job env is kept; output still goes to a file.
+        ("", {"APPTAINERENV_NCCL_DEBUG": "WARN"}, "WARN", None, "job"),
+        (",NCCL_DEBUG=WARN", {}, "WARN", None, "job"),
+        # A file from the host or the job env is kept, nothing is bound for it,
+        # and with no level anywhere the level is still INFO.
+        ("", {"APPTAINERENV_NCCL_DEBUG_FILE": "/x/%h"}, "INFO", "INIT,NET", "/x/%h"),
+        (",NCCL_DEBUG_FILE=/x/%h", {}, "INFO", "INIT,NET", "/x/%h"),
     ],
 )
-def test_nccl_debug_goes_to_a_file(
-    rank_script, tmp_path, host, level, subsys, debug_file
-):
+def test_nccl_debug_goes_to_a_file(tmp_path, job_env, host, level, subsys, debug_file):
+    script = _render(tmp_path / "render", FIXTURE_VEC_INF_ENV + job_env)
     head = Node(tmp_path, "gh101", IP_HEAD, tmp_path / "rendezvous")
 
-    proc = head.run(rank_script, SLURM_PROCID="0", LLMHUB_MN_NNODES="1", **host)
+    proc = head.run(script, SLURM_PROCID="0", LLMHUB_MN_NNODES="1", **host)
 
     assert proc.returncode == 0, proc.stderr
-    env = head.vllm_call()["env"]
+    call = head.vllm_call()
+    # What the container would see: --env flags win over APPTAINERENV_*.
+    prefix = "APPTAINERENV_"
+    seen = {k[len(prefix) :]: v for k, v in call["env"].items() if k.startswith(prefix)}
+    argv = call["argv"]
+    seen.update(argv[i + 1].split("=", 1) for i, a in enumerate(argv) if a == "--env")
     job_dir = head.env["LLMHUB_MN_JOB_DIR"]
-    assert env.get("APPTAINERENV_NCCL_DEBUG") == level
-    assert env.get("APPTAINERENV_NCCL_DEBUG_SUBSYS") == subsys
+    assert seen.get("NCCL_DEBUG") == level
+    assert seen.get("NCCL_DEBUG_SUBSYS") == subsys
     if debug_file == "job":
-        assert env["APPTAINERENV_NCCL_DEBUG_FILE"] == f"{job_dir}/nccl-debug/%h.%p"
-        assert env["APPTAINER_BINDPATH"].endswith(f",{job_dir}/nccl-debug")
+        assert seen["NCCL_DEBUG_FILE"] == f"{job_dir}/nccl-debug/%h.%p"
+        assert call["env"]["APPTAINER_BINDPATH"].endswith(f",{job_dir}/nccl-debug")
     else:
-        assert env["APPTAINERENV_NCCL_DEBUG_FILE"] == debug_file
-        assert "nccl-debug" not in env["APPTAINER_BINDPATH"]
+        assert seen["NCCL_DEBUG_FILE"] == debug_file
+        assert "nccl-debug" not in call["env"]["APPTAINER_BINDPATH"]
 
 
 def test_refuses_a_step_without_gpus(rank_script, tmp_path):
@@ -291,3 +301,5 @@ def test_refuses_a_step_without_gpus(rank_script, tmp_path):
         in proc.stderr
     )
     assert not [c for c in head.calls() if "vllm" in c["argv"]]
+    # Before the barrier: no other rank waits on it.
+    assert not (tmp_path / "rendezvous").exists()

@@ -139,10 +139,20 @@ if [ "$rank" = 0 ] && [ "$ip4" != "${LLMHUB_MN_MASTER_ADDR:?}" ]; then
     exit 1
 fi
 
+# The container command expands $CUDA_VISIBLE_DEVICES; without GPUs in this
+# step there is nothing to serve on.
+if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
+    echo "__ERROR__ rank ${rank} on ${host}: no CUDA_VISIBLE_DEVICES in this srun step" >&2
+    exit 1
+fi
+
 # Barrier: every rank up before any vLLM starts, so a rank that never arrives
 # ends the step (srun --kill-on-bad-exit) instead of leaving rank 0 waiting.
 rdv="${LLMHUB_MN_RENDEZVOUS:?}"
-mkdir -p "$rdv" && : > "${rdv}/rank-${rank}"
+if ! { mkdir -p "$rdv" && : > "${rdv}/rank-${rank}"; }; then
+    echo "__ERROR__ rank ${rank} on ${host}: could not write its marker in ${rdv}" >&2
+    exit 1
+fi
 shopt -s nullglob
 timeout="${LLMHUB_MN_BARRIER_TIMEOUT:-__BARRIER_TIMEOUT__}"
 start=$SECONDS
@@ -156,30 +166,26 @@ while :; do
     sleep 1
 done
 waited=$((SECONDS - start))
-# The container command expands $CUDA_VISIBLE_DEVICES; without GPUs in this
-# step there is nothing to serve on.
-if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
-    echo "__ERROR__ rank ${rank} on ${host}: no CUDA_VISIBLE_DEVICES in this srun step" >&2
-    exit 1
-fi
-echo "llmhub-multinode: rank ${rank}/${nnodes} on ${host} ip=${ip4} ifaces=${ifs} cuda=${CUDA_VISIBLE_DEVICES:-<unset>} barrier=${waited}s"
+echo "llmhub-multinode: rank ${rank}/${nnodes} on ${host} ip=${ip4} ifaces=${ifs} cuda=${CUDA_VISIBLE_DEVICES} barrier=${waited}s"
 
 # vLLM reads VLLM_PORT as its own base port; keep a stray one out.
 unset APPTAINERENV_VLLM_PORT
 export APPTAINERENV_VLLM_HOST_IP="$ip4"
 export APPTAINERENV_NCCL_SOCKET_IFNAME="=${ifs}"
 export APPTAINERENV_GLOO_SOCKET_IFNAME="${ifs%%,*}"
-# NCCL debug always goes to files in the job directory, bound in at the same
-# path: on stderr its INFO lines can match vec-inf's fatal patterns. Unless the
-# job env or the host sets a level, it is INFO for INIT and NET, which records
-# each rank's transport (provider, NIC, GDR). nccl_job is what the job env sets,
-# rendered at submit time: none, level (NCCL_DEBUG) or file (NCCL_DEBUG_FILE).
-nccl_job=__NCCL_JOB__
-if [ "$nccl_job" = none ] && [ -z "${APPTAINERENV_NCCL_DEBUG:-}" ]; then
+# NCCL debug goes to a file, never stderr, where its INFO lines can match
+# vec-inf's fatal patterns. Unless the job env or the host names a file, that is
+# one per process in the job directory, bound in at the same path; a file named
+# there is theirs to make writable in the container. Unless either sets a level,
+# it is INFO for INIT and NET, which records each rank's transport (provider,
+# NIC, GDR). Rendered at submit time: whether the job env sets each (1/0).
+job_nccl_level=__JOB_NCCL_LEVEL__
+job_nccl_file=__JOB_NCCL_FILE__
+if [ "$job_nccl_level" = 0 ] && [ -z "${APPTAINERENV_NCCL_DEBUG:-}" ]; then
     export APPTAINERENV_NCCL_DEBUG=INFO
     export APPTAINERENV_NCCL_DEBUG_SUBSYS="${APPTAINERENV_NCCL_DEBUG_SUBSYS:-INIT,NET}"
 fi
-if [ "$nccl_job" != file ] && [ -z "${APPTAINERENV_NCCL_DEBUG_FILE:-}" ]; then
+if [ "$job_nccl_file" = 0 ] && [ -z "${APPTAINERENV_NCCL_DEBUG_FILE:-}" ]; then
     mkdir -p "${LLMHUB_MN_JOB_DIR}/nccl-debug"
     export APPTAINER_BINDPATH="${APPTAINER_BINDPATH},${LLMHUB_MN_JOB_DIR}/nccl-debug"
     export APPTAINERENV_NCCL_DEBUG_FILE="${LLMHUB_MN_JOB_DIR}/nccl-debug/%h.%p"
@@ -209,8 +215,14 @@ exec "$@" --headless
 # Unsetting it inside the container silences libfabric (3536666: 0 lines).
 _INNER_ENV = "env -u FI_LOG_LEVEL"
 
-# Set by the rank script on each rank, from that node's hsn<digits> interfaces.
-_PER_RANK_ENV = ("VLLM_HOST_IP", "NCCL_SOCKET_IFNAME", "GLOO_SOCKET_IFNAME")
+# Set (or, VLLM_PORT, kept out) by the rank script on each rank, from that
+# node's hsn<digits> interfaces.
+_PER_RANK_ENV = (
+    "VLLM_HOST_IP",
+    "NCCL_SOCKET_IFNAME",
+    "GLOO_SOCKET_IFNAME",
+    "VLLM_PORT",
+)
 
 
 class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
@@ -223,6 +235,15 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
     """
 
     def __init__(self, params: Dict[str, Any]):
+        # Each rank sets these from its own node; as job-env --env flags they
+        # would win over that on every rank, so they leave this job's env. A
+        # deployment may well set them for single-node jobs.
+        env = params.get("env") or {}
+        self.dropped_env = sorted(set(env) & set(_PER_RANK_ENV))
+        params = {
+            **params,
+            "env": {k: v for k, v in env.items() if k not in _PER_RANK_ENV},
+        }
         super().__init__(params)
         if not (self.is_multinode and self.engine == "vllm" and self.use_container):
             raise MultinodeLaunchError(
@@ -230,19 +251,6 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
                 f"than one node (num_nodes={params['num_nodes']}, "
                 f"engine={self.engine}, venv={params['venv']})"
             )
-        # Each rank sets these itself, and a job-env --env would win over them.
-        clash = sorted(set(params.get("env") or {}) & set(_PER_RANK_ENV))
-        if clash:
-            raise MultinodeLaunchError(
-                f"the job env sets {', '.join(clash)}, which each rank of a multinode "
-                "launch derives from its own fabric interfaces"
-            )
-
-    def _nccl_job(self) -> str:
-        env = self.params.get("env") or {}
-        if "NCCL_DEBUG_FILE" in env:
-            return "file"
-        return "level" if "NCCL_DEBUG" in env else "none"
 
     def _generate_rank_script(self) -> str:
         container = SLURM_SCRIPT_TEMPLATE["container_command"].format(
@@ -253,10 +261,12 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
         ]
         vllm_lines += _render_engine_args(self.params["engine_args"])
         probe = container.rstrip(" \\") + f" {_INNER_ENV} env 2>/dev/null"
+        env = self.params.get("env") or {}
         return (
             _RANK_SCRIPT.replace("__ERROR__", _ERROR_PREFIX)
             .replace("__BARRIER_TIMEOUT__", str(DEFAULT_BARRIER_TIMEOUT))
-            .replace("__NCCL_JOB__", self._nccl_job())
+            .replace("__JOB_NCCL_LEVEL__", "1" if "NCCL_DEBUG" in env else "0")
+            .replace("__JOB_NCCL_FILE__", "1" if "NCCL_DEBUG_FILE" in env else "0")
             .replace("__PROBE__", probe)
             .replace("__CONTAINER__", container)
             .replace("__INNER__", _INNER_ENV)
@@ -310,7 +320,7 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
                     "\n# vLLM's rendezvous port, on the head's fabric address",
                     f"master_port={MASTER_PORT_BASE}",
                     'while [ "$master_port" = "$server_port_number" ] \\',
-                    "    || ss -tlnH 2>/dev/null | awk '{print $4}' | grep -q \":${master_port}$\"; do",
+                    "    || ss -tlnH | awk '{print $4}' | grep -q \":${master_port}$\"; do",
                     "    master_port=$((master_port + 1))",
                     "done",
                 ]
@@ -330,6 +340,14 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
                 "\n",
                 'echo "llmhub-multinode: head ${head_node} master ${master_addr}:${master_port} '
                 'api ${server_address}"',
+                *(
+                    [
+                        f'echo "llmhub-multinode: job env {",".join(self.dropped_env)} '
+                        'not passed: each rank sets its own"'
+                    ]
+                    if self.dropped_env
+                    else []
+                ),
                 'export LLMHUB_MN_JOB_DIR="$job_dir"',
                 'export LLMHUB_MN_RENDEZVOUS="$job_dir/rendezvous"',
                 "# A requeued job keeps its id, and so its job directory.",

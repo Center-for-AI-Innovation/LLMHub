@@ -117,32 +117,37 @@ def test_nccl_debug_never_goes_to_stderr(monkeypatch, tmp_path):
     T4 runs what each rank then does with it, host APPTAINERENV_* included.
     """
     cases = {
-        "a": ("", "none"),
-        "b": (",NCCL_DEBUG=WARN", "level"),
-        "c": (",NCCL_DEBUG=INFO,NCCL_DEBUG_FILE=/tmp/n.%h", "file"),
+        "a": ("", "0", "0"),
+        "b": (",NCCL_DEBUG=WARN", "1", "0"),
+        "c": (",NCCL_DEBUG_FILE=/tmp/n.%h", "0", "1"),
     }
-    for sub, (extra, job) in cases.items():
+    for sub, (extra, level, debug_file) in cases.items():
         rank_script = rank_script_of(
             _launch_two_node(
                 monkeypatch, tmp_path / sub, vec_inf_env=FIXTURE_VEC_INF_ENV + extra
             )
         )
-        assert re.search(rf"^nccl_job={job}$", rank_script, re.M), (sub, job)
+        assert re.search(rf"^job_nccl_level={level}$", rank_script, re.M), sub
+        assert re.search(rf"^job_nccl_file={debug_file}$", rank_script, re.M), sub
 
 
 @pytest.mark.parametrize(
-    "name", ["VLLM_HOST_IP", "NCCL_SOCKET_IFNAME", "GLOO_SOCKET_IFNAME"]
+    "name", ["VLLM_HOST_IP", "NCCL_SOCKET_IFNAME", "GLOO_SOCKET_IFNAME", "VLLM_PORT"]
 )
 def test_job_env_cannot_override_a_ranks_fabric_identity(monkeypatch, tmp_path, name):
-    launcher = Launcher(
+    script = _launch_two_node(
         monkeypatch, tmp_path, vec_inf_env=FIXTURE_VEC_INF_ENV + f",{name}=x"
     )
 
-    result = launcher.launch(TWO_NODE_MODEL)
-
-    assert result["success"] is False
-    assert name in result["error"]
-    assert launcher.scripts() == []
+    command = _container_command(rank_script_of(script))
+    assert f"{name}=" not in command
+    # The pair and the rest of the deployment env still reach every rank.
+    for pair in FIXTURE_VEC_INF_ENV.split(","):
+        assert f'--env "{pair}"' in command, pair
+    assert (
+        f'echo "llmhub-multinode: job env {name} not passed: each rank sets its own"'
+        in batch_body_without_rank_script(script)
+    )
 
 
 def test_rendezvous_is_cleared_before_the_step(monkeypatch, tmp_path):
