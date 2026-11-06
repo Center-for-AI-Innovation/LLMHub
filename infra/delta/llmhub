@@ -1037,7 +1037,11 @@ cmd_launch_test() {
         [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && ok "job ${job} gone from the queue" || { warn "job ${job} still queued — scancel ${job}"; scancel "$job" 2>/dev/null || true; }
         st="$(curl -s --max-time 30 "${api}/${id}" 2>/dev/null | jq -r '.status // "?"')"; info "deployment status now: ${st}"
         if [ "$nodes" -gt 1 ]; then
-            local acct; acct="$(sacct -X -n -P -j "$job" -o State 2>/dev/null | head -1)"
+            # sacct can trail the queue by a few seconds after the job leaves it.
+            local acct; for i in $(seq 1 12); do
+                acct="$(sacct -X -n -P -j "$job" -o State 2>/dev/null | head -1)"
+                case "$acct" in RUNNING*|PENDING*|'') sleep 5 ;; *) break ;; esac
+            done
             note "sacct ${job}: $(sacct -X -n -P -j "$job" -o JobID,State,ExitCode,Elapsed,NodeList 2>/dev/null | head -1)"
             case "$acct" in CANCELLED*) ok "DELETE cancelled job ${job} (sacct ${acct})" ;; *) bad "job ${job} ended ${acct:-?}, not CANCELLED"; MF=1 ;; esac
             local held_nodes; held_nodes="$(squeue -h -j "$job" -o %N 2>/dev/null)"
@@ -1056,12 +1060,14 @@ multinode_checks() {
     local job="$1" nodes="$2" gpus="$3" cu="$4" model="$5" F=0
     local jl="$LLMHUB_VEC_INF_LOG_DIR"; [ -n "$cu" ] && jl="${LLMHUB_SHARED_WORK_ROOT}/${cu}"
     local dir; dir="$(ls -d "${jl}"/*/"${model}.${job}" 2>/dev/null | head -1)"
-    rd() { if [ -n "$cu" ] && [ "$IMP" = 1 ]; then sudo -n -u "$cu" cat "$@" 2>/dev/null; else cat "$@" 2>/dev/null; fi; }
+    # Read as this account, the way the backend's GET /deployments/{id}/logs does:
+    # an impersonated user's workspace carries a default ACL for the service
+    # account (llm_inference._grant_acl_access).
     count() { grep -c "$@" || true; }   # 0 matches is a count, not a failure
     step "Multinode (${nodes} nodes × ${gpus} GPUs)"
     [ -n "$dir" ] || { bad "no job directory ${jl}/*/${model}.${job}"; return 1; }
-    local out err nccl; out="$(rd "${dir}/${model}.${job}.out")"; err="$(rd "${dir}/${model}.${job}.err")"
-    nccl="$(if [ -n "$cu" ] && [ "$IMP" = 1 ]; then sudo -n -u "$cu" sh -c 'cat "$1"/nccl-debug/* 2>/dev/null' _ "$dir"; else cat "${dir}"/nccl-debug/* 2>/dev/null; fi)"
+    local out err nccl; out="$(cat "${dir}/${model}.${job}.out" 2>/dev/null)"; err="$(cat "${dir}/${model}.${job}.err" 2>/dev/null)"
+    nccl="$(cat "${dir}"/nccl-debug/* 2>/dev/null)"
     [ -n "$out$err" ] || { bad "cannot read the job logs in ${dir}"; return 1; }
     local ranks; ranks="$(printf '%s\n' "$out" | count -E "^llmhub-multinode: rank [0-9]+/${nodes} ")"
     [ "$ranks" -eq "$nodes" ] && ok "${ranks}/${nodes} ranks started" || { bad "${ranks}/${nodes} ranks started"; F=1; }
