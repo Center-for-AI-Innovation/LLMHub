@@ -30,19 +30,6 @@ export function formatModelType(modelType: string | null | undefined): string {
   return modelType ? modelType.replace(/_/g, ' ') : 'LLM';
 }
 
-export function getSizeColor(size: ModelInfo['size']): ScaleColor {
-  switch (size) {
-    case 'Small':
-      return SCALE_COLORS.positive;
-    case 'Medium':
-      return SCALE_COLORS.neutral;
-    case 'Large':
-      return SCALE_COLORS.heavy;
-    default:
-      return SCALE_COLORS.neutral;
-  }
-}
-
 export function getGpuColor(gpus: number): ScaleColor {
   if (gpus <= 2) return SCALE_COLORS.positive;
   if (gpus <= 4) return SCALE_COLORS.neutral;
