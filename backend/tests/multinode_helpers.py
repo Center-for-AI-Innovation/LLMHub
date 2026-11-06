@@ -6,6 +6,8 @@ launch, against a fake ``sbatch`` that records the script it was handed.
 
 import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -108,3 +110,47 @@ def rank_script_of(batch_script: str) -> str:
 
 def batch_body_without_rank_script(batch_script: str) -> str:
     return RANK_SCRIPT_RE.sub("", batch_script)
+
+
+KIT = Path(__file__).resolve().parents[2] / "infra" / "delta"
+BACKEND_CATALOG = Path(__file__).resolve().parents[1] / "config" / "models.yaml"
+
+
+def kit_config(cluster: str) -> dict:
+    """The kit's values for one cluster, as ``llmhub`` sources them (dev profile)."""
+    names = [
+        "LLMHUB_VEC_INF_ENV",
+        "LLMHUB_CONTAINER_LOAD_CMD",
+        "LLMHUB_MODELS_OVERRIDE",
+    ]
+    script = (
+        f'LLMHUB_CLUSTER={cluster} LLMHUB_PROFILE=dev; . "{KIT}/config/delta.env" >/dev/null 2>&1; '
+        + "; ".join(f'printf "%s\\0" "${n}"' for n in names)
+    )
+    out = subprocess.run(
+        ["bash", "-c", script],
+        env={
+            "HOME": os.environ.get("HOME", "/tmp"),
+            "PATH": os.environ["PATH"],
+            "USER": "ci",
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return dict(zip(names, out.split("\0")))
+
+
+def render_catalog(cluster: str, out: Path) -> Path:
+    """The models.yaml the kit renders on ``cluster`` (render_vec_inf_config)."""
+    subprocess.run(
+        [
+            sys.executable,
+            str(KIT / "render-models.py"),
+            str(BACKEND_CATALOG),
+            kit_config(cluster)["LLMHUB_MODELS_OVERRIDE"],
+            str(out),
+        ],
+        check=True,
+    )
+    return out

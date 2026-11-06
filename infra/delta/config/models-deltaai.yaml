@@ -1,0 +1,66 @@
+# DeltaAI's catalog override, applied by render-models.py over
+# backend/config/models.yaml when the kit renders vec-inf-config on DeltaAI
+# (LLMHUB_MODELS_OVERRIDE, cluster-deltaai.env). Delta renders the base as is.
+#
+# A GH200 node has 4 GPUs of 96 GiB, so five of the base's 2-node A100 layouts
+# fit on one node and run there at TP=4 (#174). vllm_args replaces the base's
+# whole, so no --pipeline-parallel-size survives.
+remove:
+  # Mllama: neither LLMHub image registers MllamaForConditionalGeneration, and
+  # both entries put TP across nodes.
+  - Llama-3.2-90B-Vision
+  - Llama-3.2-90B-Vision-Instruct
+  # 8 nodes in the base; bf16 needs 4 GH200 nodes, and the dev stack's partition
+  # (ghx4-interactive) allows 2. Back when 4-node batch launches exist.
+  - Meta-Llama-3.1-405B-Instruct
+models:
+  c4ai-command-r-plus-08-2024:
+    num_nodes: 1
+    gpus_per_node: 4
+    vllm_args:
+      --tensor-parallel-size: 4
+      --max-model-len: 65536
+  Mistral-Large-Instruct-2407:
+    num_nodes: 1
+    gpus_per_node: 4
+    vllm_args:
+      --tensor-parallel-size: 4
+      --max-model-len: 32768
+  Mistral-Large-Instruct-2411:
+    num_nodes: 1
+    gpus_per_node: 4
+    vllm_args:
+      --tensor-parallel-size: 4
+      --max-model-len: 32768
+  Mixtral-8x22B-v0.1:
+    num_nodes: 1
+    gpus_per_node: 4
+    vllm_args:
+      --tensor-parallel-size: 4
+      --max-model-len: 65536
+  Mixtral-8x22B-Instruct-v0.1:
+    num_nodes: 1
+    gpus_per_node: 4
+    vllm_args:
+      --tensor-parallel-size: 4
+      --max-model-len: 65536
+  # Needs 2 nodes: on one, all 4 GPUs run out of memory allocating parameters
+  # (3536109). On 2 nodes at TP=4 PP=2 it serves with 2,766 MiB free at peak,
+  # over 2 GiB, so vLLM's default --gpu-memory-utilization stays (3536666).
+  # That run had all of each node's memory (--mem=0; the vLLM step's MaxRSS was
+  # 41.4 GiB per node) while ~220 GB of weights per node went through the page
+  # cache. 400G keeps it near that, not under the 64G default (nodes: 488000M).
+  Qwen3-235B-A22B-Instruct-2507:
+    model_family: Qwen3
+    model_variant: 235B-A22B-Instruct-2507
+    model_type: LLM
+    hf_model: Qwen/Qwen3-235B-A22B-Instruct-2507
+    gpus_per_node: 4
+    num_nodes: 2
+    vocab_size: 151936
+    time: 01:00:00
+    mem_per_node: 400G
+    vllm_args:
+      --tensor-parallel-size: 4
+      --pipeline-parallel-size: 2
+      --max-model-len: 32768

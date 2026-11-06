@@ -9,7 +9,7 @@
 #   ./llmhub start | stop [--all] | restart [--profile P]
 #   ./llmhub status    [--profile P]
 #   ./llmhub smoke     [--profile P] [--with-sync]   exercise a running stack
-#   ./llmhub launch-test [--profile P] [--keep]      real inference job via the API
+#   ./llmhub launch-test [--profile P] [--nodes N] [--keep]   real inference job via the API
 #   ./llmhub shim      [--profile P]   rebuild the shim env (impersonate mode)
 #   ./llmhub check-impersonation <svcllmhub-user>    readability + the backend's own sudo probe
 #   ./llmhub logs      backend|frontend|postgres|build [-f]
@@ -39,6 +39,7 @@ while [ $# -gt 0 ]; do
         --with-sync) WITH_SYNC=1; shift ;;
         --recreate)  RECREATE=1; shift ;;
         --keep)      KEEP=1; shift ;;
+        --nodes)     export LLMHUB_TEST_NODES="$2"; shift 2 ;;
         -f|--follow) FOLLOW=1; shift ;;
         -h|--help)   usage ;;
         -*)          echo "unknown option: $1" >&2; usage 2 ;;
@@ -487,7 +488,8 @@ if e.get("LLMHUB_CONTAINER_LOAD_CMD"):
     d.setdefault("containerization", {})["module_load_cmd"] = e["LLMHUB_CONTAINER_LOAD_CMD"]
 yaml.safe_dump(d, open(dst, "w"), sort_keys=False)
 PY
-    cp "${BE}/config/models.yaml" "${VIC}/models.yaml"
+    "$PY" "${HERE}/render-models.py" "${BE}/config/models.yaml" "${LLMHUB_MODELS_OVERRIDE}" "${VIC}/models.yaml" \
+        || die "could not render ${VIC}/models.yaml from ${BE}/config/models.yaml${LLMHUB_MODELS_OVERRIDE:+ + ${LLMHUB_MODELS_OVERRIDE}}"
     if [ "$IMP" = 1 ]; then
         chmod -R o+rX "$VIC"; umask "$LLMHUB_UMASK"
         # Verify, do not assume: /sw/llmhub carries no default ACLs and
@@ -959,9 +961,11 @@ cmd_launch_test() {
     [ "${pool:-0}" -ge $(( gpus * nodes )) ] || die "backend GPU pool is ${pool:-0} < $(( gpus * nodes )) — run: ./llmhub start (seeds it)"; ok "backend GPU pool ${pool}"
     step "Test user"
     local uid; uid="$(test_user_id)"; [ -n "$uid" ] || exit 1; ok "user ${uid}"
+    case "$nodes" in ''|*[!0-9]*|0) die "--nodes / LLMHUB_TEST_NODES must be a positive integer (got '${nodes}')" ;; esac
     step "Launch"
     # vec-inf requires TP x PP == nodes x gpus: tensor-parallel within a node,
-    # pipeline-parallel across nodes (multi-node goes through its Ray launcher).
+    # pipeline-parallel across nodes (multi-node goes through LLMHub's adapter:
+    # one srun step, one vLLM rank per node).
     local vllm_args="--tensor-parallel-size=${gpus}"
     [ "$nodes" -gt 1 ] && vllm_args="${vllm_args},--pipeline-parallel-size=${nodes}"
     local payload; payload="$(jq -nc --arg m "$model" --arg u "$uid" --arg hf "$hf" --arg p "$LLMHUB_LAUNCH_PARTITION" --arg cu "$cu" \
@@ -998,7 +1002,10 @@ cmd_launch_test() {
         fi
         exit 1
     fi
-    ok "server up: ${ep} (job ${job} on $(squeue -h -j "$job" -o '%N' 2>/dev/null))"
+    local job_nodes; job_nodes="$(squeue -h -j "$job" -o '%N' 2>/dev/null)"
+    ok "server up: ${ep} (job ${job} on ${job_nodes})"
+    local MF=0
+    [ "$nodes" -gt 1 ] && { multinode_checks "$job" "$nodes" "$gpus" "$cu" "$model" || MF=1; }
     step "Inference"
     # vLLM requires the deployment's own key, which only LLMHub knows. Read it from
     # the database; vcurl hands it to curl through a file descriptor, not argv.
@@ -1029,8 +1036,55 @@ cmd_launch_test() {
         for i in $(seq 1 12); do [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && break; sleep 5; done
         [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && ok "job ${job} gone from the queue" || { warn "job ${job} still queued — scancel ${job}"; scancel "$job" 2>/dev/null || true; }
         st="$(curl -s --max-time 30 "${api}/${id}" 2>/dev/null | jq -r '.status // "?"')"; info "deployment status now: ${st}"
+        if [ "$nodes" -gt 1 ]; then
+            local acct; acct="$(sacct -X -n -P -j "$job" -o State 2>/dev/null | head -1)"
+            note "sacct ${job}: $(sacct -X -n -P -j "$job" -o JobID,State,ExitCode,Elapsed,NodeList 2>/dev/null | head -1)"
+            case "$acct" in CANCELLED*) ok "DELETE cancelled job ${job} (sacct ${acct})" ;; *) bad "job ${job} ended ${acct:-?}, not CANCELLED"; MF=1 ;; esac
+            local held_nodes; held_nodes="$(squeue -h -j "$job" -o %N 2>/dev/null)"
+            [ -z "$held_nodes" ] && ok "every node freed: ${job_nodes} no longer held by job ${job}" || { bad "job ${job} still holds ${held_nodes}"; MF=1; }
+        fi
     fi
-    [ -n "$text" ]
+    [ -n "$text" ] && [ "$MF" = 0 ]
+}
+
+# The multinode checks of #174, read from the job's own files: one vLLM rank per
+# node, every worker and pipeline stage loaded, NCCL on CXI (from the NCCL debug
+# files LLMHub's adapter writes into the job directory, never stderr), and each
+# rank's container with the GAP-098 pair and no FI_LOG_LEVEL. vec-inf's status
+# reaching ready already says no fatal-pattern line preceded the server.
+multinode_checks() {
+    local job="$1" nodes="$2" gpus="$3" cu="$4" model="$5" F=0
+    local jl="$LLMHUB_VEC_INF_LOG_DIR"; [ -n "$cu" ] && jl="${LLMHUB_SHARED_WORK_ROOT}/${cu}"
+    local dir; dir="$(ls -d "${jl}"/*/"${model}.${job}" 2>/dev/null | head -1)"
+    rd() { if [ -n "$cu" ] && [ "$IMP" = 1 ]; then sudo -n -u "$cu" cat "$@" 2>/dev/null; else cat "$@" 2>/dev/null; fi; }
+    count() { grep -c "$@" || true; }   # 0 matches is a count, not a failure
+    step "Multinode (${nodes} nodes × ${gpus} GPUs)"
+    [ -n "$dir" ] || { bad "no job directory ${jl}/*/${model}.${job}"; return 1; }
+    local out err nccl; out="$(rd "${dir}/${model}.${job}.out")"; err="$(rd "${dir}/${model}.${job}.err")"
+    nccl="$(if [ -n "$cu" ] && [ "$IMP" = 1 ]; then sudo -n -u "$cu" sh -c 'cat "$1"/nccl-debug/* 2>/dev/null' _ "$dir"; else cat "${dir}"/nccl-debug/* 2>/dev/null; fi)"
+    [ -n "$out$err" ] || { bad "cannot read the job logs in ${dir}"; return 1; }
+    local ranks; ranks="$(printf '%s\n' "$out" | count -E "^llmhub-multinode: rank [0-9]+/${nodes} ")"
+    [ "$ranks" -eq "$nodes" ] && ok "${ranks}/${nodes} ranks started" || { bad "${ranks}/${nodes} ranks started"; F=1; }
+    local want=$(( nodes * gpus )) workers
+    workers="$(printf '%s\n%s\n' "$out" "$err" | grep -oE 'Worker_PP[0-9]+_TP[0-9]+' | sort -u | wc -l)"
+    [ "$workers" -eq "$want" ] && ok "${workers}/${want} vLLM workers" || { bad "${workers}/${want} vLLM workers"; F=1; }
+    local loaded; loaded="$(printf '%s\n%s\n' "$out" "$err" | count -E 'Model loading took [0-9.]+ GiB')"
+    [ "$loaded" -ge "$nodes" ] && ok "model loaded on every stage (${loaded} 'Model loading took' lines)" || { bad "${loaded} 'Model loading took' lines for ${nodes} stages"; F=1; }
+    local cxi; cxi="$(printf '%s\n' "$nccl" | count 'Selected provider is cxi')"
+    [ "$cxi" -ge "$want" ] && ok "NCCL on CXI: 'Selected provider is cxi' ${cxi} times" || { bad "NCCL on CXI: 'Selected provider is cxi' ${cxi} times, want ${want} (NCCL debug: ${dir}/nccl-debug)"; F=1; }
+    local net; net="$(printf '%s\n' "$nccl" | grep -oE 'via NET/Libfabric/[0-9]+(/GDRDMA)?' | sort -u | paste -sd' ')"
+    [ -n "$net" ] && ok "cross-node channels: ${net}" || { bad "no 'via NET/Libfabric' channel in the NCCL debug files"; F=1; }
+    local envs n_env n_pair; envs="$(printf '%s\n' "$out" | grep -E '^llmhub-multinode: rank [0-9]+ container env:')"
+    n_env="$(printf '%s\n' "$envs" | count .)"
+    n_pair="$(printf '%s\n' "$envs" | grep 'FI_CXI_RDZV_THRESHOLD=8192' | count 'FI_CXI_RDZV_GET_MIN=0')"
+    [ "$n_env" -eq "$nodes" ] && [ "$n_pair" -eq "$nodes" ] && ok "every rank's container has the GAP-098 pair" \
+        || { bad "GAP-098 pair on ${n_pair} of ${nodes} ranks: ${envs:-no env lines}"; F=1; }
+    # vLLM runs under `env -u FI_LOG_LEVEL`; what shows it worked is libfabric
+    # staying silent before ready (3533520, with the image's warn level: 1,284 lines).
+    local fab; fab="$(printf '%s\n' "$err" | sed '/INFO:     Application startup complete\./q' | count 'libfabric:')"
+    [ "$fab" -eq 0 ] && ok "0 libfabric lines before ready" || { bad "${fab} libfabric lines before ready in the job's .err"; F=1; }
+    note "multinode checks for job ${job}: $([ "$F" = 0 ] && echo pass || echo FAIL)"
+    return "$F"
 }
 
 cmd_shim() {
