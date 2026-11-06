@@ -64,9 +64,13 @@ def render(model_name, side, dispatch):
     return {"script": scripts[0].read_text()}
 
 
-catalog = yaml.safe_load(Path(os.environ["VEC_INF_MODEL_CONFIG"]).read_text())
-# vec-inf merges the catalog over its packaged one, so an entry's node count
-# and engine are what that merge resolves, not what the catalog file says.
+catalog_path = os.environ.get("VEC_INF_MODEL_CONFIG") or str(
+    Path(os.environ["VEC_INF_CONFIG_DIR"], "models.yaml")
+)
+catalog = yaml.safe_load(Path(catalog_path).read_text())
+# vec-inf merges the catalog over a base one (its packaged catalog, unless the
+# environment names another), so an entry's node count and engine are what that
+# merge resolves, not what the catalog file says.
 resolved = {c.model_name: c for c in load_config()}
 rows = {}
 for name in catalog["models"]:

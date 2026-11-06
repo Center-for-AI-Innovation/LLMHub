@@ -39,7 +39,7 @@ while [ $# -gt 0 ]; do
         --with-sync) WITH_SYNC=1; shift ;;
         --recreate)  RECREATE=1; shift ;;
         --keep)      KEEP=1; shift ;;
-        --nodes)     export LLMHUB_TEST_NODES="$2"; shift 2 ;;
+        --nodes)     [ $# -ge 2 ] || { echo "--nodes needs a number" >&2; exit 2; }; export LLMHUB_TEST_NODES="$2"; shift 2 ;;
         -f|--follow) FOLLOW=1; shift ;;
         -h|--help)   usage ;;
         -*)          echo "unknown option: $1" >&2; usage 2 ;;
@@ -471,23 +471,10 @@ render_vec_inf_config() {
     local LLMHUB_VLLM_SIF_EFFECTIVE; LLMHUB_VLLM_SIF_EFFECTIVE="$(shared_image)"
     export LLMHUB_VLLM_SIF_EFFECTIVE LLMHUB_HF_CACHE LLMHUB_TORCH_CACHE LLMHUB_MODEL_WEIGHTS_PARENT_DIR \
            LLMHUB_LAUNCH_PARTITION LLMHUB_LAUNCH_RESOURCE_TYPE LLMHUB_LAUNCH_TIME LLMHUB_SLURM_ACCOUNT LLMHUB_VEC_INF_LOG_DIR \
-           LLMHUB_CONTAINER_LOAD_CMD
-    "$PY" - "$src" "${VIC}/environment.yaml" <<'PY'
-import os, sys, yaml
-src, dst = sys.argv[1:3]; e = os.environ
-d = yaml.safe_load(open(src)) or {}
-p = d.setdefault("paths", {})
-p["image_path"] = e["LLMHUB_VLLM_SIF_EFFECTIVE"]; p["vllm_image_path"] = e["LLMHUB_VLLM_SIF_EFFECTIVE"]
-a = d.setdefault("default_args", {})
-a.update(account=e["LLMHUB_SLURM_ACCOUNT"], partition=e["LLMHUB_LAUNCH_PARTITION"],
-         resource_type=e["LLMHUB_LAUNCH_RESOURCE_TYPE"], time=e["LLMHUB_LAUNCH_TIME"],
-         log_dir=e["LLMHUB_VEC_INF_LOG_DIR"], model_weights_parent_dir=e["LLMHUB_MODEL_WEIGHTS_PARENT_DIR"],
-         bind=f"{e['LLMHUB_HF_CACHE']}:{e['LLMHUB_HF_CACHE']}:ro,{e['LLMHUB_TORCH_CACHE']}:/root/.cache/torch_inductor")
-# Only when set, so a cluster that does not need it (Delta) renders exactly as before.
-if e.get("LLMHUB_CONTAINER_LOAD_CMD"):
-    d.setdefault("containerization", {})["module_load_cmd"] = e["LLMHUB_CONTAINER_LOAD_CMD"]
-yaml.safe_dump(d, open(dst, "w"), sort_keys=False)
-PY
+           LLMHUB_CONTAINER_LOAD_CMD LLMHUB_MODELS_OVERRIDE
+    export LLMHUB_MODELS_YAML="${VIC}/models.yaml"
+    "$PY" "${HERE}/render-vec-inf-env.py" "$src" "${VIC}/environment.yaml" \
+        || die "could not render ${VIC}/environment.yaml from ${src}"
     "$PY" "${HERE}/render-models.py" "${BE}/config/models.yaml" "${LLMHUB_MODELS_OVERRIDE}" "${VIC}/models.yaml" \
         || die "could not render ${VIC}/models.yaml from ${BE}/config/models.yaml${LLMHUB_MODELS_OVERRIDE:+ + ${LLMHUB_MODELS_OVERRIDE}}"
     if [ "$IMP" = 1 ]; then
@@ -938,6 +925,8 @@ test_user_id() {  # a real User row is required (ModelDeployment.userId is a FK)
 cmd_launch_test() {
     require_operator
     local model="$LLMHUB_TEST_MODEL" hf="$LLMHUB_TEST_HF_MODEL" gpus="$LLMHUB_TEST_GPUS" nodes="$LLMHUB_TEST_NODES"
+    # Before any arithmetic on it: a leading 0 would read as octal, a letter as 0.
+    case "$nodes" in ''|*[!0-9]*|0*) die "--nodes / LLMHUB_TEST_NODES must be a positive integer (got '${nodes}')" ;; esac
     local api="${BACKEND_URL}/api/models/deployments" log="${LLMHUB_LOG_DIR}/launch-test.log"
     printf 'LLMHub launch test — %s (%s): %s node × %s GPU on %s/%s, %s, image %s\n' \
         "$model" "$hf" "$nodes" "$gpus" "$LLMHUB_LAUNCH_PARTITION" "$LLMHUB_LAUNCH_RESOURCE_TYPE" "$LLMHUB_LAUNCH_TIME" "$LLMHUB_VLLM_SIF"
@@ -961,7 +950,6 @@ cmd_launch_test() {
     [ "${pool:-0}" -ge $(( gpus * nodes )) ] || die "backend GPU pool is ${pool:-0} < $(( gpus * nodes )) — run: ./llmhub start (seeds it)"; ok "backend GPU pool ${pool}"
     step "Test user"
     local uid; uid="$(test_user_id)"; [ -n "$uid" ] || exit 1; ok "user ${uid}"
-    case "$nodes" in ''|*[!0-9]*|0) die "--nodes / LLMHUB_TEST_NODES must be a positive integer (got '${nodes}')" ;; esac
     step "Launch"
     # vec-inf requires TP x PP == nodes x gpus: tensor-parallel within a node,
     # pipeline-parallel across nodes (multi-node goes through LLMHub's adapter:
@@ -1002,7 +990,9 @@ cmd_launch_test() {
         fi
         exit 1
     fi
-    local job_nodes; job_nodes="$(squeue -h -j "$job" -o '%N' 2>/dev/null)"
+    # Guarded: an impersonated job is the backend's to cancel (DELETE), not this
+    # account's, so the script must not die between here and the shutdown.
+    local job_nodes; job_nodes="$(squeue -h -j "$job" -o '%N' 2>/dev/null || true)"
     ok "server up: ${ep} (job ${job} on ${job_nodes})"
     local MF=0
     [ "$nodes" -gt 1 ] && { multinode_checks "$job" "$nodes" "$gpus" "$cu" "$model" || MF=1; }
@@ -1034,18 +1024,25 @@ cmd_launch_test() {
     else
         curl -s -o /dev/null -w '' -X DELETE "${api}/${id}" 2>/dev/null || true
         for i in $(seq 1 12); do [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && break; sleep 5; done
-        [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && ok "job ${job} gone from the queue" || { warn "job ${job} still queued — scancel ${job}"; scancel "$job" 2>/dev/null || true; }
+        local fallback=0
+        [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && ok "job ${job} gone from the queue" || { warn "job ${job} still queued — scancel ${job}"; scancel "$job" 2>/dev/null || true; fallback=1; }
         st="$(curl -s --max-time 30 "${api}/${id}" 2>/dev/null | jq -r '.status // "?"')"; info "deployment status now: ${st}"
         if [ "$nodes" -gt 1 ]; then
             # sacct can trail the queue by a few seconds after the job leaves it.
             local acct; for i in $(seq 1 12); do
-                acct="$(sacct -X -n -P -j "$job" -o State 2>/dev/null | head -1)"
+                acct="$(sacct -X -n -P -j "$job" -o State 2>/dev/null | head -1 || true)"
                 case "$acct" in RUNNING*|PENDING*|'') sleep 5 ;; *) break ;; esac
             done
-            note "sacct ${job}: $(sacct -X -n -P -j "$job" -o JobID,State,ExitCode,Elapsed,NodeList 2>/dev/null | head -1)"
-            case "$acct" in CANCELLED*) ok "DELETE cancelled job ${job} (sacct ${acct})" ;; *) bad "job ${job} ended ${acct:-?}, not CANCELLED"; MF=1 ;; esac
-            local held_nodes; held_nodes="$(squeue -h -j "$job" -o %N 2>/dev/null)"
-            [ -z "$held_nodes" ] && ok "every node freed: ${job_nodes} no longer held by job ${job}" || { bad "job ${job} still holds ${held_nodes}"; MF=1; }
+            note "sacct ${job}: $(sacct -X -n -P -j "$job" -o JobID,State,ExitCode,Elapsed,NodeList 2>/dev/null | head -1 || true)"
+            if [ "$fallback" = 1 ]; then bad "DELETE left job ${job} in the queue for 60 s; the kit cancelled it (sacct ${acct:-?})"; MF=1
+            else case "$acct" in CANCELLED*) ok "DELETE cancelled job ${job} (sacct ${acct})" ;; *) bad "job ${job} ended ${acct:-?}, not CANCELLED"; MF=1 ;; esac; fi
+            # Freed means schedulable again: no node left down, drained or still
+            # completing (a stuck CXI service teardown would show here).
+            local node_states; node_states="$(sinfo -h -N -n "$job_nodes" -o '%N %T' 2>/dev/null | sort -u | paste -sd',' - || true)"
+            note "nodes after the job: ${node_states:-?}"
+            if [ -n "$node_states" ] && ! printf '%s' "$node_states" | grep -qiE 'down|drain|fail|complet'; then
+                ok "every node freed: ${node_states}"
+            else bad "nodes after job ${job}: ${node_states:-unknown}"; MF=1; fi
         fi
     fi
     [ -n "$text" ] && [ "$MF" = 0 ]
@@ -1066,29 +1063,38 @@ multinode_checks() {
     count() { grep -c "$@" || true; }   # 0 matches is a count, not a failure
     step "Multinode (${nodes} nodes × ${gpus} GPUs)"
     [ -n "$dir" ] || { bad "no job directory ${jl}/*/${model}.${job}"; return 1; }
-    local out err nccl; out="$(cat "${dir}/${model}.${job}.out" 2>/dev/null)"; err="$(cat "${dir}/${model}.${job}.err" 2>/dev/null)"
-    nccl="$(cat "${dir}"/nccl-debug/* 2>/dev/null)"
+    local out err nccl
+    out="$(cat "${dir}/${model}.${job}.out" 2>/dev/null || true)"; err="$(cat "${dir}/${model}.${job}.err" 2>/dev/null || true)"
+    nccl="$(cat "${dir}"/nccl-debug/* 2>/dev/null || true)"
     [ -n "$out$err" ] || { bad "cannot read the job logs in ${dir}"; return 1; }
     local ranks; ranks="$(printf '%s\n' "$out" | count -E "^llmhub-multinode: rank [0-9]+/${nodes} ")"
     [ "$ranks" -eq "$nodes" ] && ok "${ranks}/${nodes} ranks started" || { bad "${ranks}/${nodes} ranks started"; F=1; }
     local want=$(( nodes * gpus )) workers
-    workers="$(printf '%s\n%s\n' "$out" "$err" | grep -oE 'Worker_PP[0-9]+_TP[0-9]+' | sort -u | wc -l)"
+    workers="$(printf '%s\n%s\n' "$out" "$err" | { grep -oE 'Worker_PP[0-9]+_TP[0-9]+' || true; } | sort -u | wc -l)"
     [ "$workers" -eq "$want" ] && ok "${workers}/${want} vLLM workers" || { bad "${workers}/${want} vLLM workers"; F=1; }
-    local loaded; loaded="$(printf '%s\n%s\n' "$out" "$err" | count -E 'Model loading took [0-9.]+ GiB')"
-    [ "$loaded" -ge "$nodes" ] && ok "model loaded on every stage (${loaded} 'Model loading took' lines)" || { bad "${loaded} 'Model loading took' lines for ${nodes} stages"; F=1; }
-    local cxi; cxi="$(printf '%s\n' "$nccl" | count 'Selected provider is cxi')"
-    [ "$cxi" -ge "$want" ] && ok "NCCL on CXI: 'Selected provider is cxi' ${cxi} times" || { bad "NCCL on CXI: 'Selected provider is cxi' ${cxi} times, want ${want} (NCCL debug: ${dir}/nccl-debug)"; F=1; }
-    local net; net="$(printf '%s\n' "$nccl" | grep -oE 'via NET/Libfabric/[0-9]+(/GDRDMA)?' | sort -u | paste -sd' ')"
-    [ -n "$net" ] && ok "cross-node channels: ${net}" || { bad "no 'via NET/Libfabric' channel in the NCCL debug files"; F=1; }
-    local envs n_env n_pair; envs="$(printf '%s\n' "$out" | grep -E '^llmhub-multinode: rank [0-9]+ container env:')"
+    local stages; stages="$(printf '%s\n%s\n' "$out" "$err" | { grep -oE 'Worker_PP[0-9]+_TP[0-9]+[^)]*\) .*Model loading took [0-9.]+ GiB' || true; } | { grep -oE '^Worker_PP[0-9]+' || true; } | sort -u | wc -l)"
+    [ "$stages" -eq "$nodes" ] && ok "model loaded on all ${nodes} pipeline stages" || { bad "model loaded on ${stages} of ${nodes} pipeline stages"; F=1; }
+    # One NCCL debug file per worker process; each must have chosen CXI.
+    local cxi; cxi="$(grep -l 'Selected provider is cxi' "${dir}"/nccl-debug/* 2>/dev/null | wc -l || true)"
+    [ "$cxi" -ge "$want" ] && ok "NCCL on CXI: 'Selected provider is cxi' in ${cxi} worker files" || { bad "NCCL on CXI in ${cxi} worker files, want ${want} (NCCL debug: ${dir}/nccl-debug)"; F=1; }
+    local net; net="$(printf '%s\n' "$nccl" | { grep -oE 'via NET/Libfabric/[0-9]+(/GDRDMA)?' || true; } | sort -u | paste -sd' ')"
+    if [ -z "$net" ]; then bad "no 'via NET/Libfabric' channel in the NCCL debug files"; F=1
+    # GH200 nodes do GPUDirect RDMA; Delta's A100s stage through host memory (GDR 0).
+    elif [ "$LLMHUB_CLUSTER" = deltaai ] && printf '%s\n' "$net" | tr ' ' '\n' | grep -q '^NET/Libfabric/[0-9]*$'; then
+        bad "cross-node channels without GDRDMA on DeltaAI: ${net}"; F=1
+    else ok "cross-node channels: ${net}"; fi
+    local envs n_env n_pair; envs="$(printf '%s\n' "$out" | grep -E '^llmhub-multinode: rank [0-9]+ container env:' || true)"
     n_env="$(printf '%s\n' "$envs" | count .)"
-    n_pair="$(printf '%s\n' "$envs" | grep 'FI_CXI_RDZV_THRESHOLD=8192' | count 'FI_CXI_RDZV_GET_MIN=0')"
-    [ "$n_env" -eq "$nodes" ] && [ "$n_pair" -eq "$nodes" ] && ok "every rank's container has the GAP-098 pair" \
+    n_pair="$(printf '%s\n' "$envs" | { grep -E '( |^)FI_CXI_RDZV_THRESHOLD=8192( |$)' || true; } | { grep -E '( |^)FI_CXI_RDZV_GET_MIN=0( |$)' || true; } | count -v 'FI_LOG_LEVEL=')"
+    [ "$n_env" -eq "$nodes" ] && [ "$n_pair" -eq "$nodes" ] && ok "every rank's container has the GAP-098 pair (the env line itself is printed under env -u FI_LOG_LEVEL)" \
         || { bad "GAP-098 pair on ${n_pair} of ${nodes} ranks: ${envs:-no env lines}"; F=1; }
     # vLLM runs under `env -u FI_LOG_LEVEL`; what shows it worked is libfabric
     # staying silent before ready (3533520, with the image's warn level: 1,284 lines).
     local fab; fab="$(printf '%s\n' "$err" | sed '/INFO:     Application startup complete\./q' | count 'libfabric:')"
-    [ "$fab" -eq 0 ] && ok "0 libfabric lines before ready" || { bad "${fab} libfabric lines before ready in the job's .err"; F=1; }
+    if ! printf '%s\n' "$err" | grep -q 'INFO:     Application startup complete\.'; then
+        bad "the job's .err has no ready line, so its libfabric lines cannot be counted"; F=1
+    elif [ "$fab" -eq 0 ]; then ok "0 libfabric lines before ready"
+    else bad "${fab} libfabric lines before ready in the job's .err"; F=1; fi
     note "multinode checks for job ${job}: $([ "$F" = 0 ] && echo pass || echo FAIL)"
     return "$F"
 }

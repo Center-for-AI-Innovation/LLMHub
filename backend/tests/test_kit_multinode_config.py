@@ -4,12 +4,21 @@ Reads ``infra/delta/config`` the way ``llmhub`` does (dev profile) and renders
 each cluster's catalog with the kit's own ``render-models.py``.
 """
 
+import json
+import os
 import subprocess
 import sys
 
 import pytest
 import yaml
-from multinode_helpers import BACKEND_CATALOG, KIT, kit_config, render_catalog
+from multinode_helpers import (
+    BACKEND_CATALOG,
+    ENV_TEMPLATE,
+    KIT,
+    kit_config,
+    render_catalog,
+    render_vec_inf_config,
+)
 from vec_inf.client._utils import load_config
 
 PAIR = ("FI_CXI_RDZV_THRESHOLD=8192", "FI_CXI_RDZV_GET_MIN=0")
@@ -112,19 +121,87 @@ def test_vec_inf_loads_the_deltaai_catalog(deltaai_catalog):
     assert configs[QWEN3_235B].mem_per_node == "400G"
 
 
-def test_removing_an_unknown_entry_is_an_error(tmp_path):
-    override = tmp_path / "override.yaml"
-    override.write_text(yaml.safe_dump({"remove": ["Llama-3.2-90B-Vison"]}))
-    proc = subprocess.run(
+_LAUNCH_PATH_CATALOG = """
+import json
+from vec_inf.client._utils import load_config
+print(json.dumps({c.model_name: [c.num_nodes, c.engine] for c in load_config()}))
+"""
+
+
+def _launch_path_catalog(vic):
+    """What vec-inf resolves at launch: load_config() with no path, as
+    ModelLauncher calls it, in an interpreter that read the rendered config."""
+    env = {**os.environ, "VEC_INF_CONFIG_DIR": str(vic)}
+    env.pop("VEC_INF_MODEL_CONFIG", None)
+    out = subprocess.run(
+        [sys.executable, "-c", _LAUNCH_PATH_CATALOG],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return json.loads(out.splitlines()[-1])
+
+
+def test_deltaai_launch_path_sees_only_the_rendered_catalog(tmp_path):
+    vic = render_vec_inf_config("deltaai", tmp_path / "vic", tmp_path / "logs")
+    rendered = yaml.safe_load((vic / "models.yaml").read_text())["models"]
+
+    resolved = _launch_path_catalog(vic)
+    print(f"deltaai launch path: {len(resolved)} models, rendered {len(rendered)}")
+
+    assert set(resolved) == set(rendered)
+    assert [name for name in LEFT_OUT if name in resolved] == []
+    assert resolved[QWEN3_235B] == [2, "vllm"]
+    for name in ONE_NODE_ON_GH200:
+        assert resolved[name][0] == 1, name
+
+
+def test_delta_keeps_vec_inf_s_base_catalog(tmp_path):
+    vic = render_vec_inf_config("delta", tmp_path / "vic", tmp_path / "logs")
+    template = yaml.safe_load(ENV_TEMPLATE.read_text())
+    env = yaml.safe_load((vic / "environment.yaml").read_text())
+
+    assert (
+        env["paths"]["cached_model_config_path"]
+        == template["paths"]["cached_model_config_path"]
+    )
+    assert (
+        "containerization" not in env
+        or env["containerization"].get("module_load_cmd")
+        == template["containerization"]["module_load_cmd"]
+    )
+
+
+def _render_with(tmp_path, override):
+    path = tmp_path / "override.yaml"
+    path.write_text(yaml.safe_dump(override))
+    return subprocess.run(
         [
             sys.executable,
             str(KIT / "render-models.py"),
             str(BACKEND_CATALOG),
-            str(override),
+            str(path),
             str(tmp_path / "o.yaml"),
         ],
         capture_output=True,
         text=True,
     )
+
+
+@pytest.mark.parametrize(
+    "override, message",
+    [
+        ({"remove": ["Llama-3.2-90B-Vison"]}, "cannot remove"),
+        (
+            {"models": {"Mistral-Large-Instruct-2047": {"num_nodes": 1}}},
+            "cannot change",
+        ),
+        ({"add": {"Qwen3-32B": {"num_nodes": 1}}}, "cannot add"),
+    ],
+)
+def test_a_name_typo_in_the_override_is_an_error(tmp_path, override, message):
+    proc = _render_with(tmp_path, override)
+
     assert proc.returncode != 0
-    assert "not in the base catalog" in proc.stderr
+    assert message in proc.stderr

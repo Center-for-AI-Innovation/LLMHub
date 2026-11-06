@@ -6,10 +6,9 @@ dispatch replaced by the call it replaced (vec-inf 0.9.0 plus LLMHub's #83 env
 patch). Every 1-node entry must submit the same script both ways, and every
 multinode vLLM entry must not.
 
-Each cluster renders in its own interpreter, with the catalog the kit renders
-there (``infra/delta/render-models.py``), that cluster's job env and pre-command
-as the kit sources them, and an environment.yaml built from the kit's template
-(``config/infrastructures/delta/environment.yaml``). Those values shape both
+Each cluster renders in its own interpreter, with the vec-inf-config the kit
+renders there (``infra/delta/render-vec-inf-env.py`` and ``render-models.py``)
+and that cluster's job env, as the kit sources them. Those values shape both
 sides alike; what the test compares is the dispatch.
 """
 
@@ -20,30 +19,10 @@ import sys
 from pathlib import Path
 
 import pytest
-import yaml
-from multinode_helpers import kit_config, render_catalog
+from multinode_helpers import kit_config, render_vec_inf_config
 
 BACKEND = Path(__file__).resolve().parents[1]
-ENV_TEMPLATE = BACKEND / "config" / "infrastructures" / "delta" / "environment.yaml"
 CLUSTERS = ["delta", "deltaai"]
-
-
-def _cluster_environment(cluster, kit):
-    env = yaml.safe_load(ENV_TEMPLATE.read_text())
-    if kit["LLMHUB_CONTAINER_LOAD_CMD"]:
-        env["containerization"]["module_load_cmd"] = kit["LLMHUB_CONTAINER_LOAD_CMD"]
-    if cluster == "deltaai":
-        env["paths"][
-            "vllm_image_path"
-        ] = "/sw/llmhub/vllm-v0.28.0-slingshot-deltaai.sif"
-        env["default_args"].update(
-            account="bfmz-dtai-gh",
-            partition="ghx4-interactive",
-            resource_type="nvidia_gh200_120gb",
-        )
-    else:
-        env["paths"]["vllm_image_path"] = "/sw/llmhub/vllm-v0.19.1-slingshot-v3.sif"
-    return env
 
 
 @pytest.fixture(scope="module", params=CLUSTERS)
@@ -51,17 +30,12 @@ def rendered(request, tmp_path_factory):
     cluster = request.param
     kit = kit_config(cluster)
     work = tmp_path_factory.mktemp(cluster)
-    config_dir = work / "vec-inf-config"
-    config_dir.mkdir()
-    (config_dir / "environment.yaml").write_text(
-        yaml.safe_dump(_cluster_environment(cluster, kit))
-    )
-    catalog = render_catalog(cluster, work / "models.yaml")
+    config_dir = render_vec_inf_config(cluster, work / "vec-inf-config", work / "logs")
     out = work / "rendered.json"
     env = {
         **os.environ,
+        # As the backend runs on the stack: the rendered directory, no override.
         "VEC_INF_CONFIG_DIR": str(config_dir),
-        "VEC_INF_MODEL_CONFIG": str(catalog),
         "VEC_INF_ENV": kit["LLMHUB_VEC_INF_ENV"],
         "PYTHONPATH": str(BACKEND),
     }

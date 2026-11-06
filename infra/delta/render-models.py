@@ -7,17 +7,20 @@ Called by ``llmhub``'s render_vec_inf_config, and by the backend tests that
 check what each cluster renders. With no override the base is written as is.
 
 Override format:
-    remove: [name, ...]   left out of the rendered catalog. LLMHub lists, and
-                          launches, only what this file names.
+    remove: [name, ...]   left out of the rendered catalog. With an override the
+                          rendered file is also vec-inf's base catalog
+                          (render-vec-inf-env.py), so a removed name is gone.
     models:
       <name>: {...}       merged over the base entry one top-level key at a
                           time, so a given ``vllm_args`` replaces the base's whole
                           and a 2-node layout's --pipeline-parallel-size cannot
-                          survive into a 1-node one. A name the base lacks is
-                          added as given.
+                          survive into a 1-node one.
+    add:
+      <name>: {...}       a new, complete entry.
 
-A ``remove`` name the base lacks is an error: a typo must not leave an entry
-in the catalog that the override meant to take out.
+Every name is checked against the base: ``remove`` and ``models`` must name an
+entry it has, and ``add`` one it lacks. A typo must neither leave in an entry
+the override meant to change or take out, nor slip in a partial one.
 """
 
 import sys
@@ -28,15 +31,20 @@ import yaml
 def render(base: dict, override: dict) -> dict:
     models = dict(base.get("models") or {})
     remove = override.get("remove") or []
-    missing = [name for name in remove if name not in models]
-    if missing:
-        raise SystemExit(f"render-models: cannot remove {missing}: not in the base catalog")
+    change = override.get("models") or {}
+    add = override.get("add") or {}
+    for verb, names in (("remove", remove), ("change", change)):
+        missing = [name for name in names if name not in models]
+        if missing:
+            raise SystemExit(f"render-models: cannot {verb} {missing}: not in the base catalog")
+    present = [name for name in add if name in models]
+    if present:
+        raise SystemExit(f"render-models: cannot add {present}: already in the base catalog")
     for name in remove:
         del models[name]
-    for name, entry in (override.get("models") or {}).items():
-        merged = dict(models.get(name) or {})
-        merged.update(entry)
-        models[name] = merged
+    for name, entry in change.items():
+        models[name] = {**models[name], **entry}
+    models.update(add)
     return {**base, "models": models}
 
 

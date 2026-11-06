@@ -4,7 +4,9 @@
 #
 # A GH200 node has 4 GPUs of 96 GiB, so five of the base's 2-node A100 layouts
 # fit on one node and run there at TP=4 (#174). vllm_args replaces the base's
-# whole, so no --pipeline-parallel-size survives.
+# whole, so no --pipeline-parallel-size survives. They load 200-280 GB on one
+# node, so they get the memory the Qwen3-235B entry explains below. None of the
+# five has been run on GH200 yet.
 remove:
   # Mllama: neither LLMHub image registers MllamaForConditionalGeneration, and
   # both entries put TP across nodes.
@@ -17,33 +19,39 @@ models:
   c4ai-command-r-plus-08-2024:
     num_nodes: 1
     gpus_per_node: 4
+    mem_per_node: 400G
     vllm_args:
       --tensor-parallel-size: 4
       --max-model-len: 65536
   Mistral-Large-Instruct-2407:
     num_nodes: 1
     gpus_per_node: 4
+    mem_per_node: 400G
     vllm_args:
       --tensor-parallel-size: 4
       --max-model-len: 32768
   Mistral-Large-Instruct-2411:
     num_nodes: 1
     gpus_per_node: 4
+    mem_per_node: 400G
     vllm_args:
       --tensor-parallel-size: 4
       --max-model-len: 32768
   Mixtral-8x22B-v0.1:
     num_nodes: 1
     gpus_per_node: 4
+    mem_per_node: 400G
     vllm_args:
       --tensor-parallel-size: 4
       --max-model-len: 65536
   Mixtral-8x22B-Instruct-v0.1:
     num_nodes: 1
     gpus_per_node: 4
+    mem_per_node: 400G
     vllm_args:
       --tensor-parallel-size: 4
       --max-model-len: 65536
+add:
   # Needs 2 nodes: on one, all 4 GPUs run out of memory allocating parameters
   # (3536109). On 2 nodes at TP=4 PP=2 it serves with 2,766 MiB free at peak,
   # over 2 GiB, so vLLM's default --gpu-memory-utilization stays (3536666).

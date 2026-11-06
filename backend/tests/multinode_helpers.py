@@ -122,6 +122,13 @@ def kit_config(cluster: str) -> dict:
         "LLMHUB_VEC_INF_ENV",
         "LLMHUB_CONTAINER_LOAD_CMD",
         "LLMHUB_MODELS_OVERRIDE",
+        "LLMHUB_VLLM_SIF",
+        "LLMHUB_SLURM_ACCOUNT",
+        "LLMHUB_LAUNCH_PARTITION",
+        "LLMHUB_LAUNCH_RESOURCE_TYPE",
+        "LLMHUB_LAUNCH_TIME",
+        "LLMHUB_MODEL_WEIGHTS_PARENT_DIR",
+        "LLMHUB_HF_CACHE",
     ]
     script = (
         f'LLMHUB_CLUSTER={cluster} LLMHUB_PROFILE=dev; . "{KIT}/config/delta.env" >/dev/null 2>&1; '
@@ -154,3 +161,43 @@ def render_catalog(cluster: str, out: Path) -> Path:
         check=True,
     )
     return out
+
+
+ENV_TEMPLATE = (
+    Path(__file__).resolve().parents[1]
+    / "config"
+    / "infrastructures"
+    / "delta"
+    / "environment.yaml"
+)
+
+
+def render_vec_inf_config(cluster: str, vic: Path, log_dir: Path) -> Path:
+    """The vec-inf-config directory the kit renders on ``cluster``, under ``vic``.
+
+    Both files come from the kit's own renderers, with the cluster's values as
+    ``llmhub`` sources them; only the per-deployment paths (log dir, torch
+    cache) are this test's.
+    """
+    kit = kit_config(cluster)
+    vic.mkdir(parents=True, exist_ok=True)
+    render_catalog(cluster, vic / "models.yaml")
+    env = {
+        **os.environ,
+        **kit,
+        "LLMHUB_VLLM_SIF_EFFECTIVE": kit["LLMHUB_VLLM_SIF"],
+        "LLMHUB_VEC_INF_LOG_DIR": str(log_dir),
+        "LLMHUB_TORCH_CACHE": str(vic / "torch-inductor"),
+        "LLMHUB_MODELS_YAML": str(vic / "models.yaml"),
+    }
+    subprocess.run(
+        [
+            sys.executable,
+            str(KIT / "render-vec-inf-env.py"),
+            str(ENV_TEMPLATE),
+            str(vic / "environment.yaml"),
+        ],
+        env=env,
+        check=True,
+    )
+    return vic
