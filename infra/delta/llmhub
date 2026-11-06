@@ -9,7 +9,7 @@
 #   ./llmhub start | stop [--all] | restart [--profile P]
 #   ./llmhub status    [--profile P]
 #   ./llmhub smoke     [--profile P] [--with-sync]   exercise a running stack
-#   ./llmhub launch-test [--profile P] [--nodes N] [--keep]   real inference job via the API
+#   ./llmhub launch-test [--profile P] [--nodes N] [--client SCRIPT] [--keep]   real inference job via the API
 #   ./llmhub shim      [--profile P]   rebuild the shim env (impersonate mode)
 #   ./llmhub check-impersonation <svcllmhub-user>    readability + the backend's own sudo probe
 #   ./llmhub logs      backend|frontend|postgres|build [-f]
@@ -28,7 +28,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ------------------------------------------------------------------ args ----
 ORIG_ARGS=("$@")   # deploy re-runs the checked-out kit with these
-CMD=""; TARGET=""; REF_ARG=""; APPLY=0; STOP_ALL=0; WITH_SYNC=0; RECREATE=0; FOLLOW=0; KEEP=0
+CMD=""; TARGET=""; REF_ARG=""; APPLY=0; STOP_ALL=0; WITH_SYNC=0; RECREATE=0; FOLLOW=0; KEEP=0; CLIENT=""
 usage() { sed -n '2,20p' "${BASH_SOURCE[0]}"; exit "${1:-0}"; }
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -39,6 +39,7 @@ while [ $# -gt 0 ]; do
         --with-sync) WITH_SYNC=1; shift ;;
         --recreate)  RECREATE=1; shift ;;
         --keep)      KEEP=1; shift ;;
+        --client)    [ $# -ge 2 ] || { echo "--client needs a script" >&2; exit 2; }; CLIENT="$2"; shift 2 ;;
         --nodes)     [ $# -ge 2 ] || { echo "--nodes needs a number" >&2; exit 2; }; export LLMHUB_TEST_NODES="$2"; shift 2 ;;
         -f|--follow) FOLLOW=1; shift ;;
         -h|--help)   usage ;;
@@ -1017,6 +1018,16 @@ cmd_launch_test() {
     if [ -n "$text" ]; then ok "chat completion: $(printf '%s' "$text" | tr -d '\n' | head -c 60)"; note "completion: ${text}"
     else bad "chat completion failed: ${cc:0:200}"; note "completion FAILED: ${cc:0:300}"; fi
     [ "$(http "${api}/${id}/logs")" = 200 ] && ok "GET /deployments/${id}/logs → 200" || warn "GET /deployments/${id}/logs failed"
+    if [ -n "$CLIENT" ]; then
+        # An acceptance client against the live server, before the shutdown. It
+        # gets the endpoint and the deployment key in its environment, never argv;
+        # its exit status counts toward launch-test's.
+        step "Client: ${CLIENT}"
+        if [ ! -x "$CLIENT" ]; then bad "client ${CLIENT} is not an executable file"; MF=1
+        elif LLMHUB_TEST_ENDPOINT="$ep" LLMHUB_TEST_KEY="$key" LLMHUB_TEST_SERVED="$model" LLMHUB_TEST_JOB="$job" \
+                "$CLIENT" 2>&1 | tee -a "$log"; then ok "client ${CLIENT} passed"
+        else bad "client ${CLIENT} failed"; MF=1; fi
+    fi
     step "Shutdown"
     if [ "$KEEP" = 1 ]; then
         info "--keep: leaving deployment ${id} (job ${job}) running until its ${LLMHUB_LAUNCH_TIME} limit"
