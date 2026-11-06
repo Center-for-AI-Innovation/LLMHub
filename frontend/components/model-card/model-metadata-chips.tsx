@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Box, Brain, Cpu, Hash, Calendar, Lock, type LucideIcon } from 'lucide-react';
+import { Brain, Cpu, Hash, Calendar, Lock, type LucideIcon } from 'lucide-react';
 import type { ModelInfo } from '@/hooks/use-models';
 
 export type ScaleColor = {
@@ -21,6 +21,14 @@ export const SCALE_COLORS = {
     iconClass: 'text-secondary-accessible',
   },
 } as const satisfies Record<string, ScaleColor>;
+
+/**
+ * How a model's type is labelled on chips. The backend defaults a missing
+ * model_type to "LLM", so the same default is shown here.
+ */
+export function formatModelType(modelType: string | null | undefined): string {
+  return modelType ? modelType.replace(/_/g, ' ') : 'LLM';
+}
 
 export function getSizeColor(size: ModelInfo['size']): ScaleColor {
   switch (size) {
@@ -115,24 +123,16 @@ export function GatedChip({ gated }: { gated: string | null | undefined }) {
   );
 }
 
-/** Renders the standard Type / Size / GPUs / Context chips, plus Gated when it applies. */
+/** Renders the standard Type / GPUs / Context chips, plus Gated when it applies. */
 export function ModelSpecChips({ model }: { model: ModelInfo }) {
   return (
     <>
       <GatedChip gated={model.gated} />
-      {model.modelType && (
-        <ModelMetadataChip
-          icon={Brain}
-          label="Type"
-          value={model.modelType}
-          color={SCALE_COLORS.neutral}
-        />
-      )}
       <ModelMetadataChip
-        icon={Box}
-        label="Size"
-        value={model.size}
-        color={getSizeColor(model.size)}
+        icon={Brain}
+        label="Type"
+        value={formatModelType(model.modelType)}
+        color={SCALE_COLORS.neutral}
       />
       <ModelMetadataChip
         icon={Cpu}
