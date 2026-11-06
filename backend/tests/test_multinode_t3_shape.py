@@ -111,33 +111,27 @@ def test_deployment_env_reaches_every_rank(monkeypatch, tmp_path):
 
 
 def test_nccl_debug_never_goes_to_stderr(monkeypatch, tmp_path):
-    quiet = rank_script_of(_launch_two_node(monkeypatch, tmp_path / "a"))
-    assert "NCCL_DEBUG" not in quiet.replace("NCCL_DEBUG_FILE)=", "")
+    """The job env's NCCL_DEBUG turns the debug file on; its own file wins.
 
-    noisy = rank_script_of(
-        _launch_two_node(
-            monkeypatch,
-            tmp_path / "b",
-            vec_inf_env=FIXTURE_VEC_INF_ENV + ",NCCL_DEBUG=INFO",
+    T4 runs the switch, including NCCL_DEBUG from the host's APPTAINERENV_*.
+    """
+    cases = {
+        "a": ("", "0"),
+        "b": (",NCCL_DEBUG=INFO", "1"),
+        "c": (",NCCL_DEBUG=INFO,NCCL_DEBUG_FILE=/tmp/n.%h", "0"),
+    }
+    for sub, (extra, flag) in cases.items():
+        rank_script = rank_script_of(
+            _launch_two_node(
+                monkeypatch, tmp_path / sub, vec_inf_env=FIXTURE_VEC_INF_ENV + extra
+            )
         )
-    )
-    assert re.search(
-        r'^export APPTAINERENV_NCCL_DEBUG_FILE="\$\{LLMHUB_MN_JOB_DIR\}/nccl-debug/%h\.%p"$',
-        noisy,
-        re.M,
-    )
-    # The file's directory is bound into the container at the same path.
-    assert (
-        'export APPTAINER_BINDPATH="${APPTAINER_BINDPATH},${LLMHUB_MN_JOB_DIR}/nccl-debug"'
-        in noisy
-    )
+        assert re.search(rf"^nccl_debug={flag}$", rank_script, re.M), (sub, flag)
 
-    explicit = rank_script_of(
-        _launch_two_node(
-            monkeypatch,
-            tmp_path / "c",
-            vec_inf_env=FIXTURE_VEC_INF_ENV
-            + ",NCCL_DEBUG=INFO,NCCL_DEBUG_FILE=/tmp/n.%h",
-        )
-    )
-    assert "APPTAINERENV_NCCL_DEBUG_FILE" not in explicit
+
+def test_rendezvous_is_cleared_before_the_step(monkeypatch, tmp_path):
+    body = batch_body_without_rank_script(_launch_two_node(monkeypatch, tmp_path))
+
+    clear = body.index('rm -rf "$LLMHUB_MN_RENDEZVOUS"')
+    assert body.index('export LLMHUB_MN_RENDEZVOUS="$job_dir/rendezvous"') < clear
+    assert clear < re.search(r"^srun ", body, re.M).start()

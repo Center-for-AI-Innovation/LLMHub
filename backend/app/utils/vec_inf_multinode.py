@@ -14,6 +14,12 @@ vLLM's own ``--nnodes/--node-rank/--master-addr/--master-port`` with the ``mp``
 executor.
 
 Single-node launches, and anything that is not vLLM, go to vec-inf unchanged.
+A multinode vLLM launch outside a container (``venv`` set to a path) is refused,
+not sent to vec-inf's Ray path, which fails on both clusters.
+
+The rank script's ``--env`` flags are ``SlurmScriptGenerator.env_str``, so they
+carry LLMHub's one-flag-per-variable patch (#56/#83), which
+``app.utils.llm_inference`` installs on import. That module is the only caller.
 
 The adapter subclasses private vec-inf classes, so it is tied to the exact
 ``vec-inf==0.9.0`` pin. ``check_vec_inf_version`` refuses a multinode launch on
@@ -139,17 +145,17 @@ rdv="${LLMHUB_MN_RENDEZVOUS:?}"
 mkdir -p "$rdv" && : > "${rdv}/rank-${rank}"
 shopt -s nullglob
 timeout="${LLMHUB_MN_BARRIER_TIMEOUT:-__BARRIER_TIMEOUT__}"
-waited=0
+start=$SECONDS
 while :; do
     arrived=("${rdv}"/rank-*)
     [ "${#arrived[@]}" -ge "$nnodes" ] && break
-    if [ "$waited" -ge "$timeout" ]; then
+    if [ $((SECONDS - start)) -ge "$timeout" ]; then
         echo "__ERROR__ rank ${rank}: ${#arrived[@]} of ${nnodes} ranks started within ${timeout}s" >&2
         exit 1
     fi
     sleep 1
-    waited=$((waited + 1))
 done
+waited=$((SECONDS - start))
 echo "llmhub-multinode: rank ${rank}/${nnodes} on ${host} ip=${ip4} ifaces=${ifs} cuda=${CUDA_VISIBLE_DEVICES:-<unset>} barrier=${waited}s"
 
 # vLLM reads VLLM_PORT as its own base port; keep a stray one out.
@@ -157,7 +163,17 @@ unset APPTAINERENV_VLLM_PORT
 export APPTAINERENV_VLLM_HOST_IP="$ip4"
 export APPTAINERENV_NCCL_SOCKET_IFNAME="=${ifs}"
 export APPTAINERENV_GLOO_SOCKET_IFNAME="${ifs%%,*}"
-__NCCL_DEBUG_FILE__
+# NCCL's INFO lines on stderr can match vec-inf's fatal patterns, so NCCL debug
+# output goes to a file in the job directory, bound in at the same path. The job
+# env (the value below, rendered at submit time) or the host's APPTAINERENV_NCCL_DEBUG
+# can turn it on.
+nccl_debug=__NCCL_DEBUG__
+[ -n "${APPTAINERENV_NCCL_DEBUG:-}" ] && [ -z "${APPTAINERENV_NCCL_DEBUG_FILE:-}" ] && nccl_debug=1
+if [ "$nccl_debug" = 1 ]; then
+    mkdir -p "${LLMHUB_MN_JOB_DIR}/nccl-debug"
+    export APPTAINER_BINDPATH="${APPTAINER_BINDPATH},${LLMHUB_MN_JOB_DIR}/nccl-debug"
+    export APPTAINERENV_NCCL_DEBUG_FILE="${LLMHUB_MN_JOB_DIR}/nccl-debug/%h.%p"
+fi
 # The fabric variables as this rank's container sees them, for the job log.
 echo "llmhub-multinode: rank ${rank} container env: $(__PROBE__ \
     | grep -E '^(FI_CXI_RDZV_THRESHOLD|FI_CXI_RDZV_GET_MIN|FI_LOG_LEVEL|FI_PROVIDER|NCCL_NET_PLUGIN|NCCL_DEBUG_FILE)=' | sort | paste -sd' ')"
@@ -215,22 +231,10 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
         ]
         vllm_lines += _render_engine_args(self.params["engine_args"])
         probe = container.rstrip(" \\") + f" {_INNER_ENV} env 2>/dev/null"
-        if self._nccl_debug_needs_file():
-            # NCCL's INFO lines on stderr can match vec-inf's fatal patterns, so
-            # NCCL debug output goes to a file in the job directory, bound in.
-            nccl_debug = (
-                'mkdir -p "${LLMHUB_MN_JOB_DIR}/nccl-debug"\n'
-                'export APPTAINER_BINDPATH="${APPTAINER_BINDPATH},'
-                '${LLMHUB_MN_JOB_DIR}/nccl-debug"\n'
-                "export APPTAINERENV_NCCL_DEBUG_FILE="
-                '"${LLMHUB_MN_JOB_DIR}/nccl-debug/%h.%p"'
-            )
-        else:
-            nccl_debug = ""
         return (
             _RANK_SCRIPT.replace("__ERROR__", _ERROR_PREFIX)
             .replace("__BARRIER_TIMEOUT__", str(DEFAULT_BARRIER_TIMEOUT))
-            .replace("__NCCL_DEBUG_FILE__", nccl_debug)
+            .replace("__NCCL_DEBUG__", "1" if self._nccl_debug_needs_file() else "0")
             .replace("__PROBE__", probe)
             .replace("__CONTAINER__", container)
             .replace("__INNER__", _INNER_ENV)
@@ -306,6 +310,8 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
                 'api ${server_address}"',
                 'export LLMHUB_MN_JOB_DIR="$job_dir"',
                 'export LLMHUB_MN_RENDEZVOUS="$job_dir/rendezvous"',
+                "# A requeued job keeps its id, and so its job directory.",
+                'rm -rf "$LLMHUB_MN_RENDEZVOUS"',
                 'export LLMHUB_MN_NNODES="$SLURM_JOB_NUM_NODES"',
                 'export LLMHUB_MN_MASTER_ADDR="$master_addr"',
                 'export LLMHUB_MN_MASTER_PORT="$master_port"',

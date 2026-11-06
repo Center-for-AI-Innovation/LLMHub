@@ -246,3 +246,34 @@ def test_quoting_survives_the_rank_shell(rank_script):
     words = shlex.split(line.rstrip(" \\")[len("set -- ") :])
     assert words[:3] == ["apptainer", "exec", "--nv"]
     assert words[-2] == "--containall"
+
+
+@pytest.mark.parametrize(
+    "extra, expect_file",
+    [
+        ({}, False),
+        ({"APPTAINERENV_NCCL_DEBUG": "INFO"}, True),
+        (
+            {"APPTAINERENV_NCCL_DEBUG": "INFO", "APPTAINERENV_NCCL_DEBUG_FILE": "/x"},
+            False,
+        ),
+    ],
+)
+def test_nccl_debug_from_the_host_goes_to_a_file(
+    rank_script, tmp_path, extra, expect_file
+):
+    head = Node(tmp_path, "gh101", IP_HEAD, tmp_path / "rendezvous")
+
+    proc = head.run(rank_script, SLURM_PROCID="0", LLMHUB_MN_NNODES="1", **extra)
+
+    assert proc.returncode == 0, proc.stderr
+    env = head.vllm_call()["env"]
+    job_dir = head.env["LLMHUB_MN_JOB_DIR"]
+    if expect_file:
+        assert env["APPTAINERENV_NCCL_DEBUG_FILE"] == f"{job_dir}/nccl-debug/%h.%p"
+        assert env["APPTAINER_BINDPATH"].endswith(f",{job_dir}/nccl-debug")
+    else:
+        assert env.get("APPTAINERENV_NCCL_DEBUG_FILE") == extra.get(
+            "APPTAINERENV_NCCL_DEBUG_FILE"
+        )
+        assert "nccl-debug" not in env["APPTAINER_BINDPATH"]
