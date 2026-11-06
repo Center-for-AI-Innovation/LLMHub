@@ -1,12 +1,13 @@
 # API reference
 
-Every running deployment has an OpenAI-compatible **chat completions**
-endpoint, so you can use your models from scripts, notebooks and
-applications. Code written for the OpenAI SDK usually needs only a new base
-URL, API key and model name.
+Every running deployment has an OpenAI-compatible endpoint, so you can use
+your models from scripts, notebooks and applications: **chat completions**
+for chat models, **embeddings** for embedding models. Code written for the
+OpenAI SDK usually needs only a new base URL, API key and model name.
 
 ```text
 POST https://your-llmhub-host/api/public/v1/deployment/{deploymentId}/chat/completions
+POST https://your-llmhub-host/api/public/v1/deployment/{deploymentId}/embeddings
 Authorization: Bearer YOUR_LLMHUB_API_KEY
 ```
 
@@ -26,8 +27,9 @@ Authorization: Bearer YOUR_LLMHUB_API_KEY
 - **Your code stops working when the deployment ends.** Calls to a stopped
   deployment fail with `503`. The API can't launch or restart models; do that
   in the web UI.
-- **Only chat completions is available.** There's no `/models`, `/completions`
-  or `/embeddings` endpoint.
+- **Use the endpoint that matches the model.** Chat models answer
+  chat completions; embedding models, such as `bge-base-en-v1.5`, answer
+  embeddings. There's no `/models` or `/completions` endpoint.
 - **The model name must match exactly.** Use the name shown in the API
   dialog, which is the model's catalog name, such as `Qwen2.5-7B-Instruct`.
 
@@ -46,3 +48,5 @@ See [Errors](chat-completions.md#errors) for what each failure returns.
 - [Authentication](authentication.md): creating, using and replacing API keys
 - [Chat completions](chat-completions.md): requests, streaming, parameters
   and errors
+- [Embeddings](embeddings.md): turning text into vectors with an embedding
+  model

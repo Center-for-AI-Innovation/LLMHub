@@ -73,8 +73,8 @@ URL from the API dialog:
 
 ## What a key can do
 
-**It can** call chat completions on any running deployment you launched or
-that someone shared with you.
+**It can** call chat completions or embeddings on any running deployment you
+launched or that someone shared with you.
 
 **It can't** launch, stop or share deployments, read your chats, or do
 anything else in LLMHub. Those are web-UI only.

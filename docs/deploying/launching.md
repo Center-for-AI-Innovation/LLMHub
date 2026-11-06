@@ -51,7 +51,8 @@ Otherwise LLMHub takes you to **Your Active Models** with the new
 deployment's logs open. Its status moves through **Downloading weights**
 (first launch on the cluster only), **Pending**, **Launching** and
 **Running**. You get an email when it's running, and the **Chat** and **API**
-buttons become available.
+buttons become available. Embedding models get only **API**: they can't chat,
+and you use them through the [embeddings endpoint](../api/embeddings.md).
 
 ## Limits
 

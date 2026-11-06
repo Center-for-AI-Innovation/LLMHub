@@ -139,8 +139,8 @@ base URL and ready-to-run curl, Python and JavaScript examples. See the
 
 **Is it compatible with the OpenAI SDK?**
 
-Yes, for chat completions. Point the SDK at the deployment's base URL and use
-your LLMHub API key.
+Yes, for chat completions and embeddings. Point the SDK at the deployment's
+base URL and use your LLMHub API key.
 
 ## Getting help
 

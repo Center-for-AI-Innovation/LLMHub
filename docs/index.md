@@ -60,7 +60,8 @@ account enabled for LLMHub.
   [Requesting new models](deploying/requesting-models.md) if it isn't there.
 - **Building an application?** Start with
   [Authentication](api/authentication.md), then
-  [Chat completions](api/chat-completions.md).
+  [Chat completions](api/chat-completions.md) or
+  [Embeddings](api/embeddings.md).
 - **Operating a deployment?** The [Self-hosting](self-hosting/index.md)
   section covers local development, the Delta/DeltaAI service VMs, and the
   Magic Castle (Radiant) cluster.
@@ -72,8 +73,8 @@ account enabled for LLMHub.
   such as Llama work with your own Hugging Face token.
 - **Chat in the browser**: streaming replies, reasoning display, image input
   for vision models, and saved history.
-- **An OpenAI-compatible API**: chat completions for any running model, with
-  a personal API key.
+- **An OpenAI-compatible API**: chat completions for chat models and
+  embeddings for embedding models, with a personal API key.
 - **Deployment management**: watch status and logs, get email when a model is
   ready or fails, stop it early, and share it with colleagues.
 - **Your allocation, your job**: models run as Slurm jobs charged to the
