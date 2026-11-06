@@ -49,7 +49,8 @@ models:
   # over 2 GiB, so vLLM's default --gpu-memory-utilization stays (3536666).
   # That run had all of each node's memory (--mem=0; the vLLM step's MaxRSS was
   # 41.4 GiB per node) while ~220 GB of weights per node went through the page
-  # cache. 400G keeps it near that, not under the 64G default (nodes: 488000M).
+  # cache. 400G keeps it near that, not under the 64G default. A ghx4 node can
+  # schedule at most 454,240 MiB (RealMemory 488000M - MemSpecLimit 33760M).
   Qwen3-235B-A22B-Instruct-2507:
     model_family: Qwen3
     model_variant: 235B-A22B-Instruct-2507
