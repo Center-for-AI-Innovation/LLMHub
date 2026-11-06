@@ -30,6 +30,8 @@ ONE_NODE_ON_GH200 = [
     "Mixtral-8x22B-Instruct-v0.1",
 ]
 LEFT_OUT = [
+    "Llama-3.2-11B-Vision",
+    "Llama-3.2-11B-Vision-Instruct",
     "Llama-3.2-90B-Vision",
     "Llama-3.2-90B-Vision-Instruct",
     "Meta-Llama-3.1-405B-Instruct",

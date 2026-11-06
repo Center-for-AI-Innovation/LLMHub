@@ -969,14 +969,20 @@ cmd_launch_test() {
     ok "deployment ${id}, SLURM job ${job} (user $(squeue -h -j "$job" -o '%u %a' 2>/dev/null || echo '?')), status ${st}"
     note "deployment=${id} job=${job}"
     step "Waiting for the server (status is refreshed by the backend every ${LLMHUB_SYNC_INTERVAL}s)"
-    local limit i ep last="" err; IFS=: read -r h m sec <<< "$LLMHUB_LAUNCH_TIME"; limit=$(( (10#$h*3600 + 10#$m*60 + 10#$sec) / 20 ))
-    for i in $(seq 1 "$limit"); do
+    # The ready budget is the job's walltime, counted while Slurm runs the job,
+    # so time in the queue does not eat into a big model's load. Pending gets
+    # its own cap.
+    local limit i=0 pend=0 pend_limit=$(( 4 * 3600 / 20 )) ep last="" err jstate; IFS=: read -r h m sec <<< "$LLMHUB_LAUNCH_TIME"; limit=$(( (10#$h*3600 + 10#$m*60 + 10#$sec) / 20 ))
+    while [ "$i" -lt "$limit" ] && [ "$pend" -lt "$pend_limit" ]; do
         resp="$(curl -s --max-time 30 "${api}/${id}" 2>/dev/null || true)"
         st="$(printf '%s' "$resp" | jq -r '.status // "?"')"; ep="$(printf '%s' "$resp" | jq -r '.endpointUrl // empty')"; err="$(printf '%s' "$resp" | jq -r '.errorMessage // empty')"
-        [ "$st $ep" != "$last" ] && { note "status=${st} endpoint=${ep:-none} squeue=$(squeue -h -j "$job" -o '%T %M %N' 2>/dev/null | head -1)"; last="$st $ep"; }
+        jstate="$(squeue -h -j "$job" -o '%T' 2>/dev/null | head -1 || true)"
+        [ "$st $ep $jstate" != "$last" ] && { note "status=${st} endpoint=${ep:-none} squeue=$(squeue -h -j "$job" -o '%T %M %N %S' 2>/dev/null | head -1 || true)"; last="$st $ep $jstate"; }
         case "$st" in ready|running) [ -n "$ep" ] && break ;; failed|completed|shutdown) break ;; esac
+        if [ "$jstate" = PENDING ]; then pend=$((pend + 1)); else i=$((i + 1)); fi
         sleep 20
     done
+    [ "$pend" -ge "$pend_limit" ] && warn "job ${job} pended 4 h; giving up"
     if ! { [ "$st" = ready ] || [ "$st" = running ]; } || [ -z "$ep" ]; then
         bad "server not ready: status=${st} ${err:+error=$err}"
         local jl="$LLMHUB_VEC_INF_LOG_DIR"; [ -n "$cu" ] && jl="${LLMHUB_SHARED_WORK_ROOT}/${cu}"
@@ -1033,6 +1039,7 @@ cmd_launch_test() {
         info "--keep: leaving deployment ${id} (job ${job}) running until its ${LLMHUB_LAUNCH_TIME} limit"
         info "stop it with: curl -X DELETE ${api}/${id}"
     else
+        note "DELETE ${api}/${id} at $(date -Is)"
         curl -s -o /dev/null -w '' -X DELETE "${api}/${id}" 2>/dev/null || true
         for i in $(seq 1 12); do [ -z "$(squeue -h -j "$job" 2>/dev/null)" ] && break; sleep 5; done
         local fallback=0
@@ -1044,13 +1051,13 @@ cmd_launch_test() {
                 acct="$(sacct -X -n -P -j "$job" -o State 2>/dev/null | head -1 || true)"
                 case "$acct" in RUNNING*|PENDING*|'') sleep 5 ;; *) break ;; esac
             done
-            note "sacct ${job}: $(sacct -X -n -P -j "$job" -o JobID,State,ExitCode,Elapsed,NodeList 2>/dev/null | head -1 || true)"
+            note "sacct ${job}: $(sacct -X -n -P -j "$job" -o JobID,State,ExitCode,Start,End,Elapsed,NodeList 2>/dev/null | head -1 || true)"
             if [ "$fallback" = 1 ]; then bad "DELETE left job ${job} in the queue for 60 s; the kit cancelled it (sacct ${acct:-?})"; MF=1
             else case "$acct" in CANCELLED*) ok "DELETE cancelled job ${job} (sacct ${acct})" ;; *) bad "job ${job} ended ${acct:-?}, not CANCELLED"; MF=1 ;; esac; fi
             # Freed means schedulable again: no node left down, drained or still
             # completing (a stuck CXI service teardown would show here).
             local node_states; node_states="$(sinfo -h -N -n "$job_nodes" -o '%N %T' 2>/dev/null | sort -u | paste -sd',' - || true)"
-            note "nodes after the job: ${node_states:-?}"
+            note "nodes after the job, at $(date -Is): ${node_states:-?}"
             if [ -n "$node_states" ] && ! printf '%s' "$node_states" | grep -qiE 'down|drain|fail|complet'; then
                 ok "every node freed: ${node_states}"
             else bad "nodes after job ${job}: ${node_states:-unknown}"; MF=1; fi
