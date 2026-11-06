@@ -9,6 +9,7 @@ stderr, where vec-inf's status poll reads it.
 
 import re
 
+import pytest
 from multinode_helpers import (
     FIXTURE_VEC_INF_ENV,
     TWO_NODE_MODEL,
@@ -111,22 +112,37 @@ def test_deployment_env_reaches_every_rank(monkeypatch, tmp_path):
 
 
 def test_nccl_debug_never_goes_to_stderr(monkeypatch, tmp_path):
-    """The job env's NCCL_DEBUG turns the debug file on; its own file wins.
+    """The rank script is told what the job env sets about NCCL debug.
 
-    T4 runs the switch, including NCCL_DEBUG from the host's APPTAINERENV_*.
+    T4 runs what each rank then does with it, host APPTAINERENV_* included.
     """
     cases = {
-        "a": ("", "0"),
-        "b": (",NCCL_DEBUG=INFO", "1"),
-        "c": (",NCCL_DEBUG=INFO,NCCL_DEBUG_FILE=/tmp/n.%h", "0"),
+        "a": ("", "none"),
+        "b": (",NCCL_DEBUG=WARN", "level"),
+        "c": (",NCCL_DEBUG=INFO,NCCL_DEBUG_FILE=/tmp/n.%h", "file"),
     }
-    for sub, (extra, flag) in cases.items():
+    for sub, (extra, job) in cases.items():
         rank_script = rank_script_of(
             _launch_two_node(
                 monkeypatch, tmp_path / sub, vec_inf_env=FIXTURE_VEC_INF_ENV + extra
             )
         )
-        assert re.search(rf"^nccl_debug={flag}$", rank_script, re.M), (sub, flag)
+        assert re.search(rf"^nccl_job={job}$", rank_script, re.M), (sub, job)
+
+
+@pytest.mark.parametrize(
+    "name", ["VLLM_HOST_IP", "NCCL_SOCKET_IFNAME", "GLOO_SOCKET_IFNAME"]
+)
+def test_job_env_cannot_override_a_ranks_fabric_identity(monkeypatch, tmp_path, name):
+    launcher = Launcher(
+        monkeypatch, tmp_path, vec_inf_env=FIXTURE_VEC_INF_ENV + f",{name}=x"
+    )
+
+    result = launcher.launch(TWO_NODE_MODEL)
+
+    assert result["success"] is False
+    assert name in result["error"]
+    assert launcher.scripts() == []
 
 
 def test_rendezvous_is_cleared_before_the_step(monkeypatch, tmp_path):

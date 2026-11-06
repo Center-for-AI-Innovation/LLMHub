@@ -249,31 +249,45 @@ def test_quoting_survives_the_rank_shell(rank_script):
 
 
 @pytest.mark.parametrize(
-    "extra, expect_file",
+    "host, level, subsys, debug_file",
     [
-        ({}, False),
-        ({"APPTAINERENV_NCCL_DEBUG": "INFO"}, True),
-        (
-            {"APPTAINERENV_NCCL_DEBUG": "INFO", "APPTAINERENV_NCCL_DEBUG_FILE": "/x"},
-            False,
-        ),
+        # Nothing set: INFO for INIT and NET, to a file in the job directory.
+        ({}, "INFO", "INIT,NET", "job"),
+        # A level from the host is kept; the output still goes to a file.
+        ({"APPTAINERENV_NCCL_DEBUG": "WARN"}, "WARN", None, "job"),
+        # A file from the host is kept, and nothing is bound for it.
+        ({"APPTAINERENV_NCCL_DEBUG_FILE": "/x/%h"}, "INFO", "INIT,NET", "/x/%h"),
     ],
 )
-def test_nccl_debug_from_the_host_goes_to_a_file(
-    rank_script, tmp_path, extra, expect_file
+def test_nccl_debug_goes_to_a_file(
+    rank_script, tmp_path, host, level, subsys, debug_file
 ):
     head = Node(tmp_path, "gh101", IP_HEAD, tmp_path / "rendezvous")
 
-    proc = head.run(rank_script, SLURM_PROCID="0", LLMHUB_MN_NNODES="1", **extra)
+    proc = head.run(rank_script, SLURM_PROCID="0", LLMHUB_MN_NNODES="1", **host)
 
     assert proc.returncode == 0, proc.stderr
     env = head.vllm_call()["env"]
     job_dir = head.env["LLMHUB_MN_JOB_DIR"]
-    if expect_file:
+    assert env.get("APPTAINERENV_NCCL_DEBUG") == level
+    assert env.get("APPTAINERENV_NCCL_DEBUG_SUBSYS") == subsys
+    if debug_file == "job":
         assert env["APPTAINERENV_NCCL_DEBUG_FILE"] == f"{job_dir}/nccl-debug/%h.%p"
         assert env["APPTAINER_BINDPATH"].endswith(f",{job_dir}/nccl-debug")
     else:
-        assert env.get("APPTAINERENV_NCCL_DEBUG_FILE") == extra.get(
-            "APPTAINERENV_NCCL_DEBUG_FILE"
-        )
+        assert env["APPTAINERENV_NCCL_DEBUG_FILE"] == debug_file
         assert "nccl-debug" not in env["APPTAINER_BINDPATH"]
+
+
+def test_refuses_a_step_without_gpus(rank_script, tmp_path):
+    head = Node(tmp_path, "gh101", IP_HEAD, tmp_path / "rendezvous")
+    del head.env["CUDA_VISIBLE_DEVICES"]
+
+    proc = head.run(rank_script, SLURM_PROCID="0", LLMHUB_MN_NNODES="1")
+
+    assert proc.returncode == 1
+    assert (
+        "llmhub-multinode error: rank 0 on gh101: no CUDA_VISIBLE_DEVICES"
+        in proc.stderr
+    )
+    assert not [c for c in head.calls() if "vllm" in c["argv"]]

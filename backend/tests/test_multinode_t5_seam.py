@@ -123,6 +123,8 @@ def test_launch_params_carry_keys(monkeypatch, tmp_path):
         ),
         (generator.SlurmScriptGenerator.write_to_log_dir, "_generate_script_content"),
         (helper.ModelLauncher.launch, "_build_launch_command"),
+        # The adapter sets it in _build_launch_command; launch() moves that file.
+        (helper.ModelLauncher.launch, "self.slurm_script_path"),
         (api.VecInfClient.launch_model, "ModelLauncher"),
     ],
 )
