@@ -36,6 +36,13 @@
       "when": 1792706442169,
       "tag": "0004_add_deployment_vllm_key",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793034107170,
+      "tag": "0005_rename_model_type_to_size",
+      "breakpoints": true
     }
   ]
 }
