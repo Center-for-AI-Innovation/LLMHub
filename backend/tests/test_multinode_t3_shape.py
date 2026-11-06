@@ -7,6 +7,7 @@ job directory; the deployment env on every rank; NCCL debug output never on
 stderr, where vec-inf's status poll reads it.
 """
 
+import json
 import re
 
 import pytest
@@ -120,6 +121,7 @@ def test_nccl_debug_never_goes_to_stderr(monkeypatch, tmp_path):
         "a": ("", "0", "0"),
         "b": (",NCCL_DEBUG=WARN", "1", "0"),
         "c": (",NCCL_DEBUG_FILE=/tmp/n.%h", "0", "1"),
+        "d": (",NCCL_DEBUG=WARN,NCCL_DEBUG_FILE=/tmp/n.%h", "1", "1"),
     }
     for sub, (extra, level, debug_file) in cases.items():
         rank_script = rank_script_of(
@@ -148,6 +150,9 @@ def test_job_env_cannot_override_a_ranks_fabric_identity(monkeypatch, tmp_path, 
         f'echo "llmhub-multinode: job env {name} not passed: each rank sets its own"'
         in batch_body_without_rank_script(script)
     )
+    # The job record says what the job was given.
+    (record,) = tmp_path.glob("logs/*/*.4242/*.4242.json")
+    assert name not in json.loads(record.read_text())["env"]
 
 
 def test_rendezvous_is_cleared_before_the_step(monkeypatch, tmp_path):

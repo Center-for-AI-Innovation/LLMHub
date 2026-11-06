@@ -36,7 +36,7 @@ from typing import Any, Dict, Optional
 from vec_inf.client._helper import ModelLauncher
 from vec_inf.client._slurm_script_generator import SlurmScriptGenerator
 from vec_inf.client._slurm_templates import SLURM_SCRIPT_TEMPLATE
-from vec_inf.client._slurm_vars import IMAGE_PATH
+from vec_inf.client._slurm_vars import CONTAINER_MODULE_NAME, IMAGE_PATH
 from vec_inf.client.models import LaunchOptions, LaunchResponse
 
 # The vec-inf releases this adapter was tested against, on hardware, at 2 nodes.
@@ -251,6 +251,13 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
                 f"than one node (num_nodes={params['num_nodes']}, "
                 f"engine={self.engine}, venv={params['venv']})"
             )
+        # The rank script passes its per-rank values as APPTAINERENV_* and binds
+        # through APPTAINER_BINDPATH, as LLMHub passes the deployment key.
+        if CONTAINER_MODULE_NAME != "apptainer":
+            raise MultinodeLaunchError(
+                "the multinode adapter supports only apptainer, not "
+                f"{CONTAINER_MODULE_NAME!r}"
+            )
 
     def _generate_rank_script(self) -> str:
         container = SLURM_SCRIPT_TEMPLATE["container_command"].format(
@@ -319,8 +326,12 @@ class MultinodeSlurmScriptGenerator(SlurmScriptGenerator):
                 [
                     "\n# vLLM's rendezvous port, on the head's fabric address",
                     f"master_port={MASTER_PORT_BASE}",
+                    "# ss's own stderr stays out of .err, which vec-inf scans for fatal",
+                    "# patterns; a missing ss is said on stdout instead.",
+                    "command -v ss >/dev/null \\",
+                    '    || echo "llmhub-multinode: no ss on ${head_node}; master port not probed"',
                     'while [ "$master_port" = "$server_port_number" ] \\',
-                    "    || ss -tlnH | awk '{print $4}' | grep -q \":${master_port}$\"; do",
+                    "    || ss -tlnH 2>/dev/null | awk '{print $4}' | grep -q \":${master_port}$\"; do",
                     "    master_port=$((master_port + 1))",
                     "done",
                 ]
@@ -377,9 +388,11 @@ class MultinodeLauncher(ModelLauncher):
         super().__init__(model_name, kwargs)
 
     def _build_launch_command(self) -> str:
-        self.slurm_script_path = MultinodeSlurmScriptGenerator(
-            self.params
-        ).write_to_log_dir()
+        generator = MultinodeSlurmScriptGenerator(self.params)
+        self.slurm_script_path = generator.write_to_log_dir()
+        # launch() writes these params to the job JSON: record the env the
+        # job was given, without the per-rank keys the generator left out.
+        self.params["env"] = generator.params["env"]
         return f"sbatch {self.slurm_script_path}"
 
 

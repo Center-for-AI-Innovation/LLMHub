@@ -33,6 +33,7 @@ SEAM = [
     (generator.SlurmScriptGenerator, "write_to_log_dir"),
     (templates, "SLURM_SCRIPT_TEMPLATE"),
     (slurm_vars, "IMAGE_PATH"),
+    (slurm_vars, "CONTAINER_MODULE_NAME"),
     (models, "LaunchOptions"),
     (models, "LaunchResponse"),
     (api.VecInfClient, "launch_model"),

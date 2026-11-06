@@ -263,6 +263,8 @@ def test_quoting_survives_the_rank_shell(rank_script):
         # and with no level anywhere the level is still INFO.
         ("", {"APPTAINERENV_NCCL_DEBUG_FILE": "/x/%h"}, "INFO", "INIT,NET", "/x/%h"),
         (",NCCL_DEBUG_FILE=/x/%h", {}, "INFO", "INIT,NET", "/x/%h"),
+        # Both from the job env: both kept, nothing added.
+        (",NCCL_DEBUG=WARN,NCCL_DEBUG_FILE=/x/%h", {}, "WARN", None, "/x/%h"),
     ],
 )
 def test_nccl_debug_goes_to_a_file(tmp_path, job_env, host, level, subsys, debug_file):
