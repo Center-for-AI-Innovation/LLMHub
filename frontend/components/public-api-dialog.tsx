@@ -151,7 +151,8 @@ export function PublicApiDialog({
   const getModelType = useDeploymentModelType();
 
   function getEndpoint(deployment: ModelDeployment) {
-    return ENDPOINTS[getEndpointKind(getModelType(deployment))];
+    const kind = getEndpointKind(getModelType(deployment));
+    return kind ? ENDPOINTS[kind] : null;
   }
 
   const activeDeployments = useMemo(
@@ -218,7 +219,7 @@ export function PublicApiDialog({
 
   const snippets = useMemo(
     () =>
-      endpoint.build({
+      endpoint?.build({
         baseUrl,
         authorizationHeader,
         apiKey: apiKeyValue,
@@ -238,8 +239,6 @@ export function PublicApiDialog({
       userPromptValue,
     ],
   );
-
-  const currentSnippet = snippets[selectedLanguage];
 
   async function copyToClipboard(value: string, label: string) {
     try {
@@ -333,7 +332,7 @@ export function PublicApiDialog({
                         <SelectItem key={deployment.id} value={deployment.id}>
                           {getDeploymentDisplayLabel(
                             deployment,
-                            getEndpoint(deployment).labelSuffix,
+                            getEndpoint(deployment)?.labelSuffix ?? null,
                           )}
                         </SelectItem>
                       ))}
@@ -408,69 +407,47 @@ export function PublicApiDialog({
                 </div>
               </div>
 
-              {/* ── Base URL ── */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Base URL
-                </label>
-                <div className="relative">
-                  <Input
-                    readOnly
-                    value={baseUrl}
-                    className="h-9 cursor-default bg-muted/40 pr-9 font-mono text-xs"
-                  />
-                  <div className="absolute inset-y-0 right-1 flex items-center">
-                    <CopyButton
-                      value={baseUrl}
-                      label="Base URL"
-                      onCopy={copyToClipboard}
-                      size="sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* ── Section divider ── */}
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-start">
-                  <span className="bg-background pr-3 text-xs font-medium text-muted-foreground">
-                    Request
-                  </span>
-                </div>
-              </div>
-
-              {/* ── Prompts ── */}
-              {endpoint.requestEditor === 'input' ? (
+              {endpoint && snippets ? (
+                <>
+                {/* ── Base URL ── */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">
-                    Input
+                    Base URL
                   </label>
-                  <Textarea
-                    value={userPrompt}
-                    onChange={(event) => setUserPrompt(event.target.value)}
-                    className="min-h-[80px] resize-y font-mono text-xs leading-relaxed"
-                    placeholder={DEFAULT_USER_PROMPT}
-                  />
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      System prompt
-                    </label>
-                    <Textarea
-                      value={systemPrompt}
-                      onChange={(event) => setSystemPrompt(event.target.value)}
-                      className="min-h-[80px] resize-y font-mono text-xs leading-relaxed"
-                      placeholder={DEFAULT_SYSTEM_PROMPT}
+                  <div className="relative">
+                    <Input
+                      readOnly
+                      value={baseUrl}
+                      className="h-9 cursor-default bg-muted/40 pr-9 font-mono text-xs"
                     />
+                    <div className="absolute inset-y-0 right-1 flex items-center">
+                      <CopyButton
+                        value={baseUrl}
+                        label="Base URL"
+                        onCopy={copyToClipboard}
+                        size="sm"
+                      />
+                    </div>
                   </div>
+                </div>
+
+                {/* ── Section divider ── */}
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-start">
+                    <span className="bg-background pr-3 text-xs font-medium text-muted-foreground">
+                      Request
+                    </span>
+                  </div>
+                </div>
+
+                {/* ── Prompts ── */}
+                {endpoint.requestEditor === 'input' ? (
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">
-                      User prompt
+                      Input
                     </label>
                     <Textarea
                       value={userPrompt}
@@ -479,98 +456,128 @@ export function PublicApiDialog({
                       placeholder={DEFAULT_USER_PROMPT}
                     />
                   </div>
-                </div>
-              )}
-
-              {/* ── Stream toggle ── */}
-              {endpoint.supportsStreaming && (
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={streamResponse}
-                  aria-label="Toggle stream mode"
-                  onClick={() => setStreamResponse((prev) => !prev)}
-                  className={cn(
-                    'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                    streamResponse ? 'bg-primary' : 'bg-muted',
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'pointer-events-none block size-3.5 rounded-full bg-background shadow-sm ring-0 transition-transform',
-                      streamResponse ? 'translate-x-4' : 'translate-x-0.5',
-                    )}
-                  />
-                </button>
-                <span className="text-xs font-medium text-muted-foreground">
-                  Stream Response
-                </span>
-              </div>
-              )}
-
-              {/* ── Code snippets ── */}
-              <Tabs
-                value={selectedLanguage}
-                onValueChange={(value) =>
-                  setSelectedLanguage(value as SnippetLanguage)
-                }
-                className="min-w-0 w-full"
-              >
-                <div className="min-w-0 overflow-hidden rounded-lg border border-border/60">
-                  {/* Toolbar */}
-                  <div className="flex items-center justify-between border-b bg-muted/30 p-1">
-                    <TabsList className="h-auto gap-0.5 bg-transparent p-0">
-                      <TabsTrigger
-                        value="curl"
-                        className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
-                      >
-                        curl
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="python"
-                        className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
-                      >
-                        Python
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="javascript"
-                        className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
-                      >
-                        JavaScript
-                      </TabsTrigger>
-                    </TabsList>
-                    <CopyButton
-                      value={currentSnippet}
-                      label={`${selectedLanguage} snippet`}
-                      onCopy={copyToClipboard}
-                      size="sm"
-                      className="mr-1"
-                    />
-                  </div>
-
-                  {/* Code */}
-                  <div className="min-w-0 overflow-hidden bg-muted/40">
-                    <div className="h-[280px] overflow-auto">
-                      <TabsContent value="curl" className="mt-0">
-                        <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
-                          <code>{snippets.curl}</code>
-                        </pre>
-                      </TabsContent>
-                      <TabsContent value="python" className="mt-0">
-                        <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
-                          <code>{snippets.python}</code>
-                        </pre>
-                      </TabsContent>
-                      <TabsContent value="javascript" className="mt-0">
-                        <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
-                          <code>{snippets.javascript}</code>
-                        </pre>
-                      </TabsContent>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        System prompt
+                      </label>
+                      <Textarea
+                        value={systemPrompt}
+                        onChange={(event) => setSystemPrompt(event.target.value)}
+                        className="min-h-[80px] resize-y font-mono text-xs leading-relaxed"
+                        placeholder={DEFAULT_SYSTEM_PROMPT}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">
+                        User prompt
+                      </label>
+                      <Textarea
+                        value={userPrompt}
+                        onChange={(event) => setUserPrompt(event.target.value)}
+                        className="min-h-[80px] resize-y font-mono text-xs leading-relaxed"
+                        placeholder={DEFAULT_USER_PROMPT}
+                      />
                     </div>
                   </div>
+                )}
+
+                {/* ── Stream toggle ── */}
+                {endpoint.supportsStreaming && (
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={streamResponse}
+                    aria-label="Toggle stream mode"
+                    onClick={() => setStreamResponse((prev) => !prev)}
+                    className={cn(
+                      'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+                      streamResponse ? 'bg-primary' : 'bg-muted',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'pointer-events-none block size-3.5 rounded-full bg-background shadow-sm ring-0 transition-transform',
+                        streamResponse ? 'translate-x-4' : 'translate-x-0.5',
+                      )}
+                    />
+                  </button>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Stream Response
+                  </span>
                 </div>
-              </Tabs>
+                )}
+
+                {/* ── Code snippets ── */}
+                <Tabs
+                  value={selectedLanguage}
+                  onValueChange={(value) =>
+                    setSelectedLanguage(value as SnippetLanguage)
+                  }
+                  className="min-w-0 w-full"
+                >
+                  <div className="min-w-0 overflow-hidden rounded-lg border border-border/60">
+                    {/* Toolbar */}
+                    <div className="flex items-center justify-between border-b bg-muted/30 p-1">
+                      <TabsList className="h-auto gap-0.5 bg-transparent p-0">
+                        <TabsTrigger
+                          value="curl"
+                          className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                        >
+                          curl
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="python"
+                          className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                        >
+                          Python
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="javascript"
+                          className="h-7 rounded-md px-3 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm"
+                        >
+                          JavaScript
+                        </TabsTrigger>
+                      </TabsList>
+                      <CopyButton
+                        value={snippets[selectedLanguage]}
+                        label={`${selectedLanguage} snippet`}
+                        onCopy={copyToClipboard}
+                        size="sm"
+                        className="mr-1"
+                      />
+                    </div>
+
+                    {/* Code */}
+                    <div className="min-w-0 overflow-hidden bg-muted/40">
+                      <div className="h-[280px] overflow-auto">
+                        <TabsContent value="curl" className="mt-0">
+                          <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
+                            <code>{snippets.curl}</code>
+                          </pre>
+                        </TabsContent>
+                        <TabsContent value="python" className="mt-0">
+                          <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
+                            <code>{snippets.python}</code>
+                          </pre>
+                        </TabsContent>
+                        <TabsContent value="javascript" className="mt-0">
+                          <pre className="max-w-full p-4 text-[13px] leading-relaxed text-foreground">
+                            <code>{snippets.javascript}</code>
+                          </pre>
+                        </TabsContent>
+                      </div>
+                    </div>
+                  </div>
+                </Tabs>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  API examples aren&apos;t available for this model type yet.
+                </p>
+              )}
             </div>
           )}
         </DialogContent>
