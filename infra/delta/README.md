@@ -61,7 +61,7 @@ each time, so **redeploying the latest commit of a branch is just
 | `start` / `stop [--all]` / `restart` | `stop` leaves PostgreSQL running unless `--all`. Pidfiles are written by the daemons themselves; a pidfile-less process on one of our ports is stopped or adopted only if its cwd is inside this deployment — never someone else's process. |
 | `status` | What is deployed (ref, SHA, clean?), runtimes, what is running, health, log error counts. |
 | `smoke [--with-sync]` | GETs against both services; `--with-sync` also exercises the catalogue write path. Never launches inference. |
-| `launch-test [--keep]` | One real inference job through the backend API: creates/uses a local test user, POSTs a deployment for `LLMHUB_TEST_MODEL` (`LLMHUB_TEST_GPUS` GPUs, tensor-parallel), waits for the server, runs a chat completion against the vLLM endpoint, then shuts it down (`--keep` leaves it running for a frontend session). Submits a SLURM job as the account running the backend. |
+| `launch-test [--nodes N] [--client SCRIPT] [--keep]` | One real inference job through the backend API: creates/uses a local test user, POSTs a deployment for `LLMHUB_TEST_MODEL` (`LLMHUB_TEST_GPUS` GPUs per node, tensor-parallel; `--nodes N`, default `LLMHUB_TEST_NODES`, pipeline-parallel across N nodes), waits for the server, runs a chat completion against the vLLM endpoint, then shuts it down (`--keep` leaves it running for a frontend session). At N > 1 it also reads the job's own files: one rank per node, every worker loaded, NCCL on CXI (`Selected provider is cxi`, `via NET/Libfabric`), the GAP-098 pair in every rank's container, no libfabric line before ready, and after the shutdown that `sacct` says CANCELLED and no node is still held. `--client SCRIPT` runs an acceptance client against the live server before the shutdown, with `LLMHUB_TEST_ENDPOINT`, `LLMHUB_TEST_KEY`, `LLMHUB_TEST_SERVED` and `LLMHUB_TEST_JOB` in its environment (the key never in argv); its exit status counts toward launch-test's. Submits a SLURM job as the account running the backend. |
 | `shim` | Impersonate mode only: rebuild the shim env (the world-readable copy of the backend that `svcllmhub*` users run). `deploy` does this whenever the ref changes. |
 | `check-impersonation <svcllmhub-user>` | Impersonate mode only: checks everything that user must be able to read, then runs the backend's own `check-impersonation-setup.py` (account resolution, workspace ACLs, a real `sudo` probe). No GPU. Run this before the first impersonated `launch-test`. |
 | `logs <name> [-f]` | Tail a log (`backend`, `frontend`, `postgres`, `build`, `launch-test`, `shim-env`, …). |
@@ -189,7 +189,8 @@ is sourced before `delta.env`'s defaults and holds only what differs:
 | partition / GPU type | `gpuA100x4-interactive` / `nvidia_a100` | `ghx4-interactive` / `nvidia_gh200_120gb` |
 | dev image pin | `vllm-v0.19.1-slingshot-v3.sif` | `vllm-v0.28.0-slingshot-deltaai.sif` |
 | torch-inductor cache (service user) | `…/public/torch_inductor` | `…/public/torch_inductor-deltaai` |
-| job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=single_node_vni,disable_rdzv_get`; on 1-node jobs also `APPTAINERENV_NCCL_NET_PLUGIN=none` |
+| job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=disable_rdzv_get` (the site value); on 1-node jobs also `APPTAINERENV_NCCL_NET_PLUGIN=none` |
+| catalog (`models.yaml`) | `backend/config/models.yaml` as is | that, through `config/models-deltaai.yaml` (`render-models.py`): five 2-node A100 entries at 1 node TP=4, no Mllama, no 405B, Qwen3-235B at 2 nodes TP=4 PP=2 |
 | VM | `dt-svc-llmaas01` | `dtai-svc-llmaas01` |
 
 **The `/projects` roots carry the cluster.** `/projects` is the one filesystem
