@@ -60,6 +60,8 @@ CATALOG = {
     # TP across nodes: the Mllama shape Delta's catalog still has.
     "Wide-2x4": _entry(4, 2, **{TP: 8}),
     "Sglang-1x4": _entry(4, 1, engine="sglang", **{TP: 4}),
+    # TP x PP short of the GPUs: vec-inf would refuse it after the download.
+    "Short-1x4": _entry(4, 1, **{TP: 2}),
 }
 
 
@@ -206,7 +208,7 @@ def test_a_runnable_two_node_request_is_submitted(api):
 
 
 def test_refuses_more_nodes_than_the_partition_allows(api):
-    response = api.launch("Plain-2x4", num_gpus=4, num_nodes=3)
+    response = api.launch("Plain-2x4", num_gpus=4, num_nodes=4)
 
     assert_refused(api, response, f"partition {PARTITION} allows at most 2")
 
@@ -236,6 +238,50 @@ def test_refuses_multinode_on_an_untested_vec_inf(api, monkeypatch):
     response = api.launch("Plain-2x4", num_gpus=4, num_nodes=2)
 
     assert_refused(api, response, "vec-inf 0.9.1 is not a version")
+
+
+# --- shapes vec-inf would refuse only after the download ----------------------
+
+
+def test_refuses_a_gpu_total_that_is_not_a_power_of_two(api):
+    response = api.launch("Plain-1x4", num_gpus=3)
+
+    assert_refused(api, response, "3 GPUs in all")
+
+
+def test_refuses_counts_below_one(api):
+    response = api.launch("Plain-1x4", num_gpus=4, num_nodes=0)
+
+    assert_refused(api, response, "must each be at least 1")
+
+
+def test_refuses_a_catalog_layout_that_does_not_use_the_gpus(api):
+    response = api.launch("Short-1x4", num_gpus=4)
+
+    assert_refused(api, response, "does not match the 4 GPUs requested")
+
+
+# --- the partition, as Slurm answers ------------------------------------------
+
+
+def test_refuses_a_partition_slurm_does_not_list(api, monkeypatch):
+    monkeypatch.setenv("FAKE_SINFO_OUT", "")
+
+    response = api.launch("Plain-1x4", num_gpus=4, partition="ghx4-interactiv")
+
+    assert_refused(api, response, "partition ghx4-interactiv is not a partition")
+
+
+def test_the_partition_checks_are_skipped_when_slurm_does_not_answer(
+    api, monkeypatch, tmp_path
+):
+    """Slurm's own submit-time limits then apply; the launch is not blocked."""
+    (tmp_path / "bin" / "sinfo").write_text("#!/bin/sh\nexit 1\n")
+
+    response = api.launch("Plain-2x4", num_gpus=4, num_nodes=4)
+
+    assert response.status_code == 201, response.text
+    assert len(api.scripts()) == 1
 
 
 # --- #112: whose TP/PP the launch runs with ---------------------------------
@@ -287,7 +333,6 @@ def test_a_request_without_counts_is_not_checked(api, monkeypatch):
         ("1-infinite|gpu:nvidia_gh200_120gb:4(S:0-3)\n", (None, 4)),
         ("1-4|gpu:a100:4(S:0-3)\n1-4|gpu:a100:8(S:0-7)\n", (4, 8)),
         ("1-2|(null)\n", (2, None)),
-        ("", (None, None)),
     ],
 )
 def test_partition_limits_parse_sinfo(monkeypatch, out, limits):
@@ -301,4 +346,15 @@ def test_partition_limits_are_unknown_when_sinfo_fails(monkeypatch, tmp_path):
     (tmp_path / "sinfo").chmod(0o755)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
 
-    assert launch_layout.partition_limits("p") == (None, None)
+    assert launch_layout.partition_limits("p") is None
+
+
+def test_a_partition_list_allows_the_most_of_each(monkeypatch):
+    answers = {
+        "ghx4": "1-infinite|gpu:nvidia_gh200_120gb:4(S:0-3)\n",
+        "ghx4-interactive": SINFO_GHX4_INTERACTIVE,
+    }
+    monkeypatch.setattr(launch_layout, "_sinfo", answers.get)
+
+    assert launch_layout._limits("ghx4-interactive,ghx4") == (None, 4)
+    assert launch_layout._limits("ghx4-interactive") == (2, 4)

@@ -18,9 +18,12 @@ the reason:
   ``srun`` step each, and DeltaAI's per-step VNI keeps them apart;
 - multinode on a vec-inf the multinode adapter was not tested against.
 
+Shapes vec-inf itself refuses (counts below 1, a GPU total that is not a power
+of two, TP x PP not the GPU total) are refused here too, before any download.
+
 The partition's limits are read from Slurm (``sinfo``) when the request is
-checked. If Slurm does not answer, those two checks are skipped and Slurm's own
-submit-time limits still apply.
+checked; a partition Slurm doesn't list is refused. If Slurm does not answer,
+the two partition checks are skipped and Slurm's own submit-time limits apply.
 """
 
 import re
@@ -91,7 +94,7 @@ def _sinfo(partition: str) -> Optional[str]:
             ["sinfo", "--noheader", "--partition", partition, "--format", "%s|%G"],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=10,
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -108,25 +111,58 @@ def _sinfo(partition: str) -> Optional[str]:
     return proc.stdout
 
 
-def partition_limits(partition: str) -> Tuple[Optional[int], Optional[int]]:
-    """``(MaxNodes, GPUs per node)`` of a partition, each None when unknown.
+def partition_limits(partition: str) -> Optional[Tuple[Optional[int], Optional[int]]]:
+    """``(MaxNodes, GPUs per node)`` of one partition, as ``sinfo`` reports them.
 
     MaxNodes (``%s``, the same on every line) is None for an unlimited
-    partition. A partition whose node groups differ reports its largest GPU count.
+    partition; GPUs per node is the largest of its node groups, None without
+    GPUs. None when Slurm doesn't answer. A partition Slurm doesn't list (an
+    empty answer from a working ``sinfo``) is refused.
     """
     out = _sinfo(partition)
-    lines = [line.strip() for line in (out or "").splitlines() if line.strip()]
+    if out is None:
+        return None
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
     if not lines:
-        logger.warning("No sinfo answer for partition %s; limits unchecked", partition)
-        return None, None
+        raise LaunchRefused(f"partition {partition} is not a partition Slurm lists")
     upper = lines[0].partition("|")[0].rpartition("-")[2]
     gres = [line.partition("|")[2] for line in lines]
     gpus = [int(n) for g in gres for n in _GPU_GRES_RE.findall(g)]
     return (int(upper) if upper.isdigit() else None), (max(gpus) if gpus else None)
 
 
+def _limits(partition: str) -> Tuple[Optional[int], Optional[int]]:
+    """Limits for ``partition``, or a comma-separated list the job may run in.
+
+    The job runs in any one of them, so a list allows the most of each. Both
+    are None (unchecked) when Slurm doesn't answer for every name.
+    """
+    found = [partition_limits(name) for name in partition.split(",") if name]
+    if not found or None in found:
+        logger.warning("Partition %s limits unchecked: no sinfo answer", partition)
+        return None, None
+    nodes = [n for n, _ in found]
+    gpus = [g for _, g in found if g is not None]
+    return (None if None in nodes else max(nodes)), (max(gpus) if gpus else None)
+
+
 def check_layout(config: Any, layout: Layout, partition: Optional[str]) -> None:
     """Raise ``LaunchRefused`` for a shape the partition can't run."""
+    total = layout.gpus_per_node * layout.num_nodes
+    if layout.gpus_per_node < 1 or layout.num_nodes < 1:
+        raise LaunchRefused("num_gpus and num_nodes must each be at least 1")
+    # vec-inf's own rules (_validate_resource_allocation), checked here so the
+    # request is refused before any download, not by vec-inf after it.
+    if total & (total - 1):
+        raise LaunchRefused(
+            f"{total} GPUs in all ({layout.gpus_per_node} per node on "
+            f"{layout.num_nodes} nodes); vec-inf launches a power of two"
+        )
+    if layout.tensor_parallel * layout.pipeline_parallel != total:
+        raise LaunchRefused(
+            f"tensor parallel {layout.tensor_parallel} x pipeline parallel "
+            f"{layout.pipeline_parallel} does not match the {total} GPUs requested"
+        )
     if layout.num_nodes > 1:
         engine = _engine(config)
         if engine != "vllm":
@@ -151,7 +187,7 @@ def check_layout(config: Any, layout: Layout, partition: Optional[str]) -> None:
             )
     if not partition:
         return
-    max_nodes, node_gpus = partition_limits(partition)
+    max_nodes, node_gpus = _limits(partition)
     if max_nodes is not None and layout.num_nodes > max_nodes:
         raise LaunchRefused(
             f"{layout.num_nodes} nodes requested; partition {partition} allows at "
