@@ -22,7 +22,8 @@ Shapes vec-inf itself refuses (counts below 1, a GPU total that is not a power
 of two, TP x PP not the GPU total) are refused here too, before any download.
 
 The partition's limits are read from Slurm (``sinfo``) when the request is
-checked; a partition Slurm doesn't list is refused. If Slurm does not answer,
+checked; a partition Slurm doesn't list is refused, and of a comma-separated
+list, one partition must fit. If Slurm does not answer,
 the two partition checks are skipped and Slurm's own submit-time limits apply.
 """
 
@@ -88,62 +89,81 @@ def resolve_layout(config: Any, params: Dict[str, Any]) -> Layout:
     return Layout(gpus, nodes, gpus, nodes, False)
 
 
-def _sinfo(partition: str) -> Optional[str]:
+def _sinfo() -> Optional[str]:
+    """``partition|MaxNodes|GRES`` per node group, for every partition.
+
+    ``--all`` includes hidden partitions and ones closed to this account: the
+    job is submitted as another user, who may see more than the backend does.
+    """
     try:
         proc = subprocess.run(
-            ["sinfo", "--noheader", "--partition", partition, "--format", "%s|%G"],
+            ["sinfo", "--all", "--noheader", "--format", "%P|%s|%G"],
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning("sinfo for partition %s failed: %s", partition, exc)
+        logger.warning("sinfo failed: %s", exc)
         return None
     if proc.returncode != 0:
-        logger.warning(
-            "sinfo for partition %s exited %s: %s",
-            partition,
-            proc.returncode,
-            proc.stderr.strip(),
-        )
+        logger.warning("sinfo exited %s: %s", proc.returncode, proc.stderr.strip())
         return None
     return proc.stdout
 
 
-def partition_limits(partition: str) -> Optional[Tuple[Optional[int], Optional[int]]]:
-    """``(MaxNodes, GPUs per node)`` of one partition, as ``sinfo`` reports them.
+def partition_limits() -> Optional[Dict[str, Tuple[Optional[int], Optional[int]]]]:
+    """``{partition: (MaxNodes, GPUs per node)}`` from ``sinfo``; None if it fails.
 
-    MaxNodes (``%s``, the same on every line) is None for an unlimited
-    partition; GPUs per node is the largest of its node groups, None without
-    GPUs. None when Slurm doesn't answer. A partition Slurm doesn't list (an
-    empty answer from a working ``sinfo``) is refused.
+    MaxNodes (``%s``) is None for an unlimited partition. GPUs per node is the
+    largest of the partition's node groups, None without GPUs.
     """
-    out = _sinfo(partition)
+    out = _sinfo()
     if out is None:
         return None
-    lines = [line.strip() for line in out.splitlines() if line.strip()]
-    if not lines:
-        raise LaunchRefused(f"partition {partition} is not a partition Slurm lists")
-    upper = lines[0].partition("|")[0].rpartition("-")[2]
-    gres = [line.partition("|")[2] for line in lines]
-    gpus = [int(n) for g in gres for n in _GPU_GRES_RE.findall(g)]
-    return (int(upper) if upper.isdigit() else None), (max(gpus) if gpus else None)
+    limits: Dict[str, Tuple[Optional[int], Optional[int]]] = {}
+    for line in out.splitlines():
+        name, _, rest = line.strip().partition("|")
+        if not name:
+            continue
+        size, _, gres = rest.partition("|")
+        upper = size.rpartition("-")[2]
+        gpus = [int(n) for n in _GPU_GRES_RE.findall(gres)]
+        _, known = limits.get(name.rstrip("*"), (None, None))
+        most = max([g for g in (known, *gpus) if g is not None], default=None)
+        limits[name.rstrip("*")] = (int(upper) if upper.isdigit() else None, most)
+    return limits
 
 
-def _limits(partition: str) -> Tuple[Optional[int], Optional[int]]:
-    """Limits for ``partition``, or a comma-separated list the job may run in.
-
-    The job runs in any one of them, so a list allows the most of each. Both
-    are None (unchecked) when Slurm doesn't answer for every name.
-    """
-    found = [partition_limits(name) for name in partition.split(",") if name]
-    if not found or None in found:
+def _check_partition(layout: Layout, partition: str) -> None:
+    """Refuse unless ``partition``, or one of a comma-separated list, fits."""
+    names = [name for name in partition.split(",") if name]
+    if not names:
+        raise LaunchRefused(f"partition {partition!r} names no partition")
+    limits = partition_limits()
+    if limits is None:
         logger.warning("Partition %s limits unchecked: no sinfo answer", partition)
-        return None, None
-    nodes = [n for n, _ in found]
-    gpus = [g for _, g in found if g is not None]
-    return (None if None in nodes else max(nodes)), (max(gpus) if gpus else None)
+        return
+    reasons = []
+    for name in names:
+        if name not in limits:
+            reasons.append(f"partition {name} is not a partition Slurm lists")
+            continue
+        max_nodes, node_gpus = limits[name]
+        if max_nodes is not None and layout.num_nodes > max_nodes:
+            reasons.append(
+                f"{layout.num_nodes} nodes requested; partition {name} allows at "
+                f"most {max_nodes} per job"
+            )
+        elif node_gpus is not None and layout.gpus_per_node > node_gpus:
+            reasons.append(
+                f"{layout.gpus_per_node} GPUs per node requested (tensor parallel "
+                f"{layout.tensor_parallel}); partition {name} has {node_gpus} "
+                "per node"
+            )
+        else:
+            return
+    raise LaunchRefused("; ".join(reasons))
 
 
 def check_layout(config: Any, layout: Layout, partition: Optional[str]) -> None:
@@ -185,17 +205,5 @@ def check_layout(config: Any, layout: Layout, partition: Optional[str]) -> None:
                 f"{layout.gpus_per_node} GPUs each; LLMHub runs tensor parallel "
                 "within a node and pipeline parallel across nodes"
             )
-    if not partition:
-        return
-    max_nodes, node_gpus = _limits(partition)
-    if max_nodes is not None and layout.num_nodes > max_nodes:
-        raise LaunchRefused(
-            f"{layout.num_nodes} nodes requested; partition {partition} allows at "
-            f"most {max_nodes} per job"
-        )
-    if node_gpus is not None and layout.gpus_per_node > node_gpus:
-        raise LaunchRefused(
-            f"{layout.gpus_per_node} GPUs per node requested (tensor parallel "
-            f"{layout.tensor_parallel}); partition {partition} has {node_gpus} "
-            "per node"
-        )
+    if partition:
+        _check_partition(layout, partition)

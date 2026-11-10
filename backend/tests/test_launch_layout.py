@@ -29,8 +29,14 @@ from app.utils import launch_layout, llm_inference, vec_inf_multinode
 
 USER_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 PARTITION = "ghx4-interactive"
-# What DeltaAI's sinfo answers for ghx4-interactive: 1-2 nodes, 4 GPUs each.
-SINFO_GHX4_INTERACTIVE = "1-2|gpu:nvidia_gh200_120gb:4(S:0-3)\n"
+# What DeltaAI's `sinfo --all --noheader --format '%P|%s|%G'` answers
+# (gh-login03, 2026-11-10): ghx4-interactive takes 1-2 nodes of 4 GPUs.
+SINFO_DELTAAI = (
+    "full|1-infinite|gpu:nvidia_gh200_120gb:4(S:0-3)\n"
+    "test|1-infinite|gpu:nvidia_gh200_120gb:4(S:0-3)\n"
+    "ghx4*|1-infinite|gpu:nvidia_gh200_120gb:4(S:0-3)\n"
+    "ghx4-interactive|1-2|gpu:nvidia_gh200_120gb:4(S:0-3)\n"
+)
 FAKE_SINFO = """#!/bin/sh
 printf '%s' "$FAKE_SINFO_OUT"
 """
@@ -78,7 +84,7 @@ def api(monkeypatch, tmp_path):
     catalog.write_text(yaml.safe_dump({"models": CATALOG}))
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setenv("CAPTURE_DIR", str(capture))
-    monkeypatch.setenv("FAKE_SINFO_OUT", SINFO_GHX4_INTERACTIVE)
+    monkeypatch.setenv("FAKE_SINFO_OUT", SINFO_DELTAAI)
     monkeypatch.setenv("VEC_INF_MODEL_CONFIG", str(catalog))
     monkeypatch.setenv("VEC_INF_WORK_DIR", str(tmp_path))
     monkeypatch.setenv("VEC_INF_ACCOUNT", "test-account")
@@ -264,12 +270,44 @@ def test_refuses_a_catalog_layout_that_does_not_use_the_gpus(api):
 # --- the partition, as Slurm answers ------------------------------------------
 
 
-def test_refuses_a_partition_slurm_does_not_list(api, monkeypatch):
-    monkeypatch.setenv("FAKE_SINFO_OUT", "")
-
+def test_refuses_a_partition_slurm_does_not_list(api):
     response = api.launch("Plain-1x4", num_gpus=4, partition="ghx4-interactiv")
 
     assert_refused(api, response, "partition ghx4-interactiv is not a partition")
+
+
+def test_refuses_a_partition_list_that_names_none(api):
+    response = api.launch("Plain-1x4", num_gpus=4, partition=",")
+
+    assert_refused(api, response, "names no partition")
+
+
+def test_a_partition_list_runs_where_one_partition_fits(api):
+    # ghx4-interactive takes 2 nodes; ghx4, also listed, takes any number.
+    response = api.launch(
+        "Plain-2x4", num_gpus=4, num_nodes=4, partition="ghx4-interactive,ghx4"
+    )
+
+    assert response.status_code == 201, response.text
+    assert len(api.scripts()) == 1
+
+
+def test_refuses_a_partition_list_no_one_partition_fits(api, monkeypatch):
+    # Together they allow 8 nodes and 8 GPUs per node, but neither allows both.
+    monkeypatch.setenv(
+        "FAKE_SINFO_OUT", "wide|1-8|gpu:a100:4(S:0-3)\nfat|1-1|gpu:a100:8(S:0-7)\n"
+    )
+
+    response = api.launch("Plain-1x4", num_gpus=8, num_nodes=8, partition="wide,fat")
+
+    assert_refused(api, response, "partition wide has 4 per node")
+    assert "partition fat allows at most 1" in response.json()["detail"]
+
+
+def test_refuses_no_gpus(api):
+    response = api.launch("Plain-1x4", num_gpus=0)
+
+    assert_refused(api, response, "must each be at least 1")
 
 
 def test_the_partition_checks_are_skipped_when_slurm_does_not_answer(
@@ -314,7 +352,7 @@ def test_a_two_node_request_on_a_one_node_entry_gets_pp_across_nodes(api):
 
 def test_a_request_without_counts_is_not_checked(api, monkeypatch):
     """The UI's launch: the catalog's layout, as before, and no Slurm query."""
-    monkeypatch.setenv("FAKE_SINFO_OUT", "1-1|gpu:1\n")
+    monkeypatch.setenv("FAKE_SINFO_OUT", f"{PARTITION}|1-1|gpu:1\n")
 
     response = api.launch("Plain-2x4")
 
@@ -326,19 +364,19 @@ def test_a_request_without_counts_is_not_checked(api, monkeypatch):
 # --- the partition's limits, as sinfo gives them ----------------------------
 
 
-@pytest.mark.parametrize(
-    "out, limits",
-    [
-        (SINFO_GHX4_INTERACTIVE, (2, 4)),
-        ("1-infinite|gpu:nvidia_gh200_120gb:4(S:0-3)\n", (None, 4)),
-        ("1-4|gpu:a100:4(S:0-3)\n1-4|gpu:a100:8(S:0-7)\n", (4, 8)),
-        ("1-2|(null)\n", (2, None)),
-    ],
-)
-def test_partition_limits_parse_sinfo(monkeypatch, out, limits):
-    monkeypatch.setattr(launch_layout, "_sinfo", lambda partition: out)
+def test_partition_limits_parse_sinfo(monkeypatch):
+    out = SINFO_DELTAAI + "mixed|1-4|gpu:a100:4(S:0-3)\nmixed|1-4|gpu:a100:8(S:0-7)\n"
+    out += "cpu|1-2|(null)\n"
+    monkeypatch.setattr(launch_layout, "_sinfo", lambda: out)
 
-    assert launch_layout.partition_limits("p") == limits
+    assert launch_layout.partition_limits() == {
+        "full": (None, 4),
+        "test": (None, 4),
+        "ghx4": (None, 4),
+        "ghx4-interactive": (2, 4),
+        "mixed": (4, 8),
+        "cpu": (2, None),
+    }
 
 
 def test_partition_limits_are_unknown_when_sinfo_fails(monkeypatch, tmp_path):
@@ -346,15 +384,4 @@ def test_partition_limits_are_unknown_when_sinfo_fails(monkeypatch, tmp_path):
     (tmp_path / "sinfo").chmod(0o755)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
 
-    assert launch_layout.partition_limits("p") is None
-
-
-def test_a_partition_list_allows_the_most_of_each(monkeypatch):
-    answers = {
-        "ghx4": "1-infinite|gpu:nvidia_gh200_120gb:4(S:0-3)\n",
-        "ghx4-interactive": SINFO_GHX4_INTERACTIVE,
-    }
-    monkeypatch.setattr(launch_layout, "_sinfo", answers.get)
-
-    assert launch_layout._limits("ghx4-interactive,ghx4") == (None, 4)
-    assert launch_layout._limits("ghx4-interactive") == (2, 4)
+    assert launch_layout.partition_limits() is None
