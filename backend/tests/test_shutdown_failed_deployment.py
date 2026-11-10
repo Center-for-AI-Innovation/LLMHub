@@ -214,3 +214,21 @@ def test_a_failed_row_is_cancelled_when_slurm_cannot_say(
     assert api.wrapper_calls() == [SCANCEL_AS_USER]
     assert body["status"] == "shutdown"
     assert f"sacct gave no state for job {JOB}" in caplog.text
+
+
+def test_a_refused_cancel_keeps_a_failed_rows_reason(api, monkeypatch, tmp_path):
+    """sacct can't say, and the job had ended: scancel refuses it."""
+    monkeypatch.delenv("FAKE_SACCT_STATE", raising=False)
+    wrapper = tmp_path / "impersonate-wrapper"
+    wrapper.write_text(
+        wrapper.read_text() + "echo 'scancel: error: Kill job error on job id 3277706: "
+        "Invalid job id specified' >&2\nexit 1\n"
+    )
+    row = api.deployment("failed", error=FALSE_FAILURE)
+
+    body = api.delete(row)
+
+    assert api.wrapper_calls() == [SCANCEL_AS_USER]
+    assert body["status"] == "failed"
+    assert body["errorMessage"] == FALSE_FAILURE
+    assert api.released == []
