@@ -67,6 +67,15 @@ SLURM_FAILED_JOB_STATES = {
     "OUT_OF_MEMORY",
     "REVOKED",
 }
+# Slurm states of a job that still holds, or will hold, its nodes.
+SLURM_LIVE_JOB_STATES = {
+    "PENDING",
+    "CONFIGURING",
+    "RUNNING",
+    "SUSPENDED",
+    "REQUEUED",
+    "RESIZING",
+}
 
 
 def _parse_slurm_time_to_timedelta(time_value: Any) -> Optional[timedelta]:
@@ -855,6 +864,14 @@ class ModelService:
             )
             return None
 
+    def _slurm_job_is_live(self, slurm_job_id: Optional[str]) -> bool:
+        """True when ``sacct`` shows the job pending or running."""
+        # A launch that never submitted stores "failed" or NO_SLURM_JOB_YET.
+        if not str(slurm_job_id or "").isdigit():
+            return False
+        state = self._get_slurm_state_from_sacct(slurm_job_id)
+        return self._normalize_slurm_state(state) in SLURM_LIVE_JOB_STATES
+
     def shutdown_deployment(
         self, db: Session, deployment_id: UUID
     ) -> Optional[ModelDeployment]:
@@ -864,7 +881,14 @@ class ModelService:
             return None
 
         # Skip if the deployment is already in a terminal state
-        if db_deployment.status in ["failed", "shutdown", "completed"]:
+        if db_deployment.status in ["shutdown", "completed"]:
+            return db_deployment
+        # A failed row can still have a live job: vec-inf reports FAILED from a
+        # line in the job's log while Slurm runs it (#101). Cancel that job like
+        # a running one; a job that has ended is left alone.
+        if db_deployment.status == "failed" and not self._slurm_job_is_live(
+            db_deployment.slurmJobId
+        ):
             return db_deployment
 
         # Still waiting on its weights: no job to cancel, no GPUs allocated.
