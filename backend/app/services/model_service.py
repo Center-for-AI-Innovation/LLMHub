@@ -71,6 +71,8 @@ SLURM_FAILED_JOB_STATES = {
 SLURM_ENDED_JOB_STATES = SLURM_FAILED_JOB_STATES | {"COMPLETED"}
 # How long a DELETE waits for sacct before cancelling without its answer.
 SACCT_SHUTDOWN_TIMEOUT = 30
+# scancel's words for a job that is already gone.
+SCANCEL_JOB_GONE = ("invalid job id specified", "already completing or completed")
 
 
 def _parse_slurm_time_to_timedelta(time_value: Any) -> Optional[timedelta]:
@@ -922,12 +924,15 @@ class ModelService:
                 db_deployment.slurmJobId,
                 shutdown_result.get("error"),
             )
-            # A failed row keeps why it failed: its job may simply have ended
-            # before sacct could say so, and scancel then refuses it.
-            if db_deployment.status != "failed":
-                db_deployment.errorMessage = (
-                    shutdown_result.get("error") or "Failed to cancel Slurm job"
-                )
+            error = shutdown_result.get("error") or "Failed to cancel Slurm job"
+            # A failed row whose job had ended before sacct could say so: scancel
+            # refuses it, and the row keeps why it failed. Any other failure,
+            # here as for a running row, is recorded: the job may still run.
+            if db_deployment.status == "failed" and any(
+                gone in error.lower() for gone in SCANCEL_JOB_GONE
+            ):
+                return db_deployment
+            db_deployment.errorMessage = error
             db_deployment.updatedAt = datetime.utcnow()
             db.commit()
             db.refresh(db_deployment)

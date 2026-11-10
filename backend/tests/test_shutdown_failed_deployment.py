@@ -216,19 +216,40 @@ def test_a_failed_row_is_cancelled_when_slurm_cannot_say(
     assert f"sacct gave no state for job {JOB}" in caplog.text
 
 
-def test_a_refused_cancel_keeps_a_failed_rows_reason(api, monkeypatch, tmp_path):
+def _wrapper_fails(tmp_path, stderr):
+    wrapper = tmp_path / "impersonate-wrapper"
+    wrapper.write_text(wrapper.read_text() + f"echo '{stderr}' >&2\nexit 1\n")
+
+
+def test_a_cancel_refused_for_an_ended_job_keeps_the_rows_reason(
+    api, monkeypatch, tmp_path, caplog
+):
     """sacct can't say, and the job had ended: scancel refuses it."""
     monkeypatch.delenv("FAKE_SACCT_STATE", raising=False)
-    wrapper = tmp_path / "impersonate-wrapper"
-    wrapper.write_text(
-        wrapper.read_text() + "echo 'scancel: error: Kill job error on job id 3277706: "
-        "Invalid job id specified' >&2\nexit 1\n"
+    _wrapper_fails(
+        tmp_path,
+        f"scancel: error: Kill job error on job id {JOB}: Invalid job id specified",
     )
+    row = api.deployment("failed", error=FALSE_FAILURE)
+
+    with caplog.at_level(logging.ERROR):
+        body = api.delete(row)
+
+    assert api.wrapper_calls() == [SCANCEL_AS_USER]
+    assert body["status"] == "failed"
+    assert body["errorMessage"] == FALSE_FAILURE
+    assert api.released == []
+    assert "Invalid job id specified" in caplog.text
+
+
+def test_a_cancel_that_fails_on_a_live_job_says_so(api, monkeypatch, tmp_path):
+    monkeypatch.setenv("FAKE_SACCT_STATE", "RUNNING")
+    _wrapper_fails(tmp_path, "sudo: a password is required")
     row = api.deployment("failed", error=FALSE_FAILURE)
 
     body = api.delete(row)
 
     assert api.wrapper_calls() == [SCANCEL_AS_USER]
     assert body["status"] == "failed"
-    assert body["errorMessage"] == FALSE_FAILURE
+    assert body["errorMessage"] == "sudo: a password is required"
     assert api.released == []
