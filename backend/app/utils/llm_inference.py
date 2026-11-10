@@ -867,9 +867,7 @@ class LLMInferenceDirectClient:
             layout = None
             if launch_layout.requests_layout(params):
                 layout = launch_layout.resolve_layout(
-                    self.client.get_model_config(model_name),
-                    params.get("num_gpus"),
-                    params.get("num_nodes"),
+                    self.client.get_model_config(model_name), params
                 )
             options = self._build_launch_options(layout, **params)
             with _upstream_key_in_environ(deployment_api_key):
@@ -996,9 +994,7 @@ class LLMInferenceDirectClient:
                 "Layout unchecked: no vec-inf config for %s: %s", model_name, exc
             )
             return
-        layout = launch_layout.resolve_layout(
-            config, params.get("num_gpus"), params.get("num_nodes")
-        )
+        layout = launch_layout.resolve_layout(config, params)
         launch_layout.check_layout(
             config, layout, params.get("partition") or config.partition
         )

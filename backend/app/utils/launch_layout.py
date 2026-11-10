@@ -66,8 +66,7 @@ def _engine(config: Any) -> str:
 
 
 def _size(engine_args: Optional[Dict[str, Any]], flag: str) -> int:
-    value = (engine_args or {}).get(flag)
-    return 1 if value is None or isinstance(value, bool) else int(value)
+    return int((engine_args or {}).get(flag, 1))
 
 
 def requests_layout(params: Dict[str, Any]) -> bool:
@@ -75,13 +74,11 @@ def requests_layout(params: Dict[str, Any]) -> bool:
     return params.get("num_gpus") is not None or params.get("num_nodes") is not None
 
 
-def resolve_layout(
-    config: Any, num_gpus: Optional[int], num_nodes: Optional[int]
-) -> Layout:
+def resolve_layout(config: Any, params: Dict[str, Any]) -> Layout:
     """The layout a request runs with, given its catalog entry (vec-inf ModelConfig)."""
     catalog = (int(config.gpus_per_node), int(config.num_nodes))
-    gpus = catalog[0] if num_gpus is None else int(num_gpus)
-    nodes = catalog[1] if num_nodes is None else int(num_nodes)
+    gpus = catalog[0] if params.get("num_gpus") is None else int(params["num_gpus"])
+    nodes = catalog[1] if params.get("num_nodes") is None else int(params["num_nodes"])
     if (gpus, nodes) == catalog:
         args = getattr(config, f"{_engine(config)}_args", None)
         return Layout(gpus, nodes, _size(args, TP_FLAG), _size(args, PP_FLAG), True)
@@ -114,35 +111,30 @@ def _sinfo(partition: str) -> Optional[str]:
 def partition_limits(partition: str) -> Tuple[Optional[int], Optional[int]]:
     """``(MaxNodes, GPUs per node)`` of a partition, each None when unknown.
 
-    MaxNodes is None for an unlimited partition. A partition whose node groups
-    differ reports its largest GPU count.
+    MaxNodes (``%s``, the same on every line) is None for an unlimited
+    partition. A partition whose node groups differ reports its largest GPU count.
     """
     out = _sinfo(partition)
     lines = [line.strip() for line in (out or "").splitlines() if line.strip()]
     if not lines:
         logger.warning("No sinfo answer for partition %s; limits unchecked", partition)
         return None, None
-    max_nodes = None
-    gpus = []
-    for line in lines:
-        size, _, gres = line.partition("|")
-        upper = size.rpartition("-")[2]
-        if upper.isdigit():
-            max_nodes = max(max_nodes or 0, int(upper))
-        gpus += [int(n) for n in _GPU_GRES_RE.findall(gres)]
-    return max_nodes, (max(gpus) if gpus else None)
+    upper = lines[0].partition("|")[0].rpartition("-")[2]
+    gres = [line.partition("|")[2] for line in lines]
+    gpus = [int(n) for g in gres for n in _GPU_GRES_RE.findall(g)]
+    return (int(upper) if upper.isdigit() else None), (max(gpus) if gpus else None)
 
 
 def check_layout(config: Any, layout: Layout, partition: Optional[str]) -> None:
     """Raise ``LaunchRefused`` for a shape the partition can't run."""
-    engine = _engine(config)
-    if layout.num_nodes > 1 and engine != "vllm":
-        raise LaunchRefused(
-            f"multinode launches run on vLLM only; {config.model_name} uses "
-            f"{engine}, whose nodes vec-inf starts as separate srun steps that "
-            "cannot reach each other over the fabric"
-        )
     if layout.num_nodes > 1:
+        engine = _engine(config)
+        if engine != "vllm":
+            raise LaunchRefused(
+                f"multinode launches run on vLLM only; {config.model_name} uses "
+                f"{engine}, whose nodes vec-inf starts as separate srun steps that "
+                "cannot reach each other over the fabric"
+            )
         # Imported here: vec-inf reads its config on import, which
         # app.utils.llm_inference must set up first.
         from app.utils import vec_inf_multinode
@@ -151,12 +143,12 @@ def check_layout(config: Any, layout: Layout, partition: Optional[str]) -> None:
             vec_inf_multinode.check_vec_inf_version()
         except vec_inf_multinode.MultinodeLaunchError as exc:
             raise LaunchRefused(str(exc)) from exc
-    if layout.num_nodes > 1 and layout.tensor_parallel > layout.gpus_per_node:
-        raise LaunchRefused(
-            f"tensor parallel {layout.tensor_parallel} would span nodes of "
-            f"{layout.gpus_per_node} GPUs each; LLMHub runs tensor parallel within "
-            "a node and pipeline parallel across nodes"
-        )
+        if layout.tensor_parallel > layout.gpus_per_node:
+            raise LaunchRefused(
+                f"tensor parallel {layout.tensor_parallel} would span nodes of "
+                f"{layout.gpus_per_node} GPUs each; LLMHub runs tensor parallel "
+                "within a node and pipeline parallel across nodes"
+            )
     if not partition:
         return
     max_nodes, node_gpus = partition_limits(partition)
