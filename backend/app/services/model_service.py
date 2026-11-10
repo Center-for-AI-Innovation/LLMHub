@@ -841,6 +841,8 @@ class ModelService:
                 check=False,
                 capture_output=True,
                 text=True,
+                # It also gates a DELETE (shutdown_deployment), which must not hang.
+                timeout=30,
             )
             if proc.returncode != 0:
                 return None
@@ -870,6 +872,13 @@ class ModelService:
         if not str(slurm_job_id or "").isdigit():
             return False
         state = self._get_slurm_state_from_sacct(slurm_job_id)
+        if not state:
+            logger.warning(
+                "sacct gave no state for job %s; a failed deployment's job is "
+                "not cancelled without one",
+                slurm_job_id,
+            )
+            return False
         return self._normalize_slurm_state(state) in SLURM_LIVE_JOB_STATES
 
     def shutdown_deployment(
