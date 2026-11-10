@@ -214,7 +214,8 @@ class ModelService:
 
         When the weights still have to be downloaded, the deployment is recorded
         as ``downloading`` and ``advance_downloading_deployments`` submits its job
-        once they are in.
+        once they are in. Raises ``LaunchRefused`` for a requested shape the
+        cluster can't run, before anything is recorded or submitted.
         """
         # Extract parameters for the launch command (never persist hf_token on the deployment row).
         # Fields that pick the repo, weights or write location come from the server only.
@@ -270,6 +271,10 @@ class ModelService:
                 f"Unknown model {model_id!r}; the model catalog has not been "
                 "synced with it yet. Try again after the next sync."
             )
+        # A shape the cluster can't run is refused before any download or job:
+        # LaunchRefused, which the API answers with 422 and the reason.
+        self.llm_client.check_launch_shape(model_id, params)
+
         hf_repo_id = db_model.huggingfaceId
         cached_gated = db_model.gated
 
