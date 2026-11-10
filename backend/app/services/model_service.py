@@ -67,15 +67,10 @@ SLURM_FAILED_JOB_STATES = {
     "OUT_OF_MEMORY",
     "REVOKED",
 }
-# Slurm states of a job that still holds, or will hold, its nodes.
-SLURM_LIVE_JOB_STATES = {
-    "PENDING",
-    "CONFIGURING",
-    "RUNNING",
-    "SUSPENDED",
-    "REQUEUED",
-    "RESIZING",
-}
+# Slurm states of a job that has ended: it holds no nodes and won't again.
+SLURM_ENDED_JOB_STATES = SLURM_FAILED_JOB_STATES | {"COMPLETED"}
+# How long a DELETE waits for sacct before cancelling without its answer.
+SACCT_SHUTDOWN_TIMEOUT = 30
 
 
 def _parse_slurm_time_to_timedelta(time_value: Any) -> Optional[timedelta]:
@@ -824,7 +819,9 @@ class ModelService:
         normalized = normalized.split("+", 1)[0].split(" ", 1)[0]
         return normalized
 
-    def _get_slurm_state_from_sacct(self, slurm_job_id: str) -> Optional[str]:
+    def _get_slurm_state_from_sacct(
+        self, slurm_job_id: str, timeout: Optional[float] = None
+    ) -> Optional[str]:
         """Fallback lookup for terminal status when scontrol no longer has the job."""
         if not slurm_job_id:
             return None
@@ -841,8 +838,7 @@ class ModelService:
                 check=False,
                 capture_output=True,
                 text=True,
-                # It also gates a DELETE (shutdown_deployment), which must not hang.
-                timeout=30,
+                timeout=timeout,
             )
             if proc.returncode != 0:
                 return None
@@ -866,21 +862,6 @@ class ModelService:
             )
             return None
 
-    def _slurm_job_is_live(self, slurm_job_id: Optional[str]) -> bool:
-        """True when ``sacct`` shows the job pending or running."""
-        # A launch that never submitted stores "failed" or NO_SLURM_JOB_YET.
-        if not str(slurm_job_id or "").isdigit():
-            return False
-        state = self._get_slurm_state_from_sacct(slurm_job_id)
-        if not state:
-            logger.warning(
-                "sacct gave no state for job %s; a failed deployment's job is "
-                "not cancelled without one",
-                slurm_job_id,
-            )
-            return False
-        return self._normalize_slurm_state(state) in SLURM_LIVE_JOB_STATES
-
     def shutdown_deployment(
         self, db: Session, deployment_id: UUID
     ) -> Optional[ModelDeployment]:
@@ -893,12 +874,27 @@ class ModelService:
         if db_deployment.status in ["shutdown", "completed"]:
             return db_deployment
         # A failed row can still have a live job: vec-inf reports FAILED from a
-        # line in the job's log while Slurm runs it (#101). Cancel that job like
-        # a running one; a job that has ended is left alone.
-        if db_deployment.status == "failed" and not self._slurm_job_is_live(
-            db_deployment.slurmJobId
-        ):
-            return db_deployment
+        # line in the job's log while Slurm runs it (#101). Its job is cancelled
+        # like a running one unless sacct says it has ended. A launch that never
+        # submitted stores "failed" or NO_SLURM_JOB_YET, not a job id.
+        if db_deployment.status == "failed":
+            job_id = str(db_deployment.slurmJobId or "")
+            if not job_id.isdigit():
+                return db_deployment
+            state = self._get_slurm_state_from_sacct(
+                job_id, timeout=SACCT_SHUTDOWN_TIMEOUT
+            )
+            if self._normalize_slurm_state(state) in SLURM_ENDED_JOB_STATES:
+                return db_deployment
+            if not state:
+                # Cancelling an ended job does no harm; leaving a live one
+                # holds its nodes to the time limit (#101).
+                logger.warning(
+                    "sacct gave no state for job %s of failed deployment %s; "
+                    "cancelling it anyway",
+                    job_id,
+                    deployment_id,
+                )
 
         # Still waiting on its weights: no job to cancel, no GPUs allocated.
         if db_deployment.slurmJobId == NO_SLURM_JOB_YET:

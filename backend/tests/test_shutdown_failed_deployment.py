@@ -8,7 +8,9 @@ script that records its arguments, so the test sees exactly what would be run
 as the cluster user. Slurm's view of the job comes from a fake ``sacct``.
 """
 
+import logging
 import os
+import time
 import uuid
 
 import pytest
@@ -22,6 +24,7 @@ from app.config.config import settings
 from app.controllers import model_controller
 from app.models.model_deployment import ModelDeployment
 from app.repositories.session import get_db
+from app.services import model_service
 from app.utils import llm_inference
 
 USER = "svcllmhubtest"
@@ -29,10 +32,12 @@ JOB = "3277706"
 FAKE_WRAPPER = """#!/bin/sh
 printf '%s\\n' "$*" >> "$WRAPPER_LOG"
 """
-# Prints sacct's -P rows for the job, or fails when FAKE_SACCT_STATE is unset.
+# Prints sacct's -P rows for the job; fails when FAKE_SACCT_STATE is unset, and
+# hangs when it is "HANG".
 FAKE_SACCT = """#!/bin/sh
 printf '%s\\n' "$*" >> "$SACCT_LOG"
 [ -n "$FAKE_SACCT_STATE" ] || { echo "sacct: error: slurmdbd unreachable" >&2; exit 1; }
+[ "$FAKE_SACCT_STATE" = HANG ] && exec sleep 30
 printf '%s|%s\\n%s.batch|%s\\n' "$FAKE_SACCT_JOB" "$FAKE_SACCT_STATE" \\
     "$FAKE_SACCT_JOB" "$FAKE_SACCT_STATE"
 """
@@ -142,7 +147,9 @@ def test_a_running_deployment_is_cancelled_as_its_user(api):
     assert api.released == [8]
 
 
-@pytest.mark.parametrize("state", ["RUNNING", "PENDING"])
+@pytest.mark.parametrize(
+    "state", ["RUNNING", "PENDING", "CONFIGURING", "SUSPENDED", "REQUEUE_HOLD"]
+)
 def test_a_failed_row_whose_job_is_live_is_cancelled_like_a_running_one(
     api, monkeypatch, state
 ):
@@ -186,12 +193,24 @@ def test_a_failed_launch_without_a_job_never_asks_slurm(api):
     assert body["status"] == "failed"
 
 
-def test_a_failed_row_is_left_alone_when_slurm_cannot_say(api, monkeypatch):
-    monkeypatch.delenv("FAKE_SACCT_STATE", raising=False)
+@pytest.mark.parametrize("sacct", ["error", "hang"])
+def test_a_failed_row_is_cancelled_when_slurm_cannot_say(
+    api, monkeypatch, caplog, sacct
+):
+    """No answer is not an ended job: cancelling an ended job does no harm."""
+    if sacct == "error":
+        monkeypatch.delenv("FAKE_SACCT_STATE", raising=False)
+    else:
+        monkeypatch.setenv("FAKE_SACCT_STATE", "HANG")
+        monkeypatch.setattr(model_service, "SACCT_SHUTDOWN_TIMEOUT", 1)
     row = api.deployment("failed", error=FALSE_FAILURE)
 
-    body = api.delete(row)
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING):
+        body = api.delete(row)
 
+    assert time.monotonic() - started < 10, "the DELETE waited out a hung sacct"
     assert api.sacct_calls(), "sacct was never asked"
-    assert api.wrapper_calls() == []
-    assert body["status"] == "failed"
+    assert api.wrapper_calls() == [SCANCEL_AS_USER]
+    assert body["status"] == "shutdown"
+    assert f"sacct gave no state for job {JOB}" in caplog.text
