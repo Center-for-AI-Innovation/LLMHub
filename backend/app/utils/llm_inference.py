@@ -35,7 +35,7 @@ from vec_inf.client._slurm_script_generator import SlurmScriptGenerator  # noqa:
 from vec_inf.client.api import VecInfClient  # noqa: E402
 from vec_inf.client.models import LaunchOptions  # noqa: E402
 
-from app.utils import vec_inf_multinode  # noqa: E402
+from app.utils import launch_layout, vec_inf_multinode  # noqa: E402
 
 logger = get_logger("llm_inference")
 
@@ -767,8 +767,16 @@ class LLMInferenceDirectClient:
         fields.append(cuda_kv)
         return ",".join(fields)
 
-    def _build_launch_options(self, **params: Optional[Union[str, int, bool]]):
-        """Map API payload params to LaunchOptions."""
+    def _build_launch_options(
+        self,
+        layout: Optional[launch_layout.Layout] = None,
+        **params: Optional[Union[str, int, bool]],
+    ):
+        """Map API payload params to LaunchOptions.
+
+        ``layout`` is the request's parallel layout (``launch_layout``), when the
+        request sets a GPU or node count; without one, the catalog's stands.
+        """
         mapped: Dict[str, Any] = {}
 
         if params.get("num_nodes") is not None:
@@ -819,11 +827,9 @@ class LLMInferenceDirectClient:
         if params.get("max_num_seqs") is not None:
             vllm_parts.append(f"--max-num-seqs={params['max_num_seqs']}")
         # Client vllm_args are dropped upstream; vec-inf still needs the parallel
-        # sizes to match an explicit GPU/node request (TP within a node, PP across).
-        if params.get("num_gpus") is not None:
-            vllm_parts.append(f"--tensor-parallel-size={int(params['num_gpus'])}")
-        if params.get("num_nodes") is not None:
-            vllm_parts.append(f"--pipeline-parallel-size={int(params['num_nodes'])}")
+        # sizes to match an explicit GPU/node request, unless the catalog's do.
+        if layout is not None:
+            vllm_parts.extend(layout.flags())
         if params.get("vllm_args") is not None:
             vllm_parts.append(params["vllm_args"])
         if vllm_parts:
@@ -858,7 +864,14 @@ class LLMInferenceDirectClient:
         # SDK tunnel support is handled externally for now.
         _ = enable_cloudflare_tunnel
         try:
-            options = self._build_launch_options(**params)
+            layout = None
+            if launch_layout.requests_layout(params):
+                layout = launch_layout.resolve_layout(
+                    self.client.get_model_config(model_name),
+                    params.get("num_gpus"),
+                    params.get("num_nodes"),
+                )
+            options = self._build_launch_options(layout, **params)
             with _upstream_key_in_environ(deployment_api_key):
                 # Multinode vLLM goes through LLMHub's adapter (one srun step, no
                 # Ray); everything else is vec-inf's own launch, unchanged.
@@ -966,6 +979,29 @@ class LLMInferenceDirectClient:
         except Exception as exc:
             logger.error("Failed to get model details: %s", exc)
             return {"success": False, "error": str(exc)}
+
+    def check_launch_shape(self, model_name: str, params: Dict[str, Any]) -> None:
+        """Raise ``launch_layout.LaunchRefused`` for a shape the cluster can't run.
+
+        Only a request that sets its own GPU or node count is checked; without
+        one, the catalog entry's own layout launches as before.
+        """
+        if not launch_layout.requests_layout(params):
+            return
+        try:
+            config = self.client.get_model_config(model_name)
+        except Exception as exc:
+            # vec-inf's own launch then fails on the model, as it did before.
+            logger.warning(
+                "Layout unchecked: no vec-inf config for %s: %s", model_name, exc
+            )
+            return
+        layout = launch_layout.resolve_layout(
+            config, params.get("num_gpus"), params.get("num_nodes")
+        )
+        launch_layout.check_layout(
+            config, layout, params.get("partition") or config.partition
+        )
 
     def _verify_config_files(self, config_dir: str):
         """Verify that environment.yaml and models.yaml exist in the config directory."""
@@ -1299,6 +1335,9 @@ class LLMInferenceClient:
 
     def get_model_details(self, model_name: str):
         return self.direct_client.get_model_details(model_name)
+
+    def check_launch_shape(self, model_name: str, params: Dict[str, Any]) -> None:
+        self.direct_client.check_launch_shape(model_name, params)
 
     def get_tunnel_url(
         self,
