@@ -22,9 +22,10 @@ Shapes vec-inf itself refuses (counts below 1, a GPU total that is not a power
 of two, TP x PP not the GPU total) are refused here too, before any download.
 
 The partition's limits are read from Slurm (``sinfo``) when the request is
-checked; a partition Slurm doesn't list is refused, and of a comma-separated
-list, every partition must fit, as Slurm requires. If Slurm does not answer,
-the two partition checks are skipped and Slurm's own submit-time limits apply.
+checked. The partition must be one Slurm lists and fit its MinNodes, MaxNodes
+and GPUs per node; of a comma-separated list, every partition must, as Slurm
+requires (DeltaAI: EnforcePartLimits=ALL). If Slurm does not answer, these
+partition checks are skipped and Slurm's own submit-time limits apply.
 """
 
 import re
