@@ -324,15 +324,25 @@ def test_refuses_fewer_nodes_than_the_partition_needs(api, monkeypatch):
 
 def test_a_refusal_names_every_limit_the_request_breaks(api, monkeypatch):
     monkeypatch.setenv(
-        "FAKE_SINFO_OUT", "wide|1-8|gpu:a100:4(S:0-3)\nfat|1-1|gpu:a100:4(S:0-3)\n"
+        "FAKE_SINFO_OUT", "wide|1-8|gpu:a100:4(S:0-3)\nfat|1|gpu:a100:4(S:0-3)\n"
     )
 
     response = api.launch("Plain-1x4", num_gpus=8, num_nodes=8, partition="wide,fat")
 
-    assert_refused(api, response, "partition wide has 4 per node")
+    assert_refused(api, response, "partition fat allows at most 1")
     detail = response.json()["detail"]
-    assert "partition fat allows at most 1" in detail
-    assert "partition fat has 4 per node" in detail
+    assert "partition wide has 4 per node, partition fat has 4 per node" in detail
+
+
+def test_a_partition_list_needs_only_one_partition_with_the_gpus(api, monkeypatch):
+    monkeypatch.setenv(
+        "FAKE_SINFO_OUT", "a4|1-8|gpu:a100:4(S:0-3)\na8|1-8|gpu:a100:8(S:0-7)\n"
+    )
+
+    response = api.launch("Plain-1x4", num_gpus=8, partition="a4,a8")
+
+    assert response.status_code == 201, response.text
+    assert len(api.scripts()) == 1
 
 
 def test_the_partition_checks_are_skipped_when_slurm_does_not_answer(
@@ -377,7 +387,7 @@ def test_a_two_node_request_on_a_one_node_entry_gets_pp_across_nodes(api):
 
 def test_a_request_without_counts_is_not_checked(api, monkeypatch):
     """The UI's launch: the catalog's layout, as before, and no Slurm query."""
-    monkeypatch.setenv("FAKE_SINFO_OUT", f"{PARTITION}|1-1|gpu:1\n")
+    monkeypatch.setenv("FAKE_SINFO_OUT", f"{PARTITION}|1|gpu:1\n")
 
     response = api.launch("Plain-2x4")
 
@@ -391,7 +401,8 @@ def test_a_request_without_counts_is_not_checked(api, monkeypatch):
 
 def test_partition_limits_parse_sinfo(monkeypatch):
     out = SINFO_DELTAAI + "mixed|1-4|gpu:a100:4(S:0-3)\nmixed|1-4|gpu:a100:8(S:0-7)\n"
-    out += "cpu|1-2|(null)\n"
+    out += "cpu|1-2|(null)\nexact|2|gpu:a100:4(S:0-3)\n"
+    out += "split|1-infinite|gpu:a100:4(S:0-3)\nsplit|2-4|gpu:a100:8(S:0-7)\n"
     monkeypatch.setattr(launch_layout, "_sinfo", lambda: out)
 
     assert launch_layout.partition_limits() == {
@@ -401,6 +412,8 @@ def test_partition_limits_parse_sinfo(monkeypatch):
         "ghx4-interactive": (1, 2, 4),
         "mixed": (1, 4, 8),
         "cpu": (1, 2, None),
+        "exact": (2, 2, 4),
+        "split": (2, 4, 8),
     }
 
 
