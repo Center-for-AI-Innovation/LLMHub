@@ -261,6 +261,12 @@ def test_refuses_counts_below_one(api):
     assert_refused(api, response, "must each be at least 1")
 
 
+def test_refuses_no_gpus(api):
+    response = api.launch("Plain-1x4", num_gpus=0)
+
+    assert_refused(api, response, "must each be at least 1")
+
+
 def test_refuses_a_catalog_layout_that_does_not_use_the_gpus(api):
     response = api.launch("Short-1x4", num_gpus=4)
 
@@ -282,32 +288,51 @@ def test_refuses_a_partition_list_that_names_none(api):
     assert_refused(api, response, "names no partition")
 
 
-def test_a_partition_list_runs_where_one_partition_fits(api):
-    # ghx4-interactive takes 2 nodes; ghx4, also listed, takes any number.
+def test_a_partition_list_runs_where_every_partition_fits(api):
     response = api.launch(
-        "Plain-2x4", num_gpus=4, num_nodes=4, partition="ghx4-interactive,ghx4"
+        "Plain-2x4", num_gpus=4, num_nodes=2, partition="ghx4-interactive,ghx4"
     )
 
     assert response.status_code == 201, response.text
     assert len(api.scripts()) == 1
 
 
-def test_refuses_a_partition_list_no_one_partition_fits(api, monkeypatch):
-    # Together they allow 8 nodes and 8 GPUs per node, but neither allows both.
+def test_refuses_a_partition_list_one_partition_cannot_run(api):
+    # Slurm (EnforcePartLimits=ALL) rejects it at submit although ghx4 could run it.
+    response = api.launch(
+        "Plain-2x4", num_gpus=4, num_nodes=4, partition="ghx4-interactive,ghx4"
+    )
+
+    assert_refused(api, response, "partition ghx4-interactive allows at most 2")
+
+
+def test_refuses_a_partition_list_with_an_unlisted_name(api):
+    response = api.launch(
+        "Plain-1x4", num_gpus=4, partition="ghx4-interactive,ghx4-interactiv"
+    )
+
+    assert_refused(api, response, "partition ghx4-interactiv is not a partition")
+
+
+def test_refuses_fewer_nodes_than_the_partition_needs(api, monkeypatch):
+    monkeypatch.setenv("FAKE_SINFO_OUT", "big|2-8|gpu:a100:4(S:0-3)\n")
+
+    response = api.launch("Plain-1x4", num_gpus=4, partition="big")
+
+    assert_refused(api, response, "partition big needs at least 2")
+
+
+def test_a_refusal_names_every_limit_the_request_breaks(api, monkeypatch):
     monkeypatch.setenv(
-        "FAKE_SINFO_OUT", "wide|1-8|gpu:a100:4(S:0-3)\nfat|1-1|gpu:a100:8(S:0-7)\n"
+        "FAKE_SINFO_OUT", "wide|1-8|gpu:a100:4(S:0-3)\nfat|1-1|gpu:a100:4(S:0-3)\n"
     )
 
     response = api.launch("Plain-1x4", num_gpus=8, num_nodes=8, partition="wide,fat")
 
     assert_refused(api, response, "partition wide has 4 per node")
-    assert "partition fat allows at most 1" in response.json()["detail"]
-
-
-def test_refuses_no_gpus(api):
-    response = api.launch("Plain-1x4", num_gpus=0)
-
-    assert_refused(api, response, "must each be at least 1")
+    detail = response.json()["detail"]
+    assert "partition fat allows at most 1" in detail
+    assert "partition fat has 4 per node" in detail
 
 
 def test_the_partition_checks_are_skipped_when_slurm_does_not_answer(
@@ -370,12 +395,12 @@ def test_partition_limits_parse_sinfo(monkeypatch):
     monkeypatch.setattr(launch_layout, "_sinfo", lambda: out)
 
     assert launch_layout.partition_limits() == {
-        "full": (None, 4),
-        "test": (None, 4),
-        "ghx4": (None, 4),
-        "ghx4-interactive": (2, 4),
-        "mixed": (4, 8),
-        "cpu": (2, None),
+        "full": (1, None, 4),
+        "test": (1, None, 4),
+        "ghx4": (1, None, 4),
+        "ghx4-interactive": (1, 2, 4),
+        "mixed": (1, 4, 8),
+        "cpu": (1, 2, None),
     }
 
 

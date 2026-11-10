@@ -23,7 +23,7 @@ of two, TP x PP not the GPU total) are refused here too, before any download.
 
 The partition's limits are read from Slurm (``sinfo``) when the request is
 checked; a partition Slurm doesn't list is refused, and of a comma-separated
-list, one partition must fit. If Slurm does not answer,
+list, every partition must fit, as Slurm requires. If Slurm does not answer,
 the two partition checks are skipped and Slurm's own submit-time limits apply.
 """
 
@@ -112,31 +112,43 @@ def _sinfo() -> Optional[str]:
     return proc.stdout
 
 
-def partition_limits() -> Optional[Dict[str, Tuple[Optional[int], Optional[int]]]]:
-    """``{partition: (MaxNodes, GPUs per node)}`` from ``sinfo``; None if it fails.
+def partition_limits() -> Optional[Dict[str, Tuple[int, Optional[int], Optional[int]]]]:
+    """``{partition: (MinNodes, MaxNodes, GPUs per node)}`` from ``sinfo``.
 
-    MaxNodes (``%s``) is None for an unlimited partition. GPUs per node is the
-    largest of the partition's node groups, None without GPUs.
+    MaxNodes (from ``%s``, ``min-max``) is None for an unlimited partition. GPUs
+    per node is the largest of the partition's node groups, None without GPUs.
+    None when ``sinfo`` fails.
     """
     out = _sinfo()
     if out is None:
         return None
-    limits: Dict[str, Tuple[Optional[int], Optional[int]]] = {}
+    sizes: Dict[str, str] = {}
+    gpus: Dict[str, List[int]] = {}
     for line in out.splitlines():
         name, _, rest = line.strip().partition("|")
         if not name:
             continue
+        name = name.rstrip("*")  # the default partition
         size, _, gres = rest.partition("|")
-        upper = size.rpartition("-")[2]
-        gpus = [int(n) for n in _GPU_GRES_RE.findall(gres)]
-        _, known = limits.get(name.rstrip("*"), (None, None))
-        most = max([g for g in (known, *gpus) if g is not None], default=None)
-        limits[name.rstrip("*")] = (int(upper) if upper.isdigit() else None, most)
+        sizes[name] = size
+        gpus.setdefault(name, []).extend(int(n) for n in _GPU_GRES_RE.findall(gres))
+    limits = {}
+    for name, size in sizes.items():
+        lower, _, upper = size.partition("-")
+        limits[name] = (
+            int(lower) if lower.isdigit() else 1,
+            int(upper) if upper.isdigit() else None,
+            max(gpus[name], default=None),
+        )
     return limits
 
 
 def _check_partition(layout: Layout, partition: str) -> None:
-    """Refuse unless ``partition``, or one of a comma-separated list, fits."""
+    """Refuse unless every partition named (one, or a comma-separated list) fits.
+
+    Every one, because Slurm checks a job against each partition it lists
+    (DeltaAI: ``EnforcePartLimits=ALL``) and rejects it at submit otherwise.
+    """
     names = [name for name in partition.split(",") if name]
     if not names:
         raise LaunchRefused(f"partition {partition!r} names no partition")
@@ -149,21 +161,25 @@ def _check_partition(layout: Layout, partition: str) -> None:
         if name not in limits:
             reasons.append(f"partition {name} is not a partition Slurm lists")
             continue
-        max_nodes, node_gpus = limits[name]
+        min_nodes, max_nodes, node_gpus = limits[name]
+        if layout.num_nodes < min_nodes:
+            reasons.append(
+                f"{layout.num_nodes} nodes requested; partition {name} needs at "
+                f"least {min_nodes} per job"
+            )
         if max_nodes is not None and layout.num_nodes > max_nodes:
             reasons.append(
                 f"{layout.num_nodes} nodes requested; partition {name} allows at "
                 f"most {max_nodes} per job"
             )
-        elif node_gpus is not None and layout.gpus_per_node > node_gpus:
+        if node_gpus is not None and layout.gpus_per_node > node_gpus:
             reasons.append(
                 f"{layout.gpus_per_node} GPUs per node requested (tensor parallel "
                 f"{layout.tensor_parallel}); partition {name} has {node_gpus} "
                 "per node"
             )
-        else:
-            return
-    raise LaunchRefused("; ".join(reasons))
+    if reasons:
+        raise LaunchRefused("; ".join(reasons))
 
 
 def check_layout(config: Any, layout: Layout, partition: Optional[str]) -> None:
