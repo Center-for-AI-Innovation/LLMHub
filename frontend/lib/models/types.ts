@@ -25,12 +25,14 @@ export interface BackendModelResponse {
   output?: string;
 }
 
+export type ModelSize = 'Small' | 'Medium' | 'Large';
+
 export interface ModelInfo {
   id: string;
   name: string;
   description: string;
   status: 'warm' | 'cold' ;
-  type: 'Small' | 'Medium' | 'Large';
+  size: ModelSize;
   family: string;
   variant: string;
   modelType?: string;
