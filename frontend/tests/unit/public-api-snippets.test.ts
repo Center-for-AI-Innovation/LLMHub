@@ -28,6 +28,10 @@ describe('getEndpointKind', () => {
     expect(getEndpointKind('LLM')).toBe('chatCompletions');
     expect(getEndpointKind(undefined)).toBe('chatCompletions');
   });
+
+  it('has no endpoint for model types without a supported API', () => {
+    expect(getEndpointKind('Reward_Modeling')).toBeNull();
+  });
 });
 
 describe('chatCompletions snippets', () => {

@@ -52,6 +52,13 @@ export function isEmbeddingModelType(
   return modelType?.toLowerCase() === EMBEDDING_MODEL_TYPE.toLowerCase();
 }
 
+// Model types served by vLLM's chat completions endpoint. The backend defaults a
+// missing model_type to "LLM", so a missing type counts as chat-capable.
+const CHAT_MODEL_TYPES = ['llm', 'vlm'];
+
+export function isChatModelType(modelType: string | null | undefined): boolean {
+  return !modelType || CHAT_MODEL_TYPES.includes(modelType.toLowerCase());
+}
 
 // Helper function to determine model size based on GPU count
 export function getModelSize(gpuCount: number): ModelSize {

@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { authMock, getAccessibleDeploymentsMock } = vi.hoisted(() => ({
-  authMock: vi.fn(),
-  getAccessibleDeploymentsMock: vi.fn(),
-}));
+const { authMock, getAccessibleDeploymentsMock, getAvailableModelsMock } =
+  vi.hoisted(() => ({
+    authMock: vi.fn(),
+    getAccessibleDeploymentsMock: vi.fn(),
+    getAvailableModelsMock: vi.fn(),
+  }));
 
 vi.mock('@/app/(auth)/auth', () => ({ auth: authMock }));
 vi.mock('@/lib/db/queries', () => ({
   getAccessibleDeploymentsByUserId: getAccessibleDeploymentsMock,
+  getAvailableModels: getAvailableModelsMock,
 }));
 
 // ALWAYS_ON_VLLM_MODEL is read at module scope, so the route must be
@@ -21,6 +24,8 @@ async function loadRoute(alwaysOnModel: string) {
 beforeEach(() => {
   authMock.mockReset();
   getAccessibleDeploymentsMock.mockReset();
+  getAvailableModelsMock.mockReset();
+  getAvailableModelsMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -125,6 +130,32 @@ describe('GET /api/chat/models', () => {
     expect(models.map((model: { id: string }) => model.id)).toEqual([
       'vllm-deployment:dep-a',
       'vllm-deployment:dep-b',
+    ]);
+  });
+
+  it('excludes deployments of models that cannot chat', async () => {
+    authMock.mockResolvedValue({ user: { id: 'user-1' } });
+    getAccessibleDeploymentsMock.mockResolvedValue([
+      { id: 'dep-llm', modelId: 'llm', modelName: 'llm', status: 'ready' },
+      { id: 'dep-vlm', modelId: 'vlm', modelName: 'vlm', status: 'ready' },
+      { id: 'dep-untyped', modelId: 'untyped', modelName: 'untyped', status: 'ready' },
+      { id: 'dep-embed', modelId: 'embed', modelName: 'embed', status: 'ready' },
+      { id: 'dep-reward', modelId: 'reward', modelName: 'reward', status: 'ready' },
+    ]);
+    getAvailableModelsMock.mockResolvedValue([
+      { id: 'llm', modelType: 'LLM' },
+      { id: 'vlm', modelType: 'VLM' },
+      { id: 'untyped', modelType: null },
+      { id: 'embed', modelType: 'Text_Embedding' },
+      { id: 'reward', modelType: 'Reward_Modeling' },
+    ]);
+    const { GET } = await loadRoute('');
+
+    const models = await (await GET()).json();
+    expect(models.map((model: { id: string }) => model.id)).toEqual([
+      'vllm-deployment:dep-llm',
+      'vllm-deployment:dep-vlm',
+      'vllm-deployment:dep-untyped',
     ]);
   });
 
