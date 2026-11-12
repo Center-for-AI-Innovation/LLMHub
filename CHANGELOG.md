@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+- The docs workflow no longer deploys from `docs/github-pages-site`, the branch that published a draft preview of the documentation site for review before it merged (#130); only `main` deploys now.
 - `backend/scripts/evict_unused_models.py`.
 
 ### Fixed
