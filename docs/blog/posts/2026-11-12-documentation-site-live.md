@@ -1,6 +1,6 @@
 ---
 date:
-    2026-10-15
+    2026-11-12
 categories:
     - Announcements
 ---
@@ -20,7 +20,7 @@ announcements.
 - **[Deploying models](../../deploying/index.md)**: launching, GPUs and
   cost, logs, sharing, and asking for new models.
 - **[API reference](../../api/index.md)**: OpenAI-compatible chat
-  completions, with curl, Python and JavaScript examples.
+  completions and embeddings, with curl, Python and JavaScript examples.
 - **[Self-hosting](../../self-hosting/index.md)** and
   **[Contributing](../../contributing/index.md)**: pointers to the setup and
   developer guides in the repository.
