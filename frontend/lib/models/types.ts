@@ -60,8 +60,6 @@ export function isChatModelType(modelType: string | null | undefined): boolean {
   return !modelType || CHAT_MODEL_TYPES.includes(modelType.toLowerCase());
 }
 
-export type ModelSize = 'Small' | 'Medium' | 'Large';
-
 // Helper function to determine model size based on GPU count
 export function getModelSize(gpuCount: number): ModelSize {
   if (gpuCount <= 1) return 'Small';
