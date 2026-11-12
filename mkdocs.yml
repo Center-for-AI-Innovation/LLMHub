@@ -114,6 +114,7 @@ nav:
       - Authentication: api/authentication.md
       - Chat completions: api/chat-completions.md
       - Embeddings: api/embeddings.md
+      - Responses: api/responses.md
   - Self-Hosting: self-hosting/index.md
   - How It Works:
       - how-it-works/index.md
