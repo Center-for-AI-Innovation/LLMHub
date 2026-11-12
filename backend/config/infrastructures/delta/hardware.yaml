@@ -1,0 +1,201 @@
+# NCSA Delta GPU partitions for the fit estimator.
+#
+# Sourced from the standalone memory-estimator calibration (live SLURM sinfo/
+# scontrol + Delta architecture docs, gathered 2026-06-12). Only the fields the
+# fit estimator needs are kept here. Memory is evaluated per GPU, including
+# tensor-parallel sharding; pipeline parallelism and multi-node layouts remain
+# outside the estimator's scope.
+#
+# Overhead: vLLM's own memory beyond weights and KV, inside its utilization
+#   budget (the (1 - gpu_memory_utilization) * VRAM reserve is applied in code):
+#     internal(mns) = max(overhead_floor_gib,
+#                         framework_overhead_gib + overhead_per_seq_gib * mns)
+#   plus tp_communication_buffer_gib per rank when tp_size > 1.
+#   CALIBRATED for vLLM 0.19.1 (the dev/production image) on driver 595.71.05,
+#   2026-10-02: tests/fixtures/vllm_probes/delta-v0.19.1.json, captured with
+#   backend/scripts/probe_vllm_overhead.py. Each value sits above every probe
+#   plus a 0.25 GiB margin for drift (the 2026-08-12 driver update alone cost
+#   ~0.6 GiB of KV on an unchanged image). A40/A100: ~1.6 GiB at 32 sequences
+#   (more than at 256), +0.002 GiB/seq above that, ~0.4 GiB more at TP=4.
+#   H200 runs ~0.7 GiB higher; its floor and TP buffer are extrapolated from
+#   A100 (no 32-sequence or multi-GPU H200 probe yet). gpu_memory_utilization
+#   is vLLM 0.19.1's default, 0.9. Re-probe after any image or driver change.
+# vram_gib_per_gpu: REAL usable memory (nvidia-smi memory.total), not the
+#   marketing capacity: A40 44.988, A100-40 40.0, H200 140.4 GiB, all measured.
+# vendor: NVIDIA partitions are evaluated; AMD (ROCm/MI100) is out of scope and
+#   reported as skipped rather than silently dropped.
+# resource_type: the Slurm GRES type (sinfo -o "%G"), as launch requests send
+#   it. Every Delta partition has one GPU type, so it is informational here.
+# gpus_per_node: caps tensor parallelism for a single-node launch.
+# compute_capability: decides which quantized formats run natively (FP8 needs
+#   8.9+, MXFP4 9.0+); A40 8.6, A100 8.0, H200 9.0.
+# su_per_gpu_hour: SU billed per GPU-hour on this partition (interactive
+#   queues bill double, preempt half). job_SU = rate × num_gpus × duration.
+
+partitions:
+  - partition: gpuA40x4
+    gpus_per_node: 4
+    gpu_type: NVIDIA A40
+    resource_type: nvidia_a40
+    compute_capability: 8.6
+    vendor: NVIDIA
+    vram_gib_per_gpu: 44.988
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 500
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA40x4-interactive
+    gpus_per_node: 4
+    gpu_type: NVIDIA A40
+    resource_type: nvidia_a40
+    compute_capability: 8.6
+    vendor: NVIDIA
+    vram_gib_per_gpu: 44.988
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 1000
+    max_walltime: "1:00:00"
+
+  - partition: gpuA40x4-preempt
+    gpus_per_node: 4
+    gpu_type: NVIDIA A40
+    resource_type: nvidia_a40
+    compute_capability: 8.6
+    vendor: NVIDIA
+    vram_gib_per_gpu: 44.988
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 250
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA100x4
+    gpus_per_node: 4
+    gpu_type: NVIDIA A100-SXM4-40GB
+    resource_type: nvidia_a100
+    compute_capability: 8.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 1000
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA100x4-interactive
+    gpus_per_node: 4
+    gpu_type: NVIDIA A100-SXM4-40GB
+    resource_type: nvidia_a100
+    compute_capability: 8.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 2000
+    max_walltime: "1:00:00"
+
+  - partition: gpuA100x4-preempt
+    gpus_per_node: 4
+    gpu_type: NVIDIA A100-SXM4-40GB
+    resource_type: nvidia_a100
+    compute_capability: 8.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 500
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA100x8
+    gpus_per_node: 8
+    gpu_type: NVIDIA A100-SXM4-40GB
+    resource_type: nvidia_a100
+    compute_capability: 8.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 1000
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuA100x8-interactive
+    gpus_per_node: 8
+    gpu_type: NVIDIA A100-SXM4-40GB
+    resource_type: nvidia_a100
+    compute_capability: 8.0
+    vendor: NVIDIA
+    vram_gib_per_gpu: 40
+    framework_overhead_gib: 0.95
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 1.95
+    tp_communication_buffer_gib: 0.4
+    # KNOWN-OPEN QUESTION: every other interactive queue is exactly 2x its
+    # batch rate (which would give 2000 here). 3000 is what the original
+    # source table carried; confirm against Delta billing before changing.
+    su_per_gpu_hour: 3000
+    max_walltime: "1:00:00"
+
+  - partition: gpuH200x8
+    gpus_per_node: 8
+    gpu_type: NVIDIA H200-SXM
+    resource_type: h200
+    compute_capability: 9.0
+    vendor: NVIDIA
+    # Measured: nvidia-smi memory.total on a gpuH200x8 node, 2026-10-02.
+    vram_gib_per_gpu: 140.4
+    framework_overhead_gib: 1.65
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 2.65
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 3000
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuH200x8-interactive
+    gpus_per_node: 8
+    gpu_type: NVIDIA H200-SXM
+    resource_type: h200
+    compute_capability: 9.0
+    vendor: NVIDIA
+    # Measured: nvidia-smi memory.total on a gpuH200x8 node, 2026-10-02.
+    vram_gib_per_gpu: 140.4
+    framework_overhead_gib: 1.65
+    overhead_per_seq_gib: 0.002
+    overhead_floor_gib: 2.65
+    tp_communication_buffer_gib: 0.4
+    su_per_gpu_hour: 6000
+    max_walltime: "1:00:00"
+
+  - partition: gpuMI100x8
+    gpus_per_node: 8
+    gpu_type: AMD Instinct MI100
+    resource_type: mi100
+    vendor: AMD
+    vram_gib_per_gpu: 32
+    framework_overhead_gib: 0.8
+    tp_communication_buffer_gib: 0.25
+    su_per_gpu_hour: 250
+    max_walltime: "2-00:00:00"
+
+  - partition: gpuMI100x8-interactive
+    gpus_per_node: 8
+    gpu_type: AMD Instinct MI100
+    resource_type: mi100
+    vendor: AMD
+    vram_gib_per_gpu: 32
+    framework_overhead_gib: 0.8
+    tp_communication_buffer_gib: 0.25
+    su_per_gpu_hour: 500
+    max_walltime: "1:00:00"

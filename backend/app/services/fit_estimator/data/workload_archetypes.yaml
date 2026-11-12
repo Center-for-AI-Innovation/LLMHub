@@ -1,0 +1,38 @@
+# Workload archetypes for the "typical" KV-cache assumption.
+#
+# The estimator always computes a worst_case number (the full token budget:
+# max_model_len x max_num_seqs). For "typical", it scales that budget by the
+# utilization_factor below -- a rough estimate of the fraction of the KV pool a
+# real workload of this shape actually occupies on average (sequences are
+# usually shorter than max_model_len and concurrency is rarely saturated).
+#
+# !!! ALL FACTORS BELOW ARE UNCALIBRATED PLACEHOLDERS !!!
+# They are order-of-magnitude guesses to exercise the two-assumption design, NOT
+# measured values. The pending calibration work (TODO: archetype factors) should
+# replace them with factors fit from real serving traces / vLLM metrics. Until
+# then, treat "typical" as illustrative and "worst_case" as the number to trust.
+#
+# utilization_factor is in (0, 1]. source documents where the guess came from.
+
+default_archetype: chat
+
+archetypes:
+  - name: chat
+    utilization_factor: 0.30
+    description: Interactive multi-turn chat; short prompts/replies, bursty concurrency.
+    source: "PLACEHOLDER: guess; typical chat turns are far below max_model_len."
+
+  - name: summarization
+    utilization_factor: 0.70
+    description: Long-context input, short output; fills much of max_model_len.
+    source: "PLACEHOLDER: guess; long inputs push utilization high but not full."
+
+  - name: code
+    utilization_factor: 0.50
+    description: Code completion/editing; medium context with repository snippets.
+    source: "PLACEHOLDER: guess; between chat and summarization."
+
+  - name: batch
+    utilization_factor: 0.90
+    description: Offline batch inference; scheduler keeps the KV pool near-saturated.
+    source: "PLACEHOLDER: guess; batch pipelines drive concurrency close to the cap."
