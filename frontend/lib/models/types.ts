@@ -25,12 +25,14 @@ export interface BackendModelResponse {
   output?: string;
 }
 
+export type ModelSize = 'Small' | 'Medium' | 'Large';
+
 export interface ModelInfo {
   id: string;
   name: string;
   description: string;
   status: 'warm' | 'cold' ;
-  type: 'Small' | 'Medium' | 'Large';
+  size: ModelSize;
   family: string;
   variant: string;
   modelType?: string;
@@ -50,7 +52,6 @@ export function isEmbeddingModelType(
   return modelType?.toLowerCase() === EMBEDDING_MODEL_TYPE.toLowerCase();
 }
 
-export type ModelSize = 'Small' | 'Medium' | 'Large';
 
 // Helper function to determine model size based on GPU count
 export function getModelSize(gpuCount: number): ModelSize {

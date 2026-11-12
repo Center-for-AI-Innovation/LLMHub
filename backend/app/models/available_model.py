@@ -13,7 +13,7 @@ class AvailableModel(Base):
     name = Column(String(255), nullable=False)
     description = Column(String, nullable=True)
     status = Column(String, default="WARM", nullable=False)
-    type = Column(String, nullable=False)
+    size = Column(String, nullable=False)
     family = Column(String(100), nullable=False)
     variant = Column(String(100), nullable=False)
     modelType = Column(String(50), nullable=True)
