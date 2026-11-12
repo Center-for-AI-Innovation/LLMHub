@@ -269,8 +269,31 @@ def weights_bytes_from_header(header: Mapping[str, Any]) -> int | None:
     return total if seen else None
 
 
+_MOE_EXPERT_KEYS = ("num_local_experts", "n_routed_experts", "num_experts")
+
+
+def _is_moe_config(raw: Mapping[str, Any]) -> bool:
+    """True if the config (or a nested ``text_config``) declares experts."""
+    configs = [raw]
+    text_config = raw.get("text_config")
+    if isinstance(text_config, Mapping):
+        configs.append(text_config)
+    return any(
+        (_coerce_int(cfg.get(key)) or 0) > 1
+        for cfg in configs
+        for key in _MOE_EXPERT_KEYS
+    )
+
+
 def _infer_param_count(raw: Mapping[str, Any]) -> int | None:
-    """Rough param-count estimate from architecture dims (last-resort only)."""
+    """Rough param-count estimate from architecture dims (last-resort only).
+
+    Returns ``None`` for mixture-of-experts configs: the dense formula below
+    counts one MLP per layer, so it would badly under-count expert weights,
+    and an optimistic weights figure turns the launch gate optimistic.
+    """
+    if _is_moe_config(raw):
+        return None
     hidden = _coerce_int(raw.get("hidden_size"))
     layers = _coerce_int(raw.get("num_hidden_layers"))
     vocab = _coerce_int(raw.get("vocab_size"))

@@ -85,6 +85,33 @@ def test_weights_bytes_from_config_dtype_when_unquantized() -> None:
     assert weights_bytes_from_config(cfg, "bfloat16") == 2_000_000_000
 
 
+_DENSE_DIMS = {
+    "hidden_size": 4096,
+    "num_hidden_layers": 32,
+    "vocab_size": 32000,
+    "intermediate_size": 14336,
+    "torch_dtype": "bfloat16",
+}
+
+
+def test_weights_bytes_from_config_infers_dense_param_count() -> None:
+    assert weights_bytes_from_config(_DENSE_DIMS, "bfloat16") is not None
+
+
+def test_weights_bytes_from_config_refuses_to_infer_moe() -> None:
+    # The dense formula counts one MLP per layer, so it would under-count an
+    # MoE model's experts; unknown is safer than an optimistic figure.
+    for key in ("num_local_experts", "n_routed_experts", "num_experts"):
+        assert weights_bytes_from_config({**_DENSE_DIMS, key: 8}, "bfloat16") is None
+    nested = {**_DENSE_DIMS, "text_config": {"num_local_experts": 16}}
+    assert weights_bytes_from_config(nested, "bfloat16") is None
+
+
+def test_weights_bytes_from_config_trusts_explicit_count_for_moe() -> None:
+    cfg = {**_DENSE_DIMS, "num_local_experts": 8, "num_parameters": 1_000_000_000}
+    assert weights_bytes_from_config(cfg, "bfloat16") == 2_000_000_000
+
+
 def test_weights_bytes_from_index_reads_total_size() -> None:
     assert weights_bytes_from_index({"metadata": {"total_size": 123}}) == 123
     assert weights_bytes_from_index({"weight_map": {}}) is None

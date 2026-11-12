@@ -223,11 +223,7 @@ def resolve_catalog_launch_spec(
         tensor_parallel_size, catalog_args, "--tensor-parallel-size"
     )
     if resolved_tp is None:
-        resolved_tp = (
-            _coerce_positive_int(model_config.get("gpus_per_node"))
-            or _coerce_positive_int(model_config.get("num_gpus"))
-            or 1
-        )
+        resolved_tp = _coerce_positive_int(model_config.get("gpus_per_node")) or 1
     resolved_tp = max(1, int(resolved_tp))
 
     resolved_nodes = num_nodes

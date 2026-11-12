@@ -16,11 +16,6 @@ from typing import Any
 
 import yaml
 
-from .constants import (
-    KV_ASSUMPTION_TYPICAL,
-    KV_ASSUMPTION_WORST_CASE,
-)
-
 _DATA_PACKAGE = "app.services.fit_estimator.data"
 _ARCHETYPE_RESOURCE = "workload_archetypes.yaml"
 
@@ -69,19 +64,3 @@ def parse_archetypes(data: Any) -> ArchetypeTable:
 def load_archetypes() -> ArchetypeTable:
     text = resources.files(_DATA_PACKAGE).joinpath(_ARCHETYPE_RESOURCE).read_text()
     return parse_archetypes(yaml.safe_load(text))
-
-
-def assumption_token_counts(
-    max_model_len: int,
-    max_num_seqs: int,
-    archetype: WorkloadArchetype,
-) -> dict[str, float]:
-    """Token count reserved under each assumption.
-
-    worst_case = full budget; typical = budget x archetype.utilization_factor.
-    """
-    budget = max_model_len * max_num_seqs
-    return {
-        KV_ASSUMPTION_WORST_CASE: float(budget),
-        KV_ASSUMPTION_TYPICAL: budget * archetype.utilization_factor,
-    }
