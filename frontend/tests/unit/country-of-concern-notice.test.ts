@@ -13,7 +13,7 @@ function buildModel(overrides: Partial<ModelInfo>): ModelInfo {
     modelName: 'GPT 5',
     description: '',
     status: 'cold',
-    type: 'Large',
+    size: 'Large',
     family: 'gpt',
     variant: '',
     specs: { gpus: 1, nodes: 1, contextLength: 8000, parallelism: false },
