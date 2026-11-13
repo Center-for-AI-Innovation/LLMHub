@@ -19,13 +19,14 @@ export type SnippetBuilder = (context: SnippetContext) => SnippetSet;
 export type RequestEditor = 'messages' | 'input';
 
 export type EndpointConfig = {
+  label: string;
   build: SnippetBuilder;
   requestEditor: RequestEditor;
   supportsStreaming: boolean;
   labelSuffix: string | null;
 };
 
-export type EndpointKind = 'chatCompletions' | 'embeddings';
+export type EndpointKind = 'chatCompletions' | 'responses' | 'embeddings';
 
 function curlPost(url: string, authorizationHeader: string, body: unknown) {
   return `curl -X POST "${url}" \\
@@ -118,6 +119,78 @@ if (${stream ? 'true' : 'false'}) {
 }`,
 });
 
+// Responses API: the system prompt becomes `instructions`, the user prompt
+// `input`; the reply text is `output_text`.
+const buildResponses: SnippetBuilder = ({
+  baseUrl,
+  authorizationHeader,
+  apiKey,
+  modelName,
+  messages,
+  stream,
+}) => {
+  const instructions = messages.find((m) => m.role === 'system')?.content;
+  const input = messages.find((m) => m.role === 'user')?.content ?? '';
+  const pyInstructions = instructions
+    ? `\n        instructions=${JSON.stringify(instructions)},`
+    : '';
+  const jsInstructions = instructions
+    ? `\n    instructions: ${JSON.stringify(instructions)},`
+    : '';
+
+  return {
+    curl: curlPost(`${baseUrl}/responses`, authorizationHeader, {
+      model: modelName,
+      ...(instructions ? { instructions } : {}),
+      input,
+      stream,
+    }),
+    python: `${pythonClient(baseUrl, apiKey)}
+
+if ${stream ? 'True' : 'False'}:
+    stream = client.responses.create(
+        model="${modelName}",${pyInstructions}
+        input=${JSON.stringify(input)},
+        stream=True,
+    )
+
+    for event in stream:
+        if event.type == "response.output_text.delta":
+            print(event.delta, end="")
+    print()
+else:
+    response = client.responses.create(
+        model="${modelName}",${pyInstructions}
+        input=${JSON.stringify(input)},
+    )
+
+    print(response.output_text)`,
+    javascript: `${jsClient(baseUrl, apiKey)}
+
+if (${stream ? 'true' : 'false'}) {
+  const stream = await client.responses.create({
+    model: "${modelName}",${jsInstructions}
+    input: ${JSON.stringify(input)},
+    stream: true,
+  });
+
+  for await (const event of stream) {
+    if (event.type === "response.output_text.delta") {
+      process.stdout.write(event.delta);
+    }
+  }
+  process.stdout.write("\\n");
+} else {
+  const response = await client.responses.create({
+    model: "${modelName}",${jsInstructions}
+    input: ${JSON.stringify(input)},
+  });
+
+  console.log(response.output_text);
+}`,
+  };
+};
+
 const buildEmbeddings: SnippetBuilder = ({
   baseUrl,
   authorizationHeader,
@@ -153,12 +226,21 @@ console.log(\`First values: \${embedding.slice(0, 5)}\`);`,
 
 export const ENDPOINTS: Record<EndpointKind, EndpointConfig> = {
   chatCompletions: {
+    label: 'Chat Completions',
     build: buildChatCompletions,
     requestEditor: 'messages',
     supportsStreaming: true,
     labelSuffix: null,
   },
+  responses: {
+    label: 'Responses',
+    build: buildResponses,
+    requestEditor: 'messages',
+    supportsStreaming: true,
+    labelSuffix: null,
+  },
   embeddings: {
+    label: 'Embeddings',
     build: buildEmbeddings,
     requestEditor: 'input',
     supportsStreaming: false,
@@ -173,4 +255,14 @@ export function getEndpointKind(
   if (isEmbeddingModelType(modelType)) return 'embeddings';
   if (isChatModelType(modelType)) return 'chatCompletions';
   return null;
+}
+
+// Every endpoint the model type can use, default first. Chat models can use
+// chat completions or the Responses API; the API dialog lets the user pick.
+export function getEndpointKinds(
+  modelType: string | undefined,
+): EndpointKind[] {
+  const kind = getEndpointKind(modelType);
+  if (kind === 'chatCompletions') return ['chatCompletions', 'responses'];
+  return kind ? [kind] : [];
 }

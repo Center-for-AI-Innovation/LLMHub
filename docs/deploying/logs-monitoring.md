@@ -12,7 +12,7 @@ when it expires. The buttons:
 | Button | What it does | Who sees it |
 |---|---|---|
 | **Chat** | Opens a chat with this deployment selected. Available once it's running. Embedding models don't have it; use them through the API. | Everyone with access |
-| **API** | Opens the API dialog with a key, the base URL and code examples: chat completions for chat models, embeddings for embedding models. Available once it's running. See the [API reference](../api/index.md). | Everyone with access |
+| **API** | Opens the API dialog with a key, the base URL and code examples: chat completions or the Responses API for chat models, embeddings for embedding models. Available once it's running. See the [API reference](../api/index.md). | Everyone with access |
 | **Logs** | Opens the job's output in a side panel. | Everyone with access |
 | **Share** | Gives other users access. See [Sharing & access](sharing-access.md). | The person who launched it |
 | **Stop** | Shuts it down right away, with no confirmation. | The person who launched it |
