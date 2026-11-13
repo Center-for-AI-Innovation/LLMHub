@@ -53,6 +53,18 @@ each time, so **redeploying the latest commit of a branch is just
 `./llmhub deploy --apply`** — the ref and SHA that were deployed are kept in
 `$LLMHUB_DEPLOY_ROOT/DEPLOYED` and shown by `status`.
 
+**Try a branch by deploying it, never by editing the checkout.** Edits left
+in the checkout would ship unrecorded, so `deploy --apply` refuses it (the dry
+run warns), which blocks whoever deploys next. Both list the changes and the
+last `DEPLOYED` record, and `--apply` prints how to discard them. To run `main`
+and a PR together, push a branch that merges both and deploy that.
+
+`DEPLOYED`'s `by=` adds the person sudo reports behind `impersonate`
+(`<netid> via svcdeltallmhub`). It is a pointer, not an audit record: it comes
+from `SUDO_USER`, and the deployed ref's own kit writes it, so refs older than
+this kit record the account alone. Impersonate's syslog and Slack notice are
+the record of who impersonated when.
+
 | Command | Does |
 |---|---|
 | `preflight` | Read-only checks (identity, tools, ref, filesystems, network, ports, image, secrets). Safe as any account, from a login node or the VM. |
