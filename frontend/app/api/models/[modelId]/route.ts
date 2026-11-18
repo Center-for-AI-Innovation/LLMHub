@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { type BackendModelResponse, type ModelInfo, getModelSize, generateModelDescription, formatModelName } from '@/lib/models/types';
+import { type BackendModelResponse, type ModelInfo, type ModelSize, getModelSize, generateModelDescription, formatModelName } from '@/lib/models/types';
 
 // Backend API URL
 const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8000';
@@ -23,7 +23,7 @@ function transformModel(modelId: string, backendResponse: BackendModelResponse):
       name: formatModelName(modelId),
       description: generateModelDescription(modelId, config.model_family, config.max_model_len),
       status: 'warm', // Default status, would be updated from actual deployment status
-      type: modelSize,
+      size: modelSize,
       family: config.model_family,
       variant: config.model_variant,
       specs: {
@@ -42,11 +42,11 @@ function transformModel(modelId: string, backendResponse: BackendModelResponse):
     const family = nameParts[0].toLowerCase();
     
     // Determine model size based on name patterns
-    let type: 'Small' | 'Medium' | 'Large' = 'Medium';
+    let size: ModelSize = 'Medium';
     if (modelId.includes('70B') || modelId.includes('Large') || modelId.includes('405B')) {
-      type = 'Large';
+      size = 'Large';
     } else if (modelId.includes('7B') || modelId.includes('small') || modelId.includes('1.5B') || modelId.includes('3B')) {
-      type = 'Small';
+      size = 'Small';
     }
     
     return {
@@ -54,14 +54,14 @@ function transformModel(modelId: string, backendResponse: BackendModelResponse):
       name: formatModelName(modelId),
       description: generateModelDescription(modelId, family, 4096), // Default context length
       status: 'warm',
-      type,
+      size,
       family,
       variant: nameParts.slice(1).join('-'),
       specs: {
-        gpus: type === 'Large' ? 4 : type === 'Medium' ? 2 : 1,
-        nodes: type === 'Large' ? 1 : 1,
+        gpus: size === 'Large' ? 4 : size === 'Medium' ? 2 : 1,
+        nodes: size === 'Large' ? 1 : 1,
         contextLength: modelId.includes('128k') ? 131072 : 4096, // Estimate context length
-        parallelism: type === 'Large',
+        parallelism: size === 'Large',
       }
     };
   }
@@ -101,11 +101,11 @@ export async function GET(
         const family = nameParts[0].toLowerCase();
         
         // Determine model size based on name patterns
-        let type: 'Small' | 'Medium' | 'Large' = 'Medium';
+        let size: ModelSize = 'Medium';
         if (modelId.includes('70B') || modelId.includes('Large') || modelId.includes('405B')) {
-          type = 'Large';
+          size = 'Large';
         } else if (modelId.includes('7B') || modelId.includes('small') || modelId.includes('1.5B') || modelId.includes('3B')) {
-          type = 'Small';
+          size = 'Small';
         }
         
         const modelInfo: ModelInfo = {
@@ -113,14 +113,14 @@ export async function GET(
           name: formatModelName(modelId),
           description: generateModelDescription(modelId, family, 4096), // Default context length
           status: 'warm',
-          type,
+          size,
           family,
           variant: nameParts.slice(1).join('-'),
           specs: {
-            gpus: type === 'Large' ? 4 : type === 'Medium' ? 2 : 1,
-            nodes: type === 'Large' ? 1 : 1,
+            gpus: size === 'Large' ? 4 : size === 'Medium' ? 2 : 1,
+            nodes: size === 'Large' ? 1 : 1,
             contextLength: modelId.includes('128k') ? 131072 : 4096, // Estimate context length
-            parallelism: type === 'Large',
+            parallelism: size === 'Large',
           }
         };
         

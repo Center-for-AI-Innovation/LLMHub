@@ -2,14 +2,16 @@
  * Public Deployment Proxy (OpenAI-compatible)
  *
  * Shared handler for API-key-authenticated proxying to a model deployment's
- * OpenAI-compatible endpoints (chat/completions, embeddings).
+ * OpenAI-compatible endpoints (chat/completions, embeddings, responses).
  *
  * Security:
  * 1. Requires Authorization: Bearer <llmhub_api_key>
  * 2. Verifies the API key belongs to a valid user
  * 3. Verifies the user has access to the deployment
  * 4. Verifies deployment is ready/running
- * 5. Proxies request body as-is to the deployment endpoint
+ * 5. Proxies request body as-is to the deployment endpoint, authenticated
+ *    with the deployment's own vLLM key; the caller's LLMHub key is never
+ *    forwarded
  */
 
 import { canUserAccessDeployment } from '@/lib/auth/validate-request';
@@ -26,7 +28,10 @@ import {
 import { upstreamAuthHeaders } from '@/lib/vllm-upstream';
 import type { ModelDeployment } from '@/hooks/use-models';
 
-export type PublicDeploymentEndpoint = 'chat/completions' | 'embeddings';
+export type PublicDeploymentEndpoint =
+  | 'chat/completions'
+  | 'embeddings'
+  | 'responses';
 
 export async function proxyPublicDeploymentEndpoint(
   request: Request,

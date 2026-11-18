@@ -13,7 +13,7 @@ import {
   Terminal,
 } from 'lucide-react';
 import { modelCardGradient } from '@/lib/models/utils';
-import { isEmbeddingModelType } from '@/lib/models/types';
+import { isChatModelType } from '@/lib/models/types';
 import { ModelCardIcon } from './model-card-icon';
 import { ModelSpecChips } from './model-metadata-chips';
 import { CountryOfConcernNotice } from './country-of-concern-notice';
@@ -83,7 +83,7 @@ const ActiveModelCard = memo(({
   const isDeploymentOwner = Boolean(
     deployment?.id && currentUserId && deployment.userId === currentUserId,
   );
-  const isEmbeddingModel = isEmbeddingModelType(model.modelType);
+  const isChatModel = isChatModelType(model.modelType);
   const displayModelName =
     ((model as unknown as { name?: string }).name ??
       model.modelName ??
@@ -151,9 +151,9 @@ const ActiveModelCard = memo(({
               type="button"
               variant="outline"
               className={
-                isEmbeddingModel
-                  ? flexOutlineButtonClass
-                  : halfWidthOutlineButtonClass
+                isChatModel
+                  ? halfWidthOutlineButtonClass
+                  : flexOutlineButtonClass
               }
               disabled={!isDeploymentReady}
             >
@@ -161,7 +161,7 @@ const ActiveModelCard = memo(({
             </Button>
           }
         />
-        {!isEmbeddingModel && (
+        {isChatModel && (
           <Button
             type="button"
             className="w-1/2 group transition-colors hover:bg-primary/90 hover:shadow-sm"

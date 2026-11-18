@@ -74,7 +74,7 @@ const DEEPSEEK_SAMPLE_MODEL: ModelInfo = {
   modelName: 'Deepseek R1 Distill Llama 70b',
   description: 'Sample DeepSeek model for contrast checking.',
   status: 'cold',
-  type: 'Large',
+  size: 'Large',
   family: 'DeepSeek-AI',
   variant: '',
   specs: { gpus: 4, nodes: 1, contextLength: 131072, parallelism: false },

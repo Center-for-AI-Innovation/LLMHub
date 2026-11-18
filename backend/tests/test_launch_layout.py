@@ -106,7 +106,7 @@ def api(monkeypatch, tmp_path):
             AvailableModel(
                 id=name,
                 name=name,
-                type="small",
+                size="small",
                 family="test",
                 variant="",
                 modelType="LLM",
@@ -345,11 +345,54 @@ def test_a_partition_list_needs_only_one_partition_with_the_gpus(api, monkeypatc
     assert len(api.scripts()) == 1
 
 
+def test_refuses_gpus_on_a_partition_without_gpu_gres(api, monkeypatch):
+    """vec-inf asks for the GPUs as GRES, so a partition without it can't run."""
+    monkeypatch.setenv("FAKE_SINFO_OUT", "cpu|1-2|(null)\n")
+
+    response = api.launch("Plain-1x4", num_gpus=4, partition="cpu")
+
+    assert_refused(api, response, "4 GPUs per node requested")
+    assert "partition cpu has no GPUs" in response.json()["detail"]
+
+
+def test_a_partition_without_gpus_does_not_make_a_list_fit(api, monkeypatch):
+    monkeypatch.setenv("FAKE_SINFO_OUT", "cpu|1-8|(null)\na4|1-8|gpu:a100:4(S:0-3)\n")
+
+    response = api.launch("Plain-1x4", num_gpus=8, partition="cpu,a4")
+
+    assert_refused(
+        api, response, "partition cpu has no GPUs, partition a4 has 4 per node"
+    )
+
+
+def test_an_unlisted_name_in_a_list_keeps_the_gpu_reason(api, monkeypatch):
+    monkeypatch.setenv("FAKE_SINFO_OUT", "a4|1-8|gpu:a100:4(S:0-3)\n")
+
+    response = api.launch("Plain-1x4", num_gpus=8, partition="a4,a4typo")
+
+    assert_refused(api, response, "partition a4typo is not a partition Slurm lists")
+    detail = response.json()["detail"]
+    assert "8 GPUs per node requested" in detail
+    assert "partition a4 has 4 per node" in detail
+
+
 def test_the_partition_checks_are_skipped_when_slurm_does_not_answer(
     api, monkeypatch, tmp_path
 ):
     """Slurm's own submit-time limits then apply; the launch is not blocked."""
     (tmp_path / "bin" / "sinfo").write_text("#!/bin/sh\nexit 1\n")
+
+    response = api.launch("Plain-2x4", num_gpus=4, num_nodes=4)
+
+    assert response.status_code == 201, response.text
+    assert len(api.scripts()) == 1
+
+
+def test_the_partition_checks_are_skipped_when_slurm_lists_no_partition(
+    api, monkeypatch
+):
+    """An empty answer is no answer: it must not refuse every launch as unlisted."""
+    monkeypatch.setenv("FAKE_SINFO_OUT", "")
 
     response = api.launch("Plain-2x4", num_gpus=4, num_nodes=4)
 
@@ -421,5 +464,11 @@ def test_partition_limits_are_unknown_when_sinfo_fails(monkeypatch, tmp_path):
     (tmp_path / "sinfo").write_text("#!/bin/sh\necho boom >&2\nexit 1\n")
     (tmp_path / "sinfo").chmod(0o755)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+    assert launch_layout.partition_limits() is None
+
+
+def test_partition_limits_are_unknown_when_sinfo_lists_nothing(monkeypatch):
+    monkeypatch.setattr(launch_layout, "_sinfo", lambda: "")
 
     assert launch_layout.partition_limits() is None

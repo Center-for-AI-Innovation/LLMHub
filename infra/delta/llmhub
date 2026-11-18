@@ -478,6 +478,15 @@ render_vec_inf_config() {
         || die "could not render ${VIC}/environment.yaml from ${src}"
     "$PY" "${HERE}/render-models.py" "${BE}/config/models.yaml" "${LLMHUB_MODELS_OVERRIDE}" "${VIC}/models.yaml" \
         || die "could not render ${VIC}/models.yaml from ${BE}/config/models.yaml${LLMHUB_MODELS_OVERRIDE:+ + ${LLMHUB_MODELS_OVERRIDE}}"
+    # The backend reads the fit estimator's hardware table from this directory
+    # too (VEC_INF_CONFIG_DIR). A stale copy from another cluster must not linger.
+    local hw="${BE}/config/infrastructures/${LLMHUB_HARDWARE_TABLE}/hardware.yaml"
+    if [ -r "$hw" ]; then
+        cp "$hw" "${VIC}/hardware.yaml"
+    else
+        rm -f "${VIC}/hardware.yaml"
+        warn "no ${hw} -- the launch memory gate will skip every launch on this stack"
+    fi
     if [ "$IMP" = 1 ]; then
         chmod -R o+rX "$VIC"; umask "$LLMHUB_UMASK"
         # Verify, do not assume: /sw/llmhub carries no default ACLs and

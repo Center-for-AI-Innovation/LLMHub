@@ -1,4 +1,4 @@
-import { isEmbeddingModelType } from '@/lib/models/types';
+import { isChatModelType, isEmbeddingModelType } from '@/lib/models/types';
 
 export type SnippetLanguage = 'curl' | 'python' | 'javascript';
 
@@ -166,6 +166,11 @@ export const ENDPOINTS: Record<EndpointKind, EndpointConfig> = {
   },
 };
 
-export function getEndpointKind(modelType: string | undefined): EndpointKind {
-  return isEmbeddingModelType(modelType) ? 'embeddings' : 'chatCompletions';
+// null: the model type has no public API endpoint yet (e.g. Reward_Modeling).
+export function getEndpointKind(
+  modelType: string | undefined,
+): EndpointKind | null {
+  if (isEmbeddingModelType(modelType)) return 'embeddings';
+  if (isChatModelType(modelType)) return 'chatCompletions';
+  return null;
 }
