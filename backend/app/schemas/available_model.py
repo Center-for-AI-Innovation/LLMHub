@@ -12,6 +12,9 @@ class ModelSpecs(BaseModel):
     gpus: int
     nodes: int
     contextLength: int
+    # Resolved effective --max-num-seqs (catalog value or the vLLM default);
+    # written by the model sync and read by the launch dialog.
+    maxNumSeqs: int | None = None
     parallelism: bool
 
 
@@ -22,7 +25,7 @@ class AvailableModelBase(BaseModel):
     name: str
     description: Optional[str] = None
     status: str = "WARM"
-    type: str
+    size: str
     family: str
     variant: str
     modelType: Optional[str] = None
@@ -44,7 +47,7 @@ class AvailableModelUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
-    type: Optional[str] = None
+    size: Optional[str] = None
     family: Optional[str] = None
     variant: Optional[str] = None
     modelType: Optional[str] = None

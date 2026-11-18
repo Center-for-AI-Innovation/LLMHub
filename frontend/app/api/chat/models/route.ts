@@ -1,5 +1,9 @@
 import { auth } from '@/app/(auth)/auth';
-import { getAccessibleDeploymentsByUserId } from '@/lib/db/queries';
+import {
+  getAccessibleDeploymentsByUserId,
+  getAvailableModels,
+} from '@/lib/db/queries';
+import { isChatModelType } from '@/lib/models/types';
 import { NextResponse } from 'next/server';
 
 const ALWAYS_ON_VLLM_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
@@ -66,9 +70,18 @@ async function getActiveDeploymentOptionsForUser(
   }
 
   try {
-    const deployments = await getAccessibleDeploymentsByUserId(userId);
+    const [deployments, availableModels] = await Promise.all([
+      getAccessibleDeploymentsByUserId(userId),
+      getAvailableModels(),
+    ]);
+    const modelTypeById = new Map(
+      availableModels.map((model) => [model.id, model.modelType]),
+    );
     const activeDeployments = deployments
       .filter((deployment) => isActiveDeploymentStatus(deployment.status))
+      .filter((deployment) =>
+        isChatModelType(modelTypeById.get(deployment.modelId ?? '')),
+      )
       .sort((left, right) => toTimestamp(right.updatedAt) - toTimestamp(left.updatedAt));
 
     const seenDeploymentIds = new Set<string>();
