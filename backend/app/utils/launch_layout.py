@@ -12,7 +12,9 @@ weights are fetched or any launcher is built. These shapes are refused, with
 the reason:
 
 - ``num_nodes`` outside the partition's MinNodes-MaxNodes;
-- more GPUs per node than the partition's nodes have, so TP would exceed them;
+- more GPUs per node than the partition's nodes have, so TP would exceed them
+  (of a list, than any listed partition's nodes have; a partition with no GPU
+  GRES has none, since vec-inf asks for the GPUs as GRES);
 - a partition Slurm doesn't list;
 - TP across nodes, which no runnable catalog entry needs;
 - multinode on an engine other than vLLM: vec-inf starts SGLang's nodes as one
@@ -25,8 +27,9 @@ of two, TP x PP not the GPU total) are refused here too, before any download.
 The partition's limits are read from Slurm (``sinfo``) when the request is
 checked. Of a comma-separated list, every partition must be one Slurm lists and
 fit its node limits, as Slurm requires (DeltaAI: EnforcePartLimits=ALL), and
-one must have the GPUs per node. If Slurm does not answer, these partition
-checks are skipped and Slurm's own submit-time limits apply.
+one must have the GPUs per node. If Slurm does not answer, or lists no
+partition, these partition checks are skipped and Slurm's own submit-time
+limits apply.
 """
 
 import re
@@ -120,7 +123,7 @@ def partition_limits() -> Optional[Dict[str, Tuple[int, Optional[int], Optional[
     ``%s`` is ``min-max``, or one number when they are equal; MaxNodes is None
     for an unlimited partition. Rows of one partition are combined to the
     tightest node limits and the largest GPU count (None without GPUs). None
-    when ``sinfo`` fails.
+    when ``sinfo`` fails or lists no partition.
     """
     out = _sinfo()
     if out is None:
@@ -143,7 +146,7 @@ def partition_limits() -> Optional[Dict[str, Tuple[int, Optional[int], Optional[
             high = known_high if high is None else min(high, known_high or high)
             gpus += [] if known_gpus is None else [known_gpus]
         limits[name] = (low, high, max(gpus, default=None))
-    return limits
+    return limits or None
 
 
 def _check_partition(layout: Layout, partition: str) -> None:
@@ -152,7 +155,8 @@ def _check_partition(layout: Layout, partition: str) -> None:
     Node limits must hold on every partition listed, because Slurm checks a
     job's partition limits against each one (DeltaAI: ``EnforcePartLimits=ALL``)
     and rejects it at submit otherwise. GPUs per node need one listed partition
-    that has them: the job runs on whichever partition can place it.
+    that has them: the job runs on whichever partition can place it. A partition
+    without GPU GRES has none.
     """
     names = list(dict.fromkeys(name for name in partition.split(",") if name))
     if not names:
@@ -162,7 +166,7 @@ def _check_partition(layout: Layout, partition: str) -> None:
         logger.warning("Partition %s limits unchecked: no sinfo answer", partition)
         return
     reasons = []
-    short_of_gpus = []
+    node_gpus_of = []  # (name, GPUs per node) of each listed partition Slurm lists
     for name in names:
         if name not in limits:
             reasons.append(f"partition {name} is not a partition Slurm lists")
@@ -178,12 +182,21 @@ def _check_partition(layout: Layout, partition: str) -> None:
                 f"{layout.num_nodes} nodes requested; partition {name} allows at "
                 f"most {max_nodes} per job"
             )
-        if node_gpus is not None and layout.gpus_per_node > node_gpus:
-            short_of_gpus.append(f"partition {name} has {node_gpus} per node")
-    if short_of_gpus and len(short_of_gpus) == len(names):
+        node_gpus_of.append((name, node_gpus))
+    if node_gpus_of and not any(
+        gpus is not None and layout.gpus_per_node <= gpus for _, gpus in node_gpus_of
+    ):
         reasons.append(
             f"{layout.gpus_per_node} GPUs per node requested (tensor parallel "
-            f"{layout.tensor_parallel}); " + ", ".join(short_of_gpus)
+            f"{layout.tensor_parallel}); "
+            + ", ".join(
+                (
+                    f"partition {name} has {gpus} per node"
+                    if gpus is not None
+                    else f"partition {name} has no GPUs"
+                )
+                for name, gpus in node_gpus_of
+            )
         )
     if reasons:
         raise LaunchRefused("; ".join(reasons))
