@@ -40,6 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Backend deployment requests reject models removed from the current model list, even when deployment history retains their catalog rows. Models removed while their weights are downloading are also rejected before job submission. ([#170](https://github.com/Center-for-AI-Innovation/LLMHub/issues/170))
 - The `/chat` model picker no longer lists active deployments of models that can't chat. `/api/chat/models` looks up each deployment's model type in the catalog and leaves out `Text_Embedding` and `Reward_Modeling` deployments; a `?deployment=` link to one falls back to the first option and reports the deployment as unavailable. ([#164](https://github.com/Center-for-AI-Innovation/LLMHub/issues/164))
 - The API dialog no longer shows chat-completions examples for models without a supported public endpoint (e.g. `Reward_Modeling`); it shows "API examples aren't available for this model type yet." instead, on the Active Models card and in the profile's API key panel. `getEndpointKind` returns `null` for those types. ([#164](https://github.com/Center-for-AI-Innovation/LLMHub/issues/164))
 - Direct (non-impersonation) mode no longer looks up Slurm accounts from the signed-in email. The launch dialog now uses `VEC_INF_ACCOUNT` / `SLURM_ACCOUNT`, so it can submit when the backend process is not the CILogon identity. ([#157](https://github.com/Center-for-AI-Innovation/LLMHub/issues/157))
