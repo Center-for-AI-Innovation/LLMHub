@@ -106,7 +106,7 @@ def api(monkeypatch, tmp_path):
             AvailableModel(
                 id=name,
                 name=name,
-                type="small",
+                size="small",
                 family="test",
                 variant="",
                 modelType="LLM",
