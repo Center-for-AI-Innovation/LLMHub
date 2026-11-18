@@ -21,6 +21,10 @@
 *.pem
 .pnpm-store
 
+# docs site
+/site/
+/.venv/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

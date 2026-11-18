@@ -9,6 +9,12 @@ resolve its repo id automatically instead of requiring a hand-added
 ``hf_model`` values already verified in ``backend/config/models.yaml``.
 """
 
+import re
+
+# Hub repo ids: one "org/name" pair of plain path segments. Anything else (extra
+# slashes, "..", URL syntax) must not be spliced into a huggingface.co URL.
+_HF_REPO_ID_RE = re.compile(r"^[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*$")
+
 FAMILY_TO_HF_ORG: dict[str, str] = {
     "Aya-Expanse": "CohereForAI",
     "BAAI": "BAAI",
@@ -59,3 +65,21 @@ def resolve_hf_model(
     if not org:
         return None
     return f"{org}/{model_name}"
+
+
+def resolve_request_hf_model(
+    model_id: str,
+    model_family: str | None = None,
+    huggingface_id: str | None = None,
+) -> str | None:
+    """Return the HF repo id for an API request naming a model, or None.
+
+    The request may name the model by repo id (``huggingface_id`` or a
+    ``model_id`` containing ``/``) or by catalog id plus ``model_family``.
+    Returns None when nothing resolves or the repo id is malformed.
+    """
+    explicit = next((c for c in (huggingface_id, model_id) if c and "/" in c), None)
+    repo_id = resolve_hf_model(model_family or "", model_id, explicit)
+    if repo_id is None or not _HF_REPO_ID_RE.fullmatch(repo_id):
+        return None
+    return repo_id
