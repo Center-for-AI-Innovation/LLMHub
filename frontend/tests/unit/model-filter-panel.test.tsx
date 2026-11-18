@@ -22,7 +22,6 @@ function renderPanel(filters: ModelFilters = EMPTY_MODEL_FILTERS) {
       onChange={onChange}
       typeOptions={typeOptions}
       gpuSteps={[1, 2, 4, 8]}
-      contextSteps={[4096, 32768, 131072]}
     />,
   );
   return onChange;
@@ -35,27 +34,22 @@ describe('ModelFilterPanel', () => {
     const onChange = renderPanel();
     fireEvent.click(screen.getByLabelText('Embedding'));
     expect(onChange).toHaveBeenCalledWith({
-      ...EMPTY_MODEL_FILTERS,
       hiddenTypes: ['Text_Embedding'],
+      gpuRange: null,
     });
   });
 
-  it('each checkbox changes only its own type', () => {
-    const onChange = renderPanel({ ...EMPTY_MODEL_FILTERS, hiddenTypes: ['Text_Embedding'] });
-    fireEvent.click(screen.getByLabelText('VLM'));
+  it('"Chat models only" hides the non-chat types', () => {
+    const onChange = renderPanel();
+    fireEvent.click(screen.getByLabelText('Chat models only'));
     expect(onChange).toHaveBeenCalledWith({
-      ...EMPTY_MODEL_FILTERS,
-      hiddenTypes: ['VLM', 'Text_Embedding'],
+      hiddenTypes: ['Text_Embedding', 'Reward_Modeling'],
+      gpuRange: null,
     });
-  });
-
-  it('marks only LLM and VLM as chat', () => {
-    renderPanel();
-    expect(screen.getAllByText('· chat')).toHaveLength(2);
   });
 
   it('shows the selected GPU range and resets every filter', () => {
-    const onChange = renderPanel({ ...EMPTY_MODEL_FILTERS, hiddenTypes: ['VLM'], gpuRange: [2, 4] });
+    const onChange = renderPanel({ hiddenTypes: ['VLM'], gpuRange: [2, 4] });
     expect(screen.getByText('2 – 4')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
     expect(onChange).toHaveBeenCalledWith(EMPTY_MODEL_FILTERS);
@@ -66,21 +60,6 @@ describe('ModelFilterPanel', () => {
     const maxThumb = screen.getByRole('slider', { name: 'Maximum GPUs' });
     maxThumb.focus();
     fireEvent.keyDown(maxThumb, { key: 'ArrowLeft' });
-    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_MODEL_FILTERS, gpuRange: [1, 4] });
-  });
-
-  it('"Hide gated models" turns on the gated filter', () => {
-    const onChange = renderPanel();
-    fireEvent.click(screen.getByLabelText('Hide gated models'));
-    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_MODEL_FILTERS, hideGated: true });
-  });
-
-  it('the context slider sets a minimum from the catalog\'s lengths', () => {
-    const onChange = renderPanel();
-    expect(screen.getByText('Any')).toBeTruthy();
-    const thumb = screen.getByRole('slider', { name: 'Minimum context' });
-    thumb.focus();
-    fireEvent.keyDown(thumb, { key: 'ArrowRight' });
-    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_MODEL_FILTERS, minContext: 32768 });
+    expect(onChange).toHaveBeenCalledWith({ hiddenTypes: [], gpuRange: [1, 4] });
   });
 });
