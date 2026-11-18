@@ -32,6 +32,7 @@ import { toast } from '@/components/ui/use-toast';
 import { isActiveDeploymentStatus } from '@/lib/models/deployment-status';
 import {
   EMPTY_MODEL_FILTERS,
+  contextLengthSteps,
   filterModels,
   gpuCountSteps,
   modelTypeOptions,
@@ -210,6 +211,7 @@ function ModelLibraryPageInner() {
               onChange={setFilters}
               typeOptions={modelTypeOptions(models)}
               gpuSteps={gpuCountSteps(models)}
+              contextSteps={contextLengthSteps(models)}
             />
           </div>
           <div className="relative w-56 sm:w-64">

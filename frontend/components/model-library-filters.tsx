@@ -11,19 +11,21 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Slider } from '@/components/ui/slider';
+import { formatContextTokens } from '@/components/model-card/model-metadata-chips';
 import {
   activeFilterCount,
-  chatOnlyHiddenTypes,
   EMPTY_MODEL_FILTERS,
   modelTypeLabel,
   type ModelFilters,
 } from '@/lib/models/filters';
+import { isChatModelType } from '@/lib/models/types';
 
 interface FilterPanelProps {
   filters: ModelFilters;
   onChange: (filters: ModelFilters) => void;
   typeOptions: string[];
   gpuSteps: number[];
+  contextSteps: number[];
 }
 
 export function ModelFilterPanel({
@@ -31,23 +33,15 @@ export function ModelFilterPanel({
   onChange,
   typeOptions,
   gpuSteps,
+  contextSteps,
 }: FilterPanelProps) {
   const hidden = new Set(filters.hiddenTypes);
-  const chatOnlyTypes = chatOnlyHiddenTypes(typeOptions);
-  const chatOnly =
-    chatOnlyTypes.length > 0 &&
-    filters.hiddenTypes.length === chatOnlyTypes.length &&
-    chatOnlyTypes.every((type) => hidden.has(type));
 
   function toggleType(type: string, shown: boolean) {
     const next = new Set(hidden);
     if (shown) next.delete(type);
     else next.add(type);
     onChange({ ...filters, hiddenTypes: typeOptions.filter((t) => next.has(t)) });
-  }
-
-  function toggleChatOnly(checked: boolean) {
-    onChange({ ...filters, hiddenTypes: checked ? chatOnlyTypes : [] });
   }
 
   // The slider moves over positions in gpuSteps, so it snaps to real GPU counts.
@@ -65,6 +59,16 @@ export function ModelFilterPanel({
     });
   }
 
+  // The first stop is the smallest context in the catalog, i.e. no limit.
+  const contextIndex = Math.max(
+    0,
+    filters.minContext === null ? 0 : contextSteps.indexOf(filters.minContext),
+  );
+
+  function changeMinContext([index]: number[]) {
+    onChange({ ...filters, minContext: index === 0 ? null : contextSteps[index] });
+  }
+
   return (
     <div className="space-y-5">
       <fieldset className="space-y-2">
@@ -77,19 +81,23 @@ export function ModelFilterPanel({
               onCheckedChange={(checked) => toggleType(type, checked === true)}
             />
             <Label htmlFor={`model-type-${type}`}>{modelTypeLabel(type)}</Label>
+            {isChatModelType(type) && (
+              <span className="text-xs text-muted-foreground">· chat</span>
+            )}
           </div>
         ))}
-        {chatOnlyTypes.length > 0 && (
-          <div className="flex items-center gap-2 border-t pt-2">
-            <Checkbox
-              id="model-type-chat-only"
-              checked={chatOnly}
-              onCheckedChange={(checked) => toggleChatOnly(checked === true)}
-            />
-            <Label htmlFor="model-type-chat-only">Chat models only</Label>
-          </div>
-        )}
       </fieldset>
+
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="model-hide-gated"
+          checked={filters.hideGated}
+          onCheckedChange={(checked) =>
+            onChange({ ...filters, hideGated: checked === true })
+          }
+        />
+        <Label htmlFor="model-hide-gated">Hide gated models</Label>
+      </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between text-sm">
@@ -114,6 +122,27 @@ export function ModelFilterPanel({
           </p>
         )}
       </div>
+
+      {contextSteps.length > 1 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium">Context</span>
+            <span className="text-muted-foreground" aria-live="polite">
+              {filters.minContext === null
+                ? 'Any'
+                : `${formatContextTokens(filters.minContext)} or more`}
+            </span>
+          </div>
+          <Slider
+            min={0}
+            max={contextSteps.length - 1}
+            step={1}
+            value={[contextIndex]}
+            onValueChange={changeMinContext}
+            thumbLabels={['Minimum context']}
+          />
+        </div>
+      )}
 
       <Button
         variant="outline"
