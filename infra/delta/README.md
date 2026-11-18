@@ -191,6 +191,7 @@ is sourced before `delta.env`'s defaults and holds only what differs:
 | torch-inductor cache (service user) | `…/public/torch_inductor` | `…/public/torch_inductor-deltaai` |
 | job pre-command (`module_load_cmd`) | none | `export SLURM_NETWORK=disable_rdzv_get` (the site value); on 1-node jobs also `APPTAINERENV_NCCL_NET_PLUGIN=none` |
 | catalog (`models.yaml`) | `backend/config/models.yaml` as is | that, through `config/models-deltaai.yaml` (`render-models.py`): five 2-node A100 entries at 1 node TP=4, no Mllama, no 405B, Qwen3-235B at 2 nodes TP=4 PP=2 |
+| fit-estimator hardware table (`LLMHUB_HARDWARE_TABLE`) | `delta` | `delta-ai-ncsa` |
 | VM | `dt-svc-llmaas01` | `dtai-svc-llmaas01` |
 
 **The `/projects` roots carry the cluster.** `/projects` is the one filesystem
