@@ -13,6 +13,11 @@ def test_launch_model_gated_no_token_fails_fast():
     fails immediately before any resource allocation.
     """
     service = ModelService()
+    service.llm_client = MagicMock()
+    service.llm_client.list_available_models.return_value = {
+        "success": True,
+        "models": ["gated-model-id"],
+    }
     db = MagicMock()
 
     # 1. Setup a mocked gated model in DB
@@ -62,6 +67,11 @@ def test_launch_model_gated_invalid_token_fails_fast():
     fails immediately after HF API check.
     """
     service = ModelService()
+    service.llm_client = MagicMock()
+    service.llm_client.list_available_models.return_value = {
+        "success": True,
+        "models": ["gated-model-id"],
+    }
     db = MagicMock()
 
     model_id = "gated-model-id"
@@ -95,6 +105,10 @@ def test_launch_model_gated_valid_token_proceeds():
     """
     service = ModelService()
     service.llm_client = MagicMock()
+    service.llm_client.list_available_models.return_value = {
+        "success": True,
+        "models": ["gated-model-id"],
+    }
     service.llm_client.launch_model.return_value = {
         "success": True,
         "job_id": "job-123",
