@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RequestModelDialog } from '@/components/request-model-dialog';
-import { ModelLibraryFilters } from '@/components/model-library-filters';
 import {
   Loader2,
   RefreshCw,
@@ -30,13 +29,6 @@ import {
 } from '@/components/model-card';
 import { toast } from '@/components/ui/use-toast';
 import { isActiveDeploymentStatus } from '@/lib/models/deployment-status';
-import {
-  EMPTY_MODEL_FILTERS,
-  filterModels,
-  gpuCountSteps,
-  modelTypeOptions,
-  type ModelFilters,
-} from '@/lib/models/filters';
 
 function parseLaunchError(error: unknown): string {
   if (typeof error === 'string' && error.trim().length > 0) {
@@ -52,7 +44,6 @@ function ModelLibraryPageInner() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState<string>('');
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  const [filters, setFilters] = useState<ModelFilters>(EMPTY_MODEL_FILTERS);
 
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [launchingModelId, setLaunchingModelId] = useState<string | null>(null);
@@ -81,7 +72,7 @@ function ModelLibraryPageInner() {
       models.length === 0 &&
       !isSearching);
 
-  const undeployedModels = models.filter(
+  const availableModels = models.filter(
     (model) =>
       !deployments.some(
         (d) =>
@@ -89,8 +80,6 @@ function ModelLibraryPageInner() {
           isActiveDeploymentStatus(d.status),
       ),
   );
-  const availableModels = filterModels(undeployedModels, filters);
-  const isFiltered = availableModels.length < undeployedModels.length;
 
   const availableModelIds = availableModels.map((model) => model.id);
 
@@ -204,15 +193,7 @@ function ModelLibraryPageInner() {
             )}
             <span>Refresh</span>
           </Button> */}
-          <div className="ml-auto">
-            <ModelLibraryFilters
-              filters={filters}
-              onChange={setFilters}
-              typeOptions={modelTypeOptions(models)}
-              gpuSteps={gpuCountSteps(models)}
-            />
-          </div>
-          <div className="relative w-56 sm:w-64">
+          <div className="ml-auto relative w-56 sm:w-64">
             <label htmlFor="model-search" className="sr-only">
               Search models
             </label>
@@ -239,13 +220,6 @@ function ModelLibraryPageInner() {
           <ModelContext.Provider value={modelContextValue}>
             <ModelGrid modelIds={availableModelIds} />
           </ModelContext.Provider>
-        ) : isFiltered ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <h3 className="text-2xl font-medium mb-3">No models match these filters</h3>
-            <Button variant="outline" onClick={() => setFilters(EMPTY_MODEL_FILTERS)}>
-              Reset filters
-            </Button>
-          </div>
         ) : isSearching ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="bg-gradient-to-br from-muted/30 to-muted/10 rounded-full p-8 mb-8 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
