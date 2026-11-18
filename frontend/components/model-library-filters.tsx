@@ -41,7 +41,13 @@ export function ModelFilterPanel({
     const next = new Set(hidden);
     if (shown) next.delete(type);
     else next.add(type);
-    onChange({ ...filters, hiddenTypes: typeOptions.filter((t) => next.has(t)) });
+    onChange({
+      ...filters,
+      hiddenTypes: [
+        ...typeOptions.filter((t) => next.has(t)),
+        ...[...next].filter((t) => !typeOptions.includes(t)),
+      ],
+    });
   }
 
   // The slider moves over positions in gpuSteps, so it snaps to real GPU counts.
@@ -64,6 +70,11 @@ export function ModelFilterPanel({
     0,
     filters.minContext === null ? 0 : contextSteps.indexOf(filters.minContext),
   );
+
+  const minContextText =
+    filters.minContext === null
+      ? 'Any'
+      : `${formatContextTokens(filters.minContext)} or more`;
 
   function changeMinContext([index]: number[]) {
     onChange({ ...filters, minContext: index === 0 ? null : contextSteps[index] });
@@ -115,6 +126,7 @@ export function ModelFilterPanel({
             value={sliderValue}
             onValueChange={changeGpuRange}
             thumbLabels={['Minimum GPUs', 'Maximum GPUs']}
+            thumbValueTexts={[`${range[0]} GPUs`, `${range[1]} GPUs`]}
           />
         ) : (
           <p className="text-xs text-muted-foreground">
@@ -128,9 +140,7 @@ export function ModelFilterPanel({
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium">Context</span>
             <span className="text-muted-foreground" aria-live="polite">
-              {filters.minContext === null
-                ? 'Any'
-                : `${formatContextTokens(filters.minContext)} or more`}
+              {minContextText}
             </span>
           </div>
           <Slider
@@ -140,6 +150,7 @@ export function ModelFilterPanel({
             value={[contextIndex]}
             onValueChange={changeMinContext}
             thumbLabels={['Minimum context']}
+            thumbValueTexts={[minContextText]}
           />
         </div>
       )}

@@ -63,6 +63,8 @@ function ModelLibraryPageInner() {
     isLoading: isLoadingModels,
     error: modelsError,
   } = useModels(debouncedSearchQuery);
+  // Filter options come from the whole catalog, so a search doesn't move the sliders.
+  const { data: catalogModels = [] } = useModels('');
 
   const {
     data: deployments = [],
@@ -209,9 +211,9 @@ function ModelLibraryPageInner() {
             <ModelLibraryFilters
               filters={filters}
               onChange={setFilters}
-              typeOptions={modelTypeOptions(models)}
-              gpuSteps={gpuCountSteps(models)}
-              contextSteps={contextLengthSteps(models)}
+              typeOptions={modelTypeOptions(catalogModels)}
+              gpuSteps={gpuCountSteps(catalogModels)}
+              contextSteps={contextLengthSteps(catalogModels)}
             />
           </div>
           <div className="relative w-56 sm:w-64">

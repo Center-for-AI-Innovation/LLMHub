@@ -83,4 +83,21 @@ describe('ModelFilterPanel', () => {
     fireEvent.keyDown(thumb, { key: 'ArrowRight' });
     expect(onChange).toHaveBeenCalledWith({ ...EMPTY_MODEL_FILTERS, minContext: 32768 });
   });
+
+  it('keeps hidden types that are not among the current options', () => {
+    const onChange = renderPanel({ ...EMPTY_MODEL_FILTERS, hiddenTypes: ['Speech'] });
+    fireEvent.click(screen.getByLabelText('VLM'));
+    expect(onChange).toHaveBeenCalledWith({
+      ...EMPTY_MODEL_FILTERS,
+      hiddenTypes: ['VLM', 'Speech'],
+    });
+  });
+
+  it('screen readers hear real GPU counts and context lengths', () => {
+    renderPanel({ ...EMPTY_MODEL_FILTERS, gpuRange: [2, 8], minContext: 32768 });
+    const maxGpus = screen.getByRole('slider', { name: 'Maximum GPUs' });
+    expect(maxGpus.getAttribute('aria-valuetext')).toBe('8 GPUs');
+    const context = screen.getByRole('slider', { name: 'Minimum context' });
+    expect(context.getAttribute('aria-valuetext')).toBe('32.8K tokens or more');
+  });
 });
