@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activeFilterCount,
-  chatOnlyHiddenTypes,
+  contextLengthSteps,
   EMPTY_MODEL_FILTERS,
   filterModels,
   gpuCountSteps,
@@ -12,7 +12,13 @@ import {
 } from '@/lib/models/filters';
 import type { ModelInfo } from '@/lib/models/types';
 
-function model(id: string, modelType: string | undefined, gpus: number, nodes = 1): ModelInfo {
+function model(
+  id: string,
+  modelType: string | undefined,
+  gpus: number,
+  nodes = 1,
+  extra: { gated?: string; contextLength?: number } = {},
+): ModelInfo & { gated?: string } {
   return {
     id,
     name: id,
@@ -22,20 +28,21 @@ function model(id: string, modelType: string | undefined, gpus: number, nodes = 
     family: '',
     variant: '',
     modelType,
-    specs: { gpus, nodes, contextLength: 0, parallelism: false },
+    gated: extra.gated,
+    specs: { gpus, nodes, contextLength: extra.contextLength ?? 0, parallelism: false },
   };
 }
 
 const catalog = [
-  model('llm-1', 'LLM', 1),
-  model('llm-8', 'LLM', 4, 2),
-  model('vlm-2', 'VLM', 2),
+  model('llm-1', 'LLM', 1, 1, { contextLength: 4096 }),
+  model('llm-8', 'LLM', 4, 2, { gated: 'manual', contextLength: 131072 }),
+  model('vlm-2', 'VLM', 2, 1, { gated: 'unknown', contextLength: 32768 }),
   model('embed', 'Text_Embedding', 1),
   model('reward', 'Reward_Modeling', 4),
   model('untyped', undefined, 1),
 ];
 
-const ids = (models: ModelInfo[]) => models.map((m) => m.id);
+const ids = (models: { id: string }[]) => models.map((m) => m.id);
 
 describe('model filters', () => {
   it('shows everything with no filters', () => {
@@ -44,26 +51,27 @@ describe('model filters', () => {
   });
 
   it('hides unticked types, treating a missing type as LLM', () => {
-    const shown = filterModels(catalog, { hiddenTypes: ['LLM'], gpuRange: null });
+    const shown = filterModels(catalog, { ...EMPTY_MODEL_FILTERS, hiddenTypes: ['LLM'] });
     expect(ids(shown)).toEqual(['vlm-2', 'embed', 'reward']);
-  });
-
-  it('chat-only hides every type except LLM and VLM', () => {
-    const hiddenTypes = chatOnlyHiddenTypes(modelTypeOptions(catalog));
-    expect(hiddenTypes).toEqual(['Text_Embedding', 'Reward_Modeling']);
-    expect(ids(filterModels(catalog, { hiddenTypes, gpuRange: null }))).toEqual([
-      'llm-1',
-      'llm-8',
-      'vlm-2',
-      'untyped',
-    ]);
   });
 
   it('counts GPUs across nodes and filters by an inclusive range', () => {
     expect(modelGpuCount(catalog[1])).toBe(8);
     expect(gpuCountSteps(catalog)).toEqual([1, 2, 4, 8]);
-    const shown = filterModels(catalog, { hiddenTypes: [], gpuRange: [2, 4] });
+    const shown = filterModels(catalog, { ...EMPTY_MODEL_FILTERS, gpuRange: [2, 4] });
     expect(ids(shown)).toEqual(['vlm-2', 'reward']);
+  });
+
+  it('hides gated models, counting an unconfirmed status as gated', () => {
+    const shown = filterModels(catalog, { ...EMPTY_MODEL_FILTERS, hideGated: true });
+    expect(ids(shown)).toEqual(['llm-1', 'embed', 'reward', 'untyped']);
+  });
+
+  it('keeps models with at least the minimum context, dropping unknown lengths', () => {
+    expect(contextLengthSteps(catalog)).toEqual([4096, 32768, 131072]);
+    const shown = filterModels(catalog, { ...EMPTY_MODEL_FILTERS, minContext: 32768 });
+    expect(ids(shown)).toEqual(['llm-8', 'vlm-2']);
+    expect(activeFilterCount({ ...EMPTY_MODEL_FILTERS, minContext: 32768, hideGated: true })).toBe(2);
   });
 
   it('lists known types first with readable labels, and new types after', () => {
