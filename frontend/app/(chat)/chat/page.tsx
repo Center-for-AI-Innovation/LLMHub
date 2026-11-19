@@ -16,7 +16,7 @@ import { navigateToLogin } from '@/lib/auth/navigation';
 export default function ChatPage() {
   const searchParams = useSearchParams();
   const query = searchParams?.get('query');
-  const deploymentIdFromUrl = searchParams?.get('deployment') ?? null;
+  const deploymentIdFromUrl = searchParams?.get('deployment')?.trim() || null;
   const { setSelectedModel } = useModelSelector();
   const resetVersion = useNewChat((state) => state.resetVersion);
   const [activeChatId, setActiveChatId] = useState('new');
