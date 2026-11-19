@@ -7,19 +7,7 @@ import { isChatModelType } from '@/lib/models/types';
 import { NextResponse } from 'next/server';
 
 const ALWAYS_ON_VLLM_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
-
-interface SessionUser {
-  id?: string;
-}
-
-interface ModelDeployment {
-  id?: string;
-  modelId?: string;
-  modelName?: string;
-  slurmJobId?: string;
-  status?: string | null;
-  updatedAt?: Date | string | null;
-}
+const ALWAYS_ON_VLLM_BASE_URL = process.env.ALWAYS_ON_VLLM_BASE_URL;
 
 interface ChatModelOption {
   id: string;
@@ -29,42 +17,9 @@ interface ChatModelOption {
 
 export const dynamic = 'force-dynamic';
 
-
-function deploymentToChatOption(
-  deployment: ModelDeployment,
-  deploymentId: string,
-): ChatModelOption {
-  const deployedModelName =
-    deployment.modelName || deployment.modelId || 'unknown-model';
-  const status = deployment.status?.toLowerCase() || 'ready';
-
-  return {
-    id: `vllm-deployment:${deploymentId}`,
-    name: deployedModelName,
-    description: `Active deployment (${status})`,
-  };
-}
-
-function isActiveDeploymentStatus(status?: string | null): boolean {
-  return status?.toLowerCase() === 'ready' || status?.toLowerCase() === 'running';
-}
-
-function toTimestamp(value?: Date | string | null): number {
-  if (!value) {
-    return 0;
-  }
-  if (value instanceof Date) {
-    return value.getTime();
-  }
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
 async function getActiveDeploymentOptionsForUser(
-  sessionUser?: SessionUser,
+  userId?: string,
 ): Promise<ChatModelOption[]> {
-  const userId = sessionUser?.id;
-
   if (!userId) {
     return [];
   }
@@ -77,44 +32,40 @@ async function getActiveDeploymentOptionsForUser(
     const modelTypeById = new Map(
       availableModels.map((model) => [model.id, model.modelType]),
     );
-    const activeDeployments = deployments
-      .filter((deployment) => isActiveDeploymentStatus(deployment.status))
-      .filter((deployment) =>
-        isChatModelType(modelTypeById.get(deployment.modelId ?? '')),
+
+    return deployments
+      .filter(
+        (deployment) =>
+          (deployment.status === 'ready' || deployment.status === 'running') &&
+          isChatModelType(modelTypeById.get(deployment.modelId)),
       )
-      .sort((left, right) => toTimestamp(right.updatedAt) - toTimestamp(left.updatedAt));
-
-    const seenDeploymentIds = new Set<string>();
-    const options: ChatModelOption[] = [];
-
-    for (const deployment of activeDeployments) {
-      const deploymentId = deployment.id;
-      if (!deploymentId || seenDeploymentIds.has(deploymentId)) {
-        continue;
-      }
-      seenDeploymentIds.add(deploymentId);
-      options.push(deploymentToChatOption(deployment, deploymentId));
-    }
-
-    return options;
-  } catch {
+      .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())
+      .map((deployment) => ({
+        id: `vllm-deployment:${deployment.id}`,
+        name: deployment.modelName,
+        description: `Active deployment (${deployment.status})`,
+      }));
+  } catch (error) {
+    console.error('Failed to load active deployments for chat', error);
     return [];
   }
 }
 
 export async function GET() {
   const session = await auth();
-  const sessionUser = session?.user as SessionUser | undefined;
 
-  const activeDeploymentOptions =
-    await getActiveDeploymentOptionsForUser(sessionUser);
-  const alwaysOnOption = ALWAYS_ON_VLLM_MODEL
-    ? {
-        id: 'always-on-model',
-        name: ALWAYS_ON_VLLM_MODEL,
-        description: `Always-on model (${ALWAYS_ON_VLLM_MODEL})`,
-      }
-    : null;
+  const activeDeploymentOptions = await getActiveDeploymentOptionsForUser(
+    session?.user?.id,
+  );
+  // /api/public/chat needs both the model and the base URL to serve it.
+  const alwaysOnOption =
+    ALWAYS_ON_VLLM_MODEL && ALWAYS_ON_VLLM_BASE_URL
+      ? {
+          id: 'always-on-model',
+          name: ALWAYS_ON_VLLM_MODEL,
+          description: `Always-on model (${ALWAYS_ON_VLLM_MODEL})`,
+        }
+      : null;
 
   // Priority order:
   // 1) User's active deployments (ready/running)
