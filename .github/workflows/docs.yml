@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-      # Preview of #130 for review before merge, published as a draft (see
-      # the build step). Remove once the docs branch has merged.
-      - docs/github-pages-site
     paths:
       - docs/**
       - overrides/**
