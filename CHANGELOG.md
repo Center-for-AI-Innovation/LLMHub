@@ -38,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The docs workflow no longer deploys from `docs/github-pages-site`, the branch that published a draft preview of the documentation site for review before it merged (#130); only `main` deploys now.
 - `backend/scripts/evict_unused_models.py`.
+- Defensive code in `/api/chat/models` for deployment values the database schema doesn't allow (missing IDs, names, statuses or dates, and duplicate rows), along with the dead `chatModels` list in `frontend/lib/ai/models.ts`. That file's always-on model constant is renamed from `VLLM_MODEL` to `ALWAYS_ON_VLLM_MODEL`, after the environment variable it reads. A failed deployment lookup is now logged instead of ignored silently; the picker still falls back to the always-on model. ([#64](https://github.com/Center-for-AI-Innovation/LLMHub/issues/64))
 
 ### Fixed
 
@@ -48,6 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Compile-cache cleanup no longer follows symlinks, so a user can't redirect it to delete files outside the cache.
 - A model that can't be deleted is skipped and reported, instead of stopping the run or being logged as deleted.
 - A missing `COMPILE_CACHE_DIR` no longer stops the model cache from being cleaned, and cache permissions are re-tightened after each delete.
+- The `/chat` model picker only offers the always-on model when both `ALWAYS_ON_VLLM_MODEL` and `ALWAYS_ON_VLLM_BASE_URL` are set. With only the model name set, it was listed but every message to it failed, because `/api/public/chat` needs both. ([#64](https://github.com/Center-for-AI-Innovation/LLMHub/issues/64))
 
 ## [1.1.1] - 2026-10-23
 
