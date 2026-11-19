@@ -346,6 +346,10 @@ class EmailService:
             cannot crash the sync loop; the caller must check the return value
             to decide whether to record a successful notification.
         """
+        if not settings.SMTP_HOST:
+            logger.info("SMTP_HOST is empty; not sending %r to %s", subject, recipient)
+            return False
+
         msg = MIMEText(body)
         msg["Subject"] = subject.replace("\r", " ").replace("\n", " ")
         msg["From"] = settings.SMTP_FROM.replace("\r", " ").replace("\n", " ")

@@ -1,0 +1,280 @@
+# Default values for the LLMHub chart.
+#
+# The chart mirrors the services in infra/local/compose.yaml (postgres, vllm,
+# migrate, backend, frontend) and the env contract that infra/delta/llmhub
+# renders into backend/.env and frontend/.env. Keep the three in step: a new
+# setting added to backend/app/config/config.py or to the frontend's
+# process.env usage belongs in all of them.
+
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  imagePullSecrets: []
+  # - name: ghcr-pull
+
+# Origin the browser uses (scheme + host, no trailing slash). Better Auth and
+# the CILogon redirect URI (<publicUrl>/api/auth/oauth2/callback/cilogon) are
+# built from it, and the backend links it in notification emails. Defaults to
+# the first ingress host when empty.
+publicUrl: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ---------------------------------------------------------------- secrets ----
+# App secrets consumed by the frontend and backend. Either name an existing
+# Secret (recommended for anything shared — e.g. managed by sealed-secrets or
+# external-secrets) or let the chart create one from the values below.
+#
+# BETTER_AUTH_SECRET and USER_API_KEY_PEPPER are generated on first install
+# when left empty and then reused on every upgrade (the Secret is looked up
+# and kept on uninstall). ROTATING THE PEPPER INVALIDATES EVERY USER API KEY.
+secrets:
+  existingSecret: ""
+  betterAuthSecret: ""
+  userApiKeyPepper: ""
+  cilogonClientId: ""
+  cilogonClientSecret: ""
+  alwaysOnVllmApiKey: ""
+  openaiApiKey: ""
+  ncsaApiKey: ""
+  s3AccessKeyId: ""
+  s3SecretAccessKey: ""
+
+# --------------------------------------------------------------- database ----
+# Bundled single-instance PostgreSQL. Fine for dev/staging; for production
+# prefer a managed or operator-run database via externalDatabase.
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  database: llm_service
+  username: postgres
+  # Generated on first install when empty; reused on upgrade.
+  password: ""
+  # Use a pre-existing Secret instead; must contain `passwordKey`.
+  existingSecret: ""
+  passwordKey: postgres-password
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    size: 10Gi
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Used when postgresql.enabled=false.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: llm_service
+  username: postgres
+  password: ""
+  # Use a pre-existing Secret instead; must contain `passwordKey`.
+  existingSecret: ""
+  passwordKey: postgres-password
+  # Appended to the URL, e.g. "sslmode=require".
+  params: ""
+
+# ------------------------------------------------------------- migrations ----
+# The schema belongs to the frontend (Drizzle). Migrations run as a Job, named
+# per release revision so every install/upgrade runs them once, from the
+# frontend image.
+migrations:
+  enabled: true
+  command: ["pnpm", "db:migrate"]
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  resources: {}
+
+# ---------------------------------------------------------------- backend ----
+backend:
+  replicaCount: 1  # background sync loops run in-process: keep at 1 until they are leader-elected
+  image:
+    repository: ghcr.io/center-for-ai-innovation/llmhub-backend
+    tag: ""  # defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  containerPort: 8000
+  service:
+    type: ClusterIP
+    port: 8000
+
+  # Non-secret settings, one-to-one with backend/app/config/config.py.
+  # Empty values are not rendered. Unknown env vars are ignored by
+  # pydantic-settings (only .env files are strict), but keep this list in sync.
+  config:
+    API_V1_STR: /api
+    PROJECT_NAME: LLMHub Backend
+    # Which backend/config/infrastructures/<name> to use; auto-detection by
+    # hostname does not work inside a pod.
+    INFRASTRUCTURE: campus-cluster
+    SYNC_INTERVAL: "60"
+    EXPIRY_CHECK_INTERVAL: "300"
+    MODEL_SYNC_INTERVAL: "3600"
+    MAX_DEPLOYMENTS_PER_CYCLE: "10"
+    # Empty disables notification email. The campus relay
+    # (outbound-relays.techservices.illinois.edu) only accepts campus source IPs.
+    SMTP_HOST: ""
+    SMTP_PORT: "25"
+    SMTP_FROM: no-reply@illinois.edu
+    SUPPORT_EMAIL: ""
+    # Slurm / vec-inf. The backend submits jobs with sbatch, so these only
+    # work when the pod can reach a Slurm controller — see README "Slurm".
+    SLURM_ACCOUNT: ""
+    VEC_INF_ACCOUNT: ""
+    VEC_INF_WORK_DIR: ""
+    VEC_INF_LOG_DIR: ""
+    VEC_INF_ENV: ""
+    VEC_INF_EXECUTION_MODE: direct
+    VEC_INF_SHARED_WORK_ROOT: ""
+    VEC_INF_IMPERSONATE_PYTHON: ""
+
+  # CORS origins. publicUrl is always added.
+  corsOrigins: []
+
+  # Optional vec-inf config mounted at /etc/llmhub/vec-inf and exported as
+  # VEC_INF_CONFIG_DIR. Paste rendered environment.yaml / models.yaml here
+  # (cf. backend/config/infrastructures/<name>/), or leave empty to use the
+  # copy baked into the image.
+  vecInf:
+    environmentYaml: ""
+    modelsYaml: ""
+
+  extraEnv: []
+  extraEnvFrom: []
+  # Slurm client config, munge key, shared filesystems, etc.
+  extraVolumes: []
+  extraVolumeMounts: []
+
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  livenessProbe:
+    httpGet:
+      path: /api/health/
+      port: http
+    initialDelaySeconds: 10
+    periodSeconds: 20
+  readinessProbe:
+    httpGet:
+      path: /api/health/
+      port: http
+    periodSeconds: 10
+
+# --------------------------------------------------------------- frontend ----
+frontend:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/center-for-ai-innovation/llmhub-frontend
+    tag: ""  # defaults to .Chart.AppVersion
+    pullPolicy: IfNotPresent
+  containerPort: 3000
+  service:
+    type: ClusterIP
+    port: 3000
+
+  # Non-secret settings. NEXT_PUBLIC_* values are inlined by `next build`;
+  # setting them here only affects images that run `next dev`.
+  config:
+    NODE_ENV: production
+    CILOGON_DISCOVERY_URL: https://cilogon.org/.well-known/openid-configuration
+    CILOGON_SKIN: illinois-chat
+    # Leave empty to point at the bundled vLLM (when vllm.enabled).
+    ALWAYS_ON_VLLM_BASE_URL: ""
+    ALWAYS_ON_VLLM_MODEL: ""
+    NCSA_BASE_URL: ""
+    S3_REGION: ""
+    S3_BUCKET: ""
+    S3_ENDPOINT: ""
+    S3_FORCE_PATH_STYLE: ""
+    S3_SIGNED_URL_TTL_SECONDS: ""
+    NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS: "false"
+
+  extraEnv: []
+  extraEnvFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
+
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+    initialDelaySeconds: 20
+    periodSeconds: 20
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
+    periodSeconds: 10
+
+# ------------------------------------------------------------ always-on vLLM -
+# Optional OpenAI-compatible vLLM server behind the default chat experience
+# (compose's `vllm` service). Off by default: most clusters point
+# frontend.config.ALWAYS_ON_VLLM_BASE_URL at an existing endpoint instead.
+vllm:
+  enabled: false
+  image:
+    repository: vllm/vllm-openai
+    tag: "v0.19.1"
+    pullPolicy: IfNotPresent
+  model: Qwen/Qwen3.5-2B
+  maxModelLen: 4096
+  dtype: auto
+  gpuMemoryUtilization: 0.9
+  extraArgs: []
+  # - --language-model-only
+  # Start vLLM with --api-key (ALWAYS_ON_VLLM_API_KEY). Turn off for local
+  # test deployments (frontend NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS): their
+  # chat proxy talks to this server as if it were a Slurm-launched vLLM, which
+  # takes no key.
+  requireApiKey: true
+  # Secret holding HF_TOKEN for gated models (key: HF_TOKEN).
+  hfTokenSecret: ""
+  service:
+    type: ClusterIP
+    port: 8000
+  cache:
+    enabled: true
+    storageClass: ""
+    size: 50Gi
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------- ingress ----
+# Exposes the frontend only. The browser never talks to the backend directly
+# (the frontend calls it server-side via BACKEND_API_URL), and the backend has
+# no auth of its own, so it stays a ClusterIP service — as on Delta, where it
+# binds loopback.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # cert-manager.io/cluster-issuer: letsencrypt
+  host: llmhub.example.edu
+  tls: []
+  # - secretName: llmhub-tls
+  #   hosts: [llmhub.example.edu]

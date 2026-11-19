@@ -1,0 +1,16 @@
+apiVersion: v2
+name: llmhub
+description: LLMHub — Next.js frontend, FastAPI backend, PostgreSQL and an optional always-on vLLM server
+type: application
+# Chart version. Bump on any change to the chart itself.
+version: 0.1.0
+# LLMHub release the chart deploys by default (image tags fall back to this).
+appVersion: "1.1.0"
+home: https://github.com/Center-for-AI-Innovation/LLMHub
+sources:
+  - https://github.com/Center-for-AI-Innovation/LLMHub
+keywords:
+  - llm
+  - vllm
+  - inference
+  - slurm

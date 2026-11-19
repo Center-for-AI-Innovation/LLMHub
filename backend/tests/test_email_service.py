@@ -113,6 +113,19 @@ class TestNotifyDeploymentReady:
 
         assert delivered is False
 
+    async def test_empty_smtp_host_returns_false_without_sending(self):
+        user = make_user()
+        with (
+            patch_send() as mock_send,
+            patch("app.services.email_service.settings.SMTP_HOST", ""),
+        ):
+            delivered = await EmailService().notify_deployment_ready(
+                make_db(user, user), make_deployment(), user.id
+            )
+
+        assert delivered is False
+        mock_send.assert_not_awaited()
+
 
 class TestNotifyDeploymentFailed:
     async def test_includes_error_message(self):

@@ -1,0 +1,19 @@
+backend:
+  image: { repository: llmhub-backend, tag: dev }
+frontend:
+  image: { repository: llmhub-frontend, tag: dev }
+  config:
+    NODE_ENV: development                         # the dev image runs `next dev`
+    NEXT_PUBLIC_USE_LOCAL_TEST_DEPLOYMENTS: "true" # read at runtime only because it's `next dev`
+  livenessProbe:
+    httpGet: { path: /, port: http }
+    initialDelaySeconds: 90                        # first compile is slow
+vllm:
+  requireApiKey: false               # local test deployments send no key
+  enabled: true
+  image: { repository: vllm/vllm-openai-cpu, tag: latest-arm64 }
+  gpuMemoryUtilization: 0.65
+  extraArgs: [--language-model-only]
+  cache: { size: 20Gi }
+  resources:
+    limits: null                                   # removes the nvidia.com/gpu default
