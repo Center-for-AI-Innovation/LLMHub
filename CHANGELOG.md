@@ -37,6 +37,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Removed
 
 - `backend/scripts/evict_unused_models.py`.
+- Unused single-deployment lookup left over from before chat used the selected `vllm-deployment:<id>` model ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109)): the `useVllmDeployment` hook, the `/api/v1/vllm/deployment` route, the `getActiveAccessibleDeploymentByUserId` query, and the `['vllm-deployment']` cache invalidations in `useLaunchModel` and `useStopModel`. Chat still lists owned and shared deployments through `/api/chat/models`. `hooks/use-vllm-deployment.ts` keeps only `getVllmChatEndpoint` and `getVllmModelsEndpoint`. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
+- The chat send check behind the "Model deployment is still initializing" error (`ensureModelReadyForSend` in `components/chat.tsx`), which could only trigger on a malformed `?deployment=` value. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
 
 ### Fixed
 
@@ -47,6 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Compile-cache cleanup no longer follows symlinks, so a user can't redirect it to delete files outside the cache.
 - A model that can't be deleted is skipped and reported, instead of stopping the run or being logged as deleted.
 - A missing `COMPILE_CACHE_DIR` no longer stops the model cache from being cleaned, and cache permissions are re-tightened after each delete.
+- A blank or whitespace-only `?deployment=` on `/chat` is treated as no deployment, instead of selecting a model with an empty deployment ID that showed a misleading "Model deployment is still initializing" error on send. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
 
 ## [1.1.1] - 2026-10-23
 
