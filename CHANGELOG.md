@@ -39,6 +39,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The docs workflow no longer deploys from `docs/github-pages-site`, the branch that published a draft preview of the documentation site for review before it merged (#130); only `main` deploys now.
 - `backend/scripts/evict_unused_models.py`.
 - Defensive code in `/api/chat/models` for deployment values the database schema doesn't allow (missing IDs, names, statuses or dates, and duplicate rows), along with the dead `chatModels` list in `frontend/lib/ai/models.ts`. That file's always-on model constant is renamed from `VLLM_MODEL` to `ALWAYS_ON_VLLM_MODEL`, after the environment variable it reads. A failed deployment lookup is now logged instead of ignored silently; the picker still falls back to the always-on model. ([#64](https://github.com/Center-for-AI-Innovation/LLMHub/issues/64))
+- Unused single-deployment lookup left over from before chat used the selected `vllm-deployment:<id>` model ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109)): the `useVllmDeployment` hook, the `/api/v1/vllm/deployment` route, the `getActiveAccessibleDeploymentByUserId` query, and the `['vllm-deployment']` cache invalidations in `useLaunchModel` and `useStopModel`. Chat still lists owned and shared deployments through `/api/chat/models`. `hooks/use-vllm-deployment.ts` keeps only `getVllmChatEndpoint` and `getVllmModelsEndpoint`. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
+- The chat send check behind the "Model deployment is still initializing" error (`ensureModelReadyForSend` in `components/chat.tsx`), which could only trigger on a malformed `?deployment=` value. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
 
 ### Fixed
 
@@ -50,6 +52,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A model that can't be deleted is skipped and reported, instead of stopping the run or being logged as deleted.
 - A missing `COMPILE_CACHE_DIR` no longer stops the model cache from being cleaned, and cache permissions are re-tightened after each delete.
 - The `/chat` model picker only offers the always-on model when both `ALWAYS_ON_VLLM_MODEL` and `ALWAYS_ON_VLLM_BASE_URL` are set. With only the model name set, it was listed but every message to it failed, because `/api/public/chat` needs both. ([#64](https://github.com/Center-for-AI-Innovation/LLMHub/issues/64))
+- A blank or whitespace-only `?deployment=` on `/chat` is treated as no deployment, instead of selecting a model with an empty deployment ID that showed a misleading "Model deployment is still initializing" error on send. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
 
 ## [1.1.1] - 2026-10-23
 

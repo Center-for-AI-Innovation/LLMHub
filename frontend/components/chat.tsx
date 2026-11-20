@@ -44,10 +44,6 @@ function getSelectedVllmDeploymentId(model: string): string | null {
   return deploymentId.length > 0 ? deploymentId : null;
 }
 
-function isVllmDeploymentModel(model: string): boolean {
-  return model.startsWith(VLLM_DEPLOYMENT_PREFIX);
-}
-
 function isAlwaysOnModel(model: string): boolean {
   return model === 'always-on-model';
 }
@@ -125,36 +121,6 @@ function getGuestMessageCountFromCookie(): number {
     return 0;
   }
   return getGuestMessageCount(document.cookie);
-}
-
-function ensureModelReadyForSend({
-  isGuestMode,
-  selectedModel,
-}: {
-  isGuestMode: boolean;
-  selectedModel: string;
-}): boolean {
-  if (isGuestMode) {
-    return true;
-  }
-
-  if (isAlwaysOnModel(selectedModel)) {
-    return true;
-  }
-
-  if (!isVllmDeploymentModel(selectedModel)) {
-    return true;
-  }
-
-  // Deployment-specific options include the deployment ID directly.
-  if (getSelectedVllmDeploymentId(selectedModel)) {
-    return true;
-  }
-
-  showErrorToast(
-    'Model deployment is still initializing. Please wait a few seconds and try again.',
-  );  
-  return false;
 }
 
 function handleChatRequestError({
@@ -363,10 +329,6 @@ function ChatInner({
   ): Promise<void> => {
     if (!isModelReady) {
       showErrorToast('Model options are still loading. Please try again shortly.');
-      return;
-    }
-
-    if (!ensureModelReadyForSend({ isGuestMode, selectedModel })) {
       return;
     }
 

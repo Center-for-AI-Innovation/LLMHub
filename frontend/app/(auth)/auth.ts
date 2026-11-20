@@ -14,71 +14,17 @@ import {
   getOauthMapfilePath,
   isCilogonEnabled,
 } from '@/lib/auth/config';
-import { isEmailAuthorizedByOauthMapfile } from '@/lib/auth/oauth-mapfile';
+import {
+  assertDeltaAuthorized,
+  type AuthHookContext,
+} from '@/lib/auth/delta-authorization';
 import { db } from '@/lib/db';
 import { account, session, user, verification } from '@/lib/db/schema';
 import { claimPendingDeploymentInvitesForUser } from '@/lib/db/queries';
 import type { AuthSession, AuthUser } from '@/lib/auth/types';
 
-const DELTA_UNAUTHORIZED_MESSAGE =
-  'Your identity is not authorized to use LLM Hub on this cluster.';
-
 function normalizeUserName(email: string) {
   return email.split('@')[0] || 'Local User';
-}
-
-type AuthHookContext = {
-  path?: string;
-  redirect: (url: string) => never;
-  context: {
-    baseURL: string;
-    options: {
-      onAPIError?: {
-        errorURL?: string;
-      };
-    };
-    internalAdapter: {
-      findUserById: (userId: string) => Promise<{ email?: string | null } | null>;
-    };
-  };
-} | null;
-
-/**
- * When OAUTH_MAPFILE_PATH is set, require the login email (first-column exact
- * match, with + rewrite for test service accounts) to appear in the mapfile.
- */
-async function assertDeltaAuthorized(
-  email: string | null | undefined,
-  ctx: AuthHookContext,
-) {
-  const mapfilePath = getOauthMapfilePath();
-  if (!mapfilePath) {
-    return;
-  }
-
-  if (isEmailAuthorizedByOauthMapfile(email, mapfilePath)) {
-    return;
-  }
-
-  if (
-    ctx &&
-    (ctx.path?.startsWith('/callback') ||
-      ctx.path?.startsWith('/oauth2/callback'))
-  ) {
-    const redirectURI =
-      ctx.context.options.onAPIError?.errorURL ||
-      `${ctx.context.baseURL}/error`;
-    throw ctx.redirect(
-      `${redirectURI}?error=access_denied&error_description=${encodeURIComponent(
-        DELTA_UNAUTHORIZED_MESSAGE,
-      )}`,
-    );
-  }
-
-  throw new APIError('FORBIDDEN', {
-    message: DELTA_UNAUTHORIZED_MESSAGE,
-    code: 'DELTA_UNAUTHORIZED',
-  });
 }
 
 export const authConfig = {
@@ -163,7 +109,7 @@ export const betterAuthInstance = betterAuth({
       create: {
         before: async (newUser, ctx) => {
           const email = typeof newUser.email === 'string' ? newUser.email : '';
-          await assertDeltaAuthorized(email, ctx as AuthHookContext);
+          await assertDeltaAuthorized(email, ctx as AuthHookContext, 'user');
 
           if (newUser.name) {
             return;
@@ -220,7 +166,7 @@ export const betterAuthInstance = betterAuth({
           const dbUser = await hookCtx.context.internalAdapter.findUserById(
             newSession.userId,
           );
-          await assertDeltaAuthorized(dbUser?.email, hookCtx);
+          await assertDeltaAuthorized(dbUser?.email, hookCtx, 'session');
         },
       },
     },
