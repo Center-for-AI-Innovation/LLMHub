@@ -18,9 +18,8 @@ describe('lib/ai/models', () => {
     expect(DEFAULT_CHAT_MODEL).toBe('always-on-model');
   });
 
-  it('registers no always-on model and exposes no chat models when always-on is unconfigured', async () => {
-    const { chatModels, myProvider } = await loadModels({});
-    expect(chatModels).toEqual([]);
+  it('registers no always-on model when always-on is unconfigured', async () => {
+    const { myProvider } = await loadModels({});
     expect(() => myProvider.languageModel('always-on-model')).toThrow();
   });
 
@@ -30,18 +29,11 @@ describe('lib/ai/models', () => {
   });
 
   it('registers always-on-model when both always-on model and base URL are set', async () => {
-    const { chatModels, myProvider } = await loadModels({
+    const { myProvider } = await loadModels({
       model: 'Qwen/Qwen2.5-1.5B-Instruct',
       baseUrl: 'http://localhost:8000/v1',
     });
 
-    expect(chatModels).toEqual([
-      {
-        id: 'always-on-model',
-        name: 'Qwen/Qwen2.5-1.5B-Instruct',
-        description: 'Deployed vLLM model (Qwen/Qwen2.5-1.5B-Instruct)',
-      },
-    ]);
     expect(() => myProvider.languageModel('always-on-model')).not.toThrow();
   });
 });

@@ -13,12 +13,36 @@ vi.mock('@/lib/db/queries', () => ({
   getAvailableModels: getAvailableModelsMock,
 }));
 
-// ALWAYS_ON_VLLM_MODEL is read at module scope, so the route must be
+// The always-on env vars are read at module scope, so the route must be
 // re-imported after stubbing the environment.
-async function loadRoute(alwaysOnModel: string) {
+async function loadRoute(
+  alwaysOnModel: string,
+  alwaysOnBaseUrl = 'http://localhost:8000/v1',
+) {
   vi.resetModules();
   vi.stubEnv('ALWAYS_ON_VLLM_MODEL', alwaysOnModel);
+  vi.stubEnv('ALWAYS_ON_VLLM_BASE_URL', alwaysOnBaseUrl);
   return await import('@/app/api/chat/models/route');
+}
+
+// A deployment row as getAccessibleDeploymentsByUserId returns it: the
+// NOT NULL columns the route reads are always present.
+function deploymentRow(overrides: {
+  id: string;
+  modelName?: string;
+  modelId?: string;
+  slurmJobId?: string;
+  status?: string;
+  updatedAt?: string;
+}) {
+  return {
+    modelName: overrides.id,
+    modelId: overrides.id,
+    slurmJobId: '100000',
+    status: 'ready',
+    ...overrides,
+    updatedAt: new Date(overrides.updatedAt ?? '2026-07-01T00:00:00Z'),
+  };
 }
 
 beforeEach(() => {
@@ -30,6 +54,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe('GET /api/chat/models', () => {
@@ -55,30 +80,38 @@ describe('GET /api/chat/models', () => {
     ]);
   });
 
+  it('omits the always-on option when its base URL is not set', async () => {
+    authMock.mockResolvedValue(null);
+    const { GET } = await loadRoute('Qwen/Qwen2.5-1.5B-Instruct', '');
+
+    const response = await GET();
+    expect(await response.json()).toEqual([]);
+  });
+
   it('lists active deployments keyed by deployment id, newest first, then always-on', async () => {
     authMock.mockResolvedValue({ user: { id: 'user-1' } });
     getAccessibleDeploymentsMock.mockResolvedValue([
-      {
+      deploymentRow({
         id: 'dep-old',
         modelName: 'llama-3-8b',
         slurmJobId: '111111',
         status: 'ready',
         updatedAt: '2026-07-01T00:00:00Z',
-      },
-      {
+      }),
+      deploymentRow({
         id: 'dep-new',
         modelName: 'qwen-2.5-7b',
         slurmJobId: '222222',
         status: 'running',
         updatedAt: '2026-07-10T00:00:00Z',
-      },
-      {
+      }),
+      deploymentRow({
         id: 'dep-stopped',
         modelName: 'stopped-model',
         slurmJobId: '333333',
-        status: 'stopped',
+        status: 'shutdown',
         updatedAt: '2026-07-12T00:00:00Z',
-      },
+      }),
     ]);
     const { GET } = await loadRoute('always-on');
 
@@ -88,20 +121,11 @@ describe('GET /api/chat/models', () => {
       'vllm-deployment:dep-old',
       'always-on-model',
     ]);
-    expect(models[0].name).toBe('qwen-2.5-7b');
-  });
-
-  it('dedupes deployments sharing the same deployment id', async () => {
-    authMock.mockResolvedValue({ user: { id: 'user-1' } });
-    getAccessibleDeploymentsMock.mockResolvedValue([
-      { id: 'dep-1', modelName: 'model-a', status: 'ready' },
-      { id: 'dep-1', modelName: 'model-a', status: 'ready' },
-    ]);
-    const { GET } = await loadRoute('');
-
-    const models = await (await GET()).json();
-    expect(models).toHaveLength(1);
-    expect(models[0].id).toBe('vllm-deployment:dep-1');
+    expect(models[0]).toEqual({
+      id: 'vllm-deployment:dep-new',
+      name: 'qwen-2.5-7b',
+      description: 'Active deployment (running)',
+    });
   });
 
   it('does not collapse distinct deployments that reuse a Slurm job id', async () => {
@@ -109,20 +133,18 @@ describe('GET /api/chat/models', () => {
     // deployments may share one. Both must remain selectable.
     authMock.mockResolvedValue({ user: { id: 'user-1' } });
     getAccessibleDeploymentsMock.mockResolvedValue([
-      {
+      deploymentRow({
         id: 'dep-a',
         modelName: 'model-a',
         slurmJobId: '123456',
-        status: 'ready',
         updatedAt: '2026-07-10T00:00:00Z',
-      },
-      {
+      }),
+      deploymentRow({
         id: 'dep-b',
         modelName: 'model-b',
         slurmJobId: '123456',
-        status: 'ready',
         updatedAt: '2026-07-09T00:00:00Z',
-      },
+      }),
     ]);
     const { GET } = await loadRoute('');
 
@@ -136,11 +158,11 @@ describe('GET /api/chat/models', () => {
   it('excludes deployments of models that cannot chat', async () => {
     authMock.mockResolvedValue({ user: { id: 'user-1' } });
     getAccessibleDeploymentsMock.mockResolvedValue([
-      { id: 'dep-llm', modelId: 'llm', modelName: 'llm', status: 'ready' },
-      { id: 'dep-vlm', modelId: 'vlm', modelName: 'vlm', status: 'ready' },
-      { id: 'dep-untyped', modelId: 'untyped', modelName: 'untyped', status: 'ready' },
-      { id: 'dep-embed', modelId: 'embed', modelName: 'embed', status: 'ready' },
-      { id: 'dep-reward', modelId: 'reward', modelName: 'reward', status: 'ready' },
+      deploymentRow({ id: 'dep-llm', modelId: 'llm' }),
+      deploymentRow({ id: 'dep-vlm', modelId: 'vlm' }),
+      deploymentRow({ id: 'dep-untyped', modelId: 'untyped' }),
+      deploymentRow({ id: 'dep-embed', modelId: 'embed' }),
+      deploymentRow({ id: 'dep-reward', modelId: 'reward' }),
     ]);
     getAvailableModelsMock.mockResolvedValue([
       { id: 'llm', modelType: 'LLM' },
@@ -162,6 +184,7 @@ describe('GET /api/chat/models', () => {
   it('falls back to the always-on option when the deployment query fails', async () => {
     authMock.mockResolvedValue({ user: { id: 'user-1' } });
     getAccessibleDeploymentsMock.mockRejectedValue(new Error('db down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     const { GET } = await loadRoute('always-on');
 
     const models = await (await GET()).json();

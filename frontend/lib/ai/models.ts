@@ -27,7 +27,7 @@ export const vllmProvider = createOpenAI({
 });
 
 // Always-on vLLM model; undefined when not configured
-export const VLLM_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
+const ALWAYS_ON_VLLM_MODEL = process.env.ALWAYS_ON_VLLM_MODEL;
 
 export const myProvider = customProvider({
   languageModels: {
@@ -41,24 +41,8 @@ export const myProvider = customProvider({
     // 'artifact-model': openai('gpt-4o-mini'),
     // vLLM model - uses local vLLM server
     // vLLM/OpenAI-compatible servers typically implement /v1/chat/completions, not /v1/responses.
-    ...(VLLM_MODEL && vllmBaseURL
-      ? { 'always-on-model': vllmProvider.chat(VLLM_MODEL) }
+    ...(ALWAYS_ON_VLLM_MODEL && vllmBaseURL
+      ? { 'always-on-model': vllmProvider.chat(ALWAYS_ON_VLLM_MODEL) }
       : {}),
   }
 });
-
-interface ChatModel {
-  id: string;
-  name: string;
-  description: string;
-}
-
-export const chatModels: Array<ChatModel> = VLLM_MODEL
-  ? [
-      {
-        id: 'always-on-model',
-        name: VLLM_MODEL,
-        description: `Deployed vLLM model (${VLLM_MODEL})`,
-      },
-    ]
-  : [];
