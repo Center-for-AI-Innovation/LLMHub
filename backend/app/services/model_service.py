@@ -229,6 +229,16 @@ class ModelService:
         db.refresh(db_deployment)
         return db_deployment
 
+    def _model_availability_error(self, model_id: str) -> Optional[str]:
+        # Catalog rows referenced by deployment history survive YAML removal.
+        # vec-inf can still launch them from an HF repo or cached weights.
+        result = self.llm_client.list_available_models()
+        if not result.get("success", False):
+            return "Unable to verify the current model list. Try again later."
+        if model_id not in result.get("models", []):
+            return f"Model {model_id!r} is no longer available for deployment."
+        return None
+
     def launch_model(
         self, db: Session, deployment: ModelDeploymentCreate
     ) -> ModelDeployment:
@@ -292,6 +302,9 @@ class ModelService:
                 f"Unknown model {model_id!r}; the model catalog has not been "
                 "synced with it yet. Try again after the next sync."
             )
+        availability_error = self._model_availability_error(model_id)
+        if availability_error:
+            return failed(availability_error)
         hf_repo_id = db_model.huggingfaceId
         cached_gated = db_model.gated
 
@@ -524,6 +537,9 @@ class ModelService:
         )
         if db_model is None:
             return fail(f"Model {model_id!r} is no longer in the model catalog.")
+        availability_error = self._model_availability_error(model_id)
+        if availability_error:
+            return fail(availability_error)
         if db_model.gated:
             state, error = gated_model_download_state(model_id)
         else:

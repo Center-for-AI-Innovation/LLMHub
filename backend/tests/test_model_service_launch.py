@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import create_engine, text
@@ -37,6 +39,10 @@ class FakeDbSession:
 class FakeLLMClient:
     def __init__(self):
         self.calls = []
+        self.models = ["Qwen3-8B", "Gated-7B"]
+
+    def list_available_models(self):
+        return {"success": True, "models": self.models}
 
     def launch_model(
         self,
@@ -467,6 +473,103 @@ def _service():
     service = ModelService()
     service.llm_client = FakeLLMClient()
     return service
+
+
+@pytest.fixture
+def current_models_yaml(monkeypatch, tmp_path):
+    from app.config.config import settings
+    from app.utils.llm_inference import LLMInferenceDirectClient
+
+    path = tmp_path / "models.yaml"
+    path.write_text("models:\n  Qwen3-8B: {}\n  Gated-7B: {}\n")
+    monkeypatch.setattr(settings, "VEC_INF_MODEL_CONFIG", str(path))
+    monkeypatch.setenv("VEC_INF_MODEL_CONFIG", str(path))
+    return path, LLMInferenceDirectClient().list_available_models
+
+
+@pytest.mark.parametrize("gated", [None, "manual"])
+@pytest.mark.parametrize(
+    "yaml_text,expected_error",
+    [
+        ("models:\n  OtherModel: {}\n", "no longer available"),
+        ("models: {}\n", "no longer available"),
+        ("models: [\n", "Unable to verify"),
+    ],
+)
+def test_api_rejects_removed_model_with_deployment_history(
+    monkeypatch, sql_db, current_models_yaml, gated, yaml_text, expected_error
+):
+    from fastapi import HTTPException
+
+    from app.controllers import model_controller
+
+    model_id = "Gated-7B" if gated else "Qwen3-8B"
+    _catalog(sql_db, model_id, "org/model", gated=gated)
+    history = ModelDeployment(
+        modelId=model_id,
+        modelName=model_id,
+        userId=UUID(USER_ID),
+        slurmJobId="123",
+        status="completed",
+    )
+    sql_db.add(history)
+    sql_db.commit()
+    service = _service()
+    path, list_models = current_models_yaml
+    service.llm_client.list_available_models = list_models
+    path.write_text(yaml_text)
+    monkeypatch.setattr(model_controller, "model_service", service)
+
+    def unexpected_call(*args, **kwargs):
+        pytest.fail("Rejected models must not check HF, download, or allocate GPUs")
+
+    for name in (
+        "check_model_hf_access",
+        "start_public_model_download",
+        "start_gated_model_download",
+        "ResourceService",
+    ):
+        monkeypatch.setattr(f"app.services.model_service.{name}", unexpected_call)
+
+    with pytest.raises(HTTPException) as exc:
+        model_controller.create_deployment(
+            deployment=ModelDeploymentCreate(
+                modelId=model_id, modelName="OtherModel", userId=USER_ID
+            ),
+            db=sql_db,
+        )
+
+    assert exc.value.status_code == 400
+    assert expected_error in exc.value.detail
+    assert service.llm_client.calls == []
+    assert sql_db.get(AvailableModel, model_id) is not None
+    sql_db.refresh(history)
+    assert history.status == "completed"
+
+
+@pytest.mark.parametrize("gated", [None, "manual"])
+def test_model_removed_during_download_never_submits(
+    monkeypatch, sql_db, current_models_yaml, gated
+):
+    model_id = "Gated-7B" if gated else "Qwen3-8B"
+    _catalog(sql_db, model_id, "org/model", gated=gated)
+    service = _service()
+    path, list_models = current_models_yaml
+    service.llm_client.list_available_models = list_models
+    monkeypatch.setattr(
+        "app.services.model_service.start_gated_model_download", lambda *a: True
+    )
+    deployment = _launch_while_downloading(monkeypatch, sql_db, service, model_id)
+    assert deployment.status == "downloading"
+
+    path.write_text("models: {}\n")
+    _download_state(monkeypatch, "ready")
+    service.advance_downloading_deployments(sql_db)
+
+    sql_db.refresh(deployment)
+    assert deployment.status == "failed"
+    assert "no longer available" in deployment.errorMessage
+    assert service.llm_client.calls == []
 
 
 def _launch_while_downloading(monkeypatch, db, service, model_id, **kwargs):
