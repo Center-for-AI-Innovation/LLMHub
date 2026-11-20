@@ -195,18 +195,23 @@ def test_oversized_safetensors_header_rejected() -> None:
 
 
 class _GatedClient(_FakeClient):
-    """A gated repo: config.json only with an Authorization header."""
+    """A gated repo: config.json only with an Authorization header.
+
+    Records the headers of every request (the token is attached per request,
+    not as a client default, so it is never sent to CDN redirect hops).
+    """
 
     seen_headers: list[dict[str, str]] = []
 
     def __init__(self, **kwargs: Any) -> None:
         self.headers = dict(kwargs.get("headers") or {})
-        type(self).seen_headers.append(self.headers)
 
-    def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+    def get(self, url: str, headers: Any = None, **kwargs: Any) -> _FakeResponse:
         type(self).calls += 1
+        sent = {**self.headers, **(headers or {})}
+        type(self).seen_headers.append(sent)
         if url.endswith("config.json"):
-            if "Authorization" not in self.headers:
+            if "Authorization" not in sent:
                 return _FakeResponse(401)
             return _FakeResponse(200, dict(_TINY_CONFIG))
         return _FakeResponse(404)

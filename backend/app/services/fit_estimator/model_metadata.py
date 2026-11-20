@@ -23,16 +23,39 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import struct
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Iterator, Mapping
+from urllib.parse import quote, urljoin, urlsplit
 
 from .constants import DEFAULT_DTYPE, dtype_bytes
 
 HF_ENDPOINT = "https://huggingface.co"
+_HF_HOST = "huggingface.co"
 _DEFAULT_TIMEOUT_S = 20.0
+
+# ``model_id`` and ``revision`` arrive from /api/fit-estimate and
+# /api/validate-config callers and are spliced into a huggingface.co URL, so
+# they are validated as plain path segments before any request is built. A
+# segment is a Hub-style name: no slashes, no "..", no URL syntax. Repo ids are
+# exactly "org/name"; revisions are a branch/tag/sha or a "refs/pr/N" style ref
+# (each segment is URL-quoted, which the Hub accepts).
+_HF_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][\w.-]*$")
+_MAX_HF_SEGMENT_LEN = 128
+_MAX_HF_REVISION_SEGMENTS = 3
+
+# A ``/resolve/`` request on huggingface.co redirects LFS-backed files to the
+# Hub's CDN (cdn-lfs*.hf.co / *.huggingface.co). Redirects are followed by hand
+# so every hop is checked against this allowlist and must stay on https — the
+# backend must never be steered at an arbitrary (or internal) host.
+_HF_REDIRECT_HOSTS = frozenset({"huggingface.co", "hf.co"})
+_HF_REDIRECT_HOST_SUFFIXES = (".huggingface.co", ".hf.co")
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+_MAX_REDIRECTS = 5
 
 # Successful metadata lookups are cached briefly so the launch path does not pay
 # 2-4 sequential HF round-trips per request (and an HF blip does not stall every
@@ -354,8 +377,118 @@ def with_weights(
 # --------------------------------------------------------------------------- #
 
 
+def _validated_segments(value: str, what: str, *, max_segments: int) -> list[str]:
+    """Split ``value`` on "/" and require every piece to be a plain Hub name."""
+    segments = value.split("/") if value else []
+    if not segments or len(segments) > max_segments:
+        raise ValueError(f"invalid Hugging Face {what}: {value!r}")
+    for segment in segments:
+        if (
+            len(segment) > _MAX_HF_SEGMENT_LEN
+            or ".." in segment
+            or not _HF_PATH_SEGMENT_RE.fullmatch(segment)
+        ):
+            raise ValueError(f"invalid Hugging Face {what}: {value!r}")
+    return segments
+
+
 def _resolve_url(model_id: str, filename: str, revision: str) -> str:
-    return f"{HF_ENDPOINT}/{model_id}/resolve/{revision}/{filename}"
+    """Build ``https://huggingface.co/<org>/<name>/resolve/<rev>/<file>``.
+
+    ``model_id`` must be exactly ``org/name`` and ``revision`` a short ref;
+    anything else (extra slashes, "..", URL syntax) is rejected rather than
+    spliced into the URL. Every segment is URL-quoted and the result is
+    re-checked to still point at the Hub host.
+    """
+    repo_segments = _validated_segments(model_id, "model id", max_segments=2)
+    if len(repo_segments) != 2:
+        raise ValueError(f"invalid Hugging Face model id: {model_id!r}")
+    rev_segments = _validated_segments(
+        revision, "revision", max_segments=_MAX_HF_REVISION_SEGMENTS
+    )
+    path = "/".join(
+        quote(segment, safe="")
+        for segment in (*repo_segments, "resolve", *rev_segments, filename)
+    )
+    url = f"{HF_ENDPOINT}/{path}"
+    if urlsplit(url).hostname != _HF_HOST:
+        raise ValueError(f"refusing to fetch model metadata from {url!r}")
+    return url
+
+
+def _is_allowed_redirect_target(url: str) -> bool:
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    return parts.scheme == "https" and (
+        host in _HF_REDIRECT_HOSTS or host.endswith(_HF_REDIRECT_HOST_SUFFIXES)
+    )
+
+
+def _next_hop(resp: Any, current_url: str) -> str | None:
+    """Return the redirect target for ``resp``, or ``None`` if it is final.
+
+    Raises ``ValueError`` for a redirect off the Hugging Face allowlist or off
+    https. That propagates out of the metadata fetch (it is not one of the
+    transport errors the weights lookup degrades on), so callers treat the
+    model as unverifiable instead of following the redirect.
+    """
+    if getattr(resp, "status_code", None) not in _REDIRECT_STATUSES:
+        return None
+    location = resp.headers.get("location")
+    if not location:
+        raise ValueError(f"Hugging Face redirect from {current_url} has no Location")
+    target = urljoin(current_url, location)
+    if not _is_allowed_redirect_target(target):
+        raise ValueError(
+            f"refusing redirect from {current_url} to {target!r}: not an https "
+            "Hugging Face host"
+        )
+    return target
+
+
+class _HfClient:
+    """Thin wrapper over an ``httpx.Client`` with allowlisted redirects.
+
+    * Redirects are followed manually (the underlying client has
+      ``follow_redirects=False``) and each hop must pass
+      :func:`_is_allowed_redirect_target`.
+    * The user's token is attached only to requests for ``huggingface.co``
+      itself, never to CDN hops (pre-signed URLs do not need it).
+    """
+
+    def __init__(self, client: Any, token: str | None) -> None:
+        self._client = client
+        self._token = token
+
+    def _headers(self, url: str, extra: Mapping[str, str] | None) -> dict[str, str]:
+        headers = dict(extra or {})
+        if self._token and urlsplit(url).hostname == _HF_HOST:
+            headers["Authorization"] = f"Bearer {self._token}"
+        return headers
+
+    def get(self, url: str, headers: Mapping[str, str] | None = None) -> Any:
+        for _ in range(_MAX_REDIRECTS + 1):
+            resp = self._client.get(url, headers=self._headers(url, headers))
+            next_url = _next_hop(resp, url)
+            if next_url is None:
+                return resp
+            url = next_url
+        raise ValueError(f"too many redirects fetching {url}")
+
+    @contextmanager
+    def stream(
+        self, method: str, url: str, headers: Mapping[str, str] | None = None
+    ) -> Iterator[Any]:
+        for _ in range(_MAX_REDIRECTS + 1):
+            with self._client.stream(
+                method, url, headers=self._headers(url, headers)
+            ) as resp:
+                next_url = _next_hop(resp, url)
+                if next_url is None:
+                    yield resp
+                    return
+            url = next_url
+        raise ValueError(f"too many redirects fetching {url}")
 
 
 def _fetch_json(client: Any, url: str) -> dict[str, Any] | None:
@@ -486,11 +619,12 @@ def fetch_model_metadata(
         if hit is not None and now - hit[0] < _METADATA_CACHE_TTL_S:
             return hit[1]
 
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    with httpx.Client(
-        follow_redirects=True, timeout=timeout_s, headers=headers
-    ) as client:
-        config_url = _resolve_url(model_id, "config.json", revision)
+    # Validate before touching the network so bad ids fail fast (and are
+    # never cached).
+    config_url = _resolve_url(model_id, "config.json", revision)
+
+    with httpx.Client(follow_redirects=False, timeout=timeout_s) as raw_client:
+        client = _HfClient(raw_client, token)
         raw_config = _fetch_json(client, config_url)
         if raw_config is None:
             raise ValueError(f"config.json not found for model {model_id!r}")
