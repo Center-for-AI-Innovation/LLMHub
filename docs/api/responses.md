@@ -17,8 +17,8 @@ after it sends them. To continue a conversation, send it again (see
 for the features that need stored responses.
 
 The examples use placeholders. Replace them with the values from the
-deployment's **API** dialog. The dialog's examples are for chat completions,
-but the base URL and model name are the same:
+deployment's **API** dialog. For chat models, choose **Responses** under
+**Endpoint** to see these examples filled in:
 
 - `https://your-llmhub-host`: the LLMHub address
 - `YOUR_DEPLOYMENT_ID`: the deployment's ID, which is part of the base URL

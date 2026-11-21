@@ -7,6 +7,8 @@ import { useDeploymentModelType, type ModelDeployment } from '@/hooks/use-models
 import {
   ENDPOINTS,
   getEndpointKind,
+  getEndpointKinds,
+  type EndpointKind,
   type SnippetLanguage,
 } from '@/lib/public-api-snippets';
 import { useGenerateApiKey } from '@/hooks/use-api-key';
@@ -139,6 +141,8 @@ export function PublicApiDialog({
   const [apiKeyOverride, setApiKeyOverride] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] =
     useState<SnippetLanguage>('curl');
+  const [endpointKindOverride, setEndpointKindOverride] =
+    useState<EndpointKind | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string>(DEFAULT_SYSTEM_PROMPT);
   const [userPrompt, setUserPrompt] = useState<string>(DEFAULT_USER_PROMPT);
   const [streamResponse, setStreamResponse] = useState<boolean>(false);
@@ -195,9 +199,16 @@ export function PublicApiDialog({
   const selectedModelName = selectedDeployment?.modelName || DEFAULT_MODEL_NAME;
   const authorizationHeader = `Bearer ${apiKeyValue || DEFAULT_API_KEY}`;
   const userPromptValue = userPrompt.length > 0 ? userPrompt : DEFAULT_USER_PROMPT;
-  const endpoint = selectedDeployment
-    ? getEndpoint(selectedDeployment)
-    : ENDPOINTS.chatCompletions;
+  // Chat models offer chat completions and the Responses API; the choice
+  // falls back to the default when the next deployment doesn't offer it.
+  const endpointKinds: EndpointKind[] = selectedDeployment
+    ? getEndpointKinds(getModelType(selectedDeployment))
+    : ['chatCompletions'];
+  const endpointKind =
+    endpointKindOverride && endpointKinds.includes(endpointKindOverride)
+      ? endpointKindOverride
+      : (endpointKinds[0] ?? null);
+  const endpoint = endpointKind ? ENDPOINTS[endpointKind] : null;
 
   const requestMessages = useMemo(() => {
     const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
@@ -281,6 +292,7 @@ export function PublicApiDialog({
           if (!isOpen) {
             setApiKeyOverride('');
             setJustGeneratedKey(null);
+            setEndpointKindOverride(null);
           }
         }}
       >
@@ -442,6 +454,35 @@ export function PublicApiDialog({
                     </span>
                   </div>
                 </div>
+
+                {/* ── Endpoint (chat models: chat completions or Responses) ── */}
+                {endpointKinds.length > 1 && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Endpoint
+                    </label>
+                    <Select
+                      value={endpointKind ?? ''}
+                      onValueChange={(value) =>
+                        setEndpointKindOverride(value as EndpointKind)
+                      }
+                    >
+                      <SelectTrigger
+                        className="h-9 text-sm sm:w-1/2"
+                        aria-label="Endpoint"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {endpointKinds.map((kind) => (
+                          <SelectItem key={kind} value={kind}>
+                            {ENDPOINTS[kind].label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 {/* ── Prompts ── */}
                 {endpoint.requestEditor === 'input' ? (
