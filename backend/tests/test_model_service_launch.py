@@ -38,6 +38,9 @@ class FakeLLMClient:
     def __init__(self):
         self.calls = []
 
+    def check_launch_shape(self, model_name, params):
+        return None
+
     def launch_model(
         self,
         model_name,
