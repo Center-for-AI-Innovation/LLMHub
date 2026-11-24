@@ -40,11 +40,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+- The docs workflow no longer deploys from `docs/github-pages-site`, the branch that published a draft preview of the documentation site for review before it merged (#130); only `main` deploys now.
 - `backend/scripts/evict_unused_models.py`.
+- Unused single-deployment lookup left over from before chat used the selected `vllm-deployment:<id>` model ([#109](https://github.com/Center-for-AI-Innovation/LLMHub/pull/109)): the `useVllmDeployment` hook, the `/api/v1/vllm/deployment` route, the `getActiveAccessibleDeploymentByUserId` query, and the `['vllm-deployment']` cache invalidations in `useLaunchModel` and `useStopModel`. Chat still lists owned and shared deployments through `/api/chat/models`. `hooks/use-vllm-deployment.ts` keeps only `getVllmChatEndpoint` and `getVllmModelsEndpoint`. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
+- The chat send check behind the "Model deployment is still initializing" error (`ensureModelReadyForSend` in `components/chat.tsx`), which could only trigger on a malformed `?deployment=` value. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
 
 ### Fixed
 
 - A launch request whose `num_gpus` and `num_nodes` match its catalog entry's layout keeps the entry's own `--tensor-parallel-size` and `--pipeline-parallel-size`; any other request gets TP = GPUs per node and PP = nodes. Before, any explicit count replaced the catalog's layout. ([#112](https://github.com/Center-for-AI-Innovation/LLMHub/issues/112))
+- `DELETE` on a deployment whose row says `failed` while its Slurm job is still pending or running (vec-inf reports FAILED from a line in the job's log) now cancels the job as the deployment's cluster user, like a running one, and marks the row `shutdown`. A failed row whose job `sacct` shows ended, or that never had a job, is left as it is; when `sacct` gives no state (an error, no row, or no answer in 30 s), the job is cancelled anyway, and if `scancel` then says the job is already gone, the row keeps its failure reason; any other cancel failure is recorded on the row, as for a running one. Before, a failed row was never cancelled, and its job held its nodes to the time limit. The UI still offers no Stop for a failed deployment; API callers and the Delta kit's `launch-test` send the `DELETE`. ([#101](https://github.com/Center-for-AI-Innovation/LLMHub/issues/101))
 - The `/chat` model picker no longer lists active deployments of models that can't chat. `/api/chat/models` looks up each deployment's model type in the catalog and leaves out `Text_Embedding` and `Reward_Modeling` deployments; a `?deployment=` link to one falls back to the first option and reports the deployment as unavailable. ([#164](https://github.com/Center-for-AI-Innovation/LLMHub/issues/164))
 - The API dialog no longer shows chat-completions examples for models without a supported public endpoint (e.g. `Reward_Modeling`); it shows "API examples aren't available for this model type yet." instead, on the Active Models card and in the profile's API key panel. `getEndpointKind` returns `null` for those types. ([#164](https://github.com/Center-for-AI-Innovation/LLMHub/issues/164))
 - Direct (non-impersonation) mode no longer looks up Slurm accounts from the signed-in email. The launch dialog now uses `VEC_INF_ACCOUNT` / `SLURM_ACCOUNT`, so it can submit when the backend process is not the CILogon identity. ([#157](https://github.com/Center-for-AI-Innovation/LLMHub/issues/157))
@@ -52,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Compile-cache cleanup no longer follows symlinks, so a user can't redirect it to delete files outside the cache.
 - A model that can't be deleted is skipped and reported, instead of stopping the run or being logged as deleted.
 - A missing `COMPILE_CACHE_DIR` no longer stops the model cache from being cleaned, and cache permissions are re-tightened after each delete.
+- A blank or whitespace-only `?deployment=` on `/chat` is treated as no deployment, instead of selecting a model with an empty deployment ID that showed a misleading "Model deployment is still initializing" error on send. ([#69](https://github.com/Center-for-AI-Innovation/LLMHub/issues/69))
 
 ## [1.1.1] - 2026-10-23
 
