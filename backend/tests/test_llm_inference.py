@@ -13,7 +13,7 @@ from vec_inf.client._slurm_templates import SLURM_SCRIPT_TEMPLATE
 from vec_inf.client._slurm_vars import CONTAINER_MODULE_NAME, IMAGE_PATH
 
 from app.config.config import VecInfExecutionMode, settings
-from app.utils import llm_inference
+from app.utils import launch_layout, llm_inference
 
 
 class FakeDirectClient:
@@ -792,14 +792,17 @@ def test_model_weights_dir_is_closed_to_the_owning_group(tmp_path):
     assert "other::---" in acl
 
 
-def test_launch_options_derive_parallel_sizes_from_gpu_request():
+def test_launch_options_carry_the_layouts_parallel_sizes():
     client = object.__new__(llm_inference.LLMInferenceDirectClient)
     client.slurm_account = None
+    derived = launch_layout.Layout(4, 2, 4, 2, from_catalog=False)
+    catalog = launch_layout.Layout(4, 2, 4, 2, from_catalog=True)
 
-    options = client._build_launch_options(num_gpus=4, num_nodes=2)
+    options = client._build_launch_options(derived, num_gpus=4, num_nodes=2)
 
     assert options.gpus_per_node == 4
     assert options.vllm_args == ("--tensor-parallel-size=4,--pipeline-parallel-size=2")
+    assert client._build_launch_options(catalog, num_gpus=4).vllm_args is None
     assert client._build_launch_options().vllm_args is None
 
 

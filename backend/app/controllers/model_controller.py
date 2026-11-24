@@ -23,6 +23,7 @@ from app.services.email_service import EmailService
 from app.services.model_service import ModelService
 from app.utils.cluster_users import normalize_cluster_username
 from app.utils.infrastructure import InfrastructureManager
+from app.utils.launch_layout import LaunchRefused
 from app.utils.slurm_accounts import (
     list_user_slurm_accounts,
     pick_default_slurm_account,
@@ -178,7 +179,13 @@ def _launch_model(
     db: Session = Depends(get_db),
 ) -> Any:
     """Launch a model."""
-    db_deployment = model_service.launch_model(db=db, deployment=deployment)
+    try:
+        db_deployment = model_service.launch_model(db=db, deployment=deployment)
+    except LaunchRefused as exc:
+        # Nothing was submitted, so nothing is recorded.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     if getattr(db_deployment, "status", None) == "failed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
